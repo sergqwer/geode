@@ -1,0 +1,627 @@
+<!-- 200 https://html.duckduckgo.com/html/ -> https://html.duckduckgo.com/html/ -->
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<!--[if IE 6]><html class="ie6" xmlns="http://www.w3.org/1999/xhtml"><![endif]-->
+<!--[if IE 7]><html class="lt-ie8 lt-ie9" xmlns="http://www.w3.org/1999/xhtml"><![endif]-->
+<!--[if IE 8]><html class="lt-ie9" xmlns="http://www.w3.org/1999/xhtml"><![endif]-->
+<!--[if gt IE 8]><!--><html xmlns="http://www.w3.org/1999/xhtml"><!--<![endif]-->
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=1" />
+  <meta name="referrer" content="origin" />
+  <meta name="HandheldFriendly" content="true" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>python asyncio timeout at DuckDuckGo</title>
+  <link title="DuckDuckGo (HTML)" type="application/opensearchdescription+xml" rel="search" href="//duckduckgo.com/opensearch_html_v2.xml" />
+  <link href="//duckduckgo.com/favicon.ico" rel="shortcut icon" />
+  <link rel="icon" href="//duckduckgo.com/favicon.ico" type="image/x-icon" />
+  <link id="icon60" rel="apple-touch-icon" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_60x60.png?v=2"/>
+  <link id="icon76" rel="apple-touch-icon" sizes="76x76" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_76x76.png?v=2"/>
+  <link id="icon120" rel="apple-touch-icon" sizes="120x120" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_120x120.png?v=2"/>
+  <link id="icon152" rel="apple-touch-icon" sizes="152x152" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_152x152.png?v=2"/>
+  <link rel="image_src" href="//duckduckgo.com/assets/icons/meta/DDG-icon_256x256.png">
+  <link rel="stylesheet" media="handheld, all" href="//duckduckgo.com/dist/h.12e359033b8c1146e5f7.css" type="text/css"/>
+</head>
+
+<body class="body--html">
+  <a name="top" id="top"></a>
+
+  <form action="/html/" method="post">
+    <input type="text" name="state_hidden" id="state_hidden" />
+  </form>
+
+  <div>
+    <div class="site-wrapper-border"></div>
+
+    <div id="header" class="header cw header--html">
+      <a title="DuckDuckGo" href="/html/" class="header__logo-wrap"></a>
+
+      <form name="x" class="header__form" action="/html/" method="post">
+        <div class="search search--header">
+          <input name="q" autocomplete="off" class="search__input" id="search_form_input_homepage" type="text" value="python asyncio timeout" />
+          <input name="b" id="search_button_homepage" class="search__button search__button--html" value="" title="Search" alt="Search" type="submit" />
+        </div>
+
+        
+        
+        
+        
+
+        <div class="frm__select">
+          <select name="kl">
+            
+              <option value="" >All Regions</option>
+            
+              <option value="ar-es" >Argentina</option>
+            
+              <option value="au-en" >Australia</option>
+            
+              <option value="at-de" >Austria</option>
+            
+              <option value="be-fr" >Belgium (fr)</option>
+            
+              <option value="be-nl" >Belgium (nl)</option>
+            
+              <option value="br-pt" >Brazil</option>
+            
+              <option value="bg-bg" >Bulgaria</option>
+            
+              <option value="ca-en" >Canada (en)</option>
+            
+              <option value="ca-fr" >Canada (fr)</option>
+            
+              <option value="ct-ca" >Catalonia</option>
+            
+              <option value="cl-es" >Chile</option>
+            
+              <option value="cn-zh" >China</option>
+            
+              <option value="co-es" >Colombia</option>
+            
+              <option value="hr-hr" >Croatia</option>
+            
+              <option value="cz-cs" >Czech Republic</option>
+            
+              <option value="dk-da" >Denmark</option>
+            
+              <option value="ee-et" >Estonia</option>
+            
+              <option value="fi-fi" >Finland</option>
+            
+              <option value="fr-fr" >France</option>
+            
+              <option value="de-de" >Germany</option>
+            
+              <option value="gr-el" >Greece</option>
+            
+              <option value="hk-tzh" >Hong Kong</option>
+            
+              <option value="hu-hu" >Hungary</option>
+            
+              <option value="is-is" >Iceland</option>
+            
+              <option value="in-en" >India (en)</option>
+            
+              <option value="id-en" >Indonesia (en)</option>
+            
+              <option value="ie-en" >Ireland</option>
+            
+              <option value="il-en" >Israel (en)</option>
+            
+              <option value="it-it" >Italy</option>
+            
+              <option value="jp-jp" >Japan</option>
+            
+              <option value="kr-kr" >Korea</option>
+            
+              <option value="lv-lv" >Latvia</option>
+            
+              <option value="lt-lt" >Lithuania</option>
+            
+              <option value="my-en" >Malaysia (en)</option>
+            
+              <option value="mx-es" >Mexico</option>
+            
+              <option value="nl-nl" >Netherlands</option>
+            
+              <option value="nz-en" >New Zealand</option>
+            
+              <option value="no-no" >Norway</option>
+            
+              <option value="pk-en" >Pakistan (en)</option>
+            
+              <option value="pe-es" >Peru</option>
+            
+              <option value="ph-en" >Philippines (en)</option>
+            
+              <option value="pl-pl" >Poland</option>
+            
+              <option value="pt-pt" >Portugal</option>
+            
+              <option value="ro-ro" >Romania</option>
+            
+              <option value="ru-ru" >Russia</option>
+            
+              <option value="xa-ar" >Saudi Arabia</option>
+            
+              <option value="sg-en" >Singapore</option>
+            
+              <option value="sk-sk" >Slovakia</option>
+            
+              <option value="sl-sl" >Slovenia</option>
+            
+              <option value="za-en" >South Africa</option>
+            
+              <option value="es-ca" >Spain (ca)</option>
+            
+              <option value="es-es" >Spain (es)</option>
+            
+              <option value="se-sv" >Sweden</option>
+            
+              <option value="ch-de" >Switzerland (de)</option>
+            
+              <option value="ch-fr" >Switzerland (fr)</option>
+            
+              <option value="tw-tzh" >Taiwan</option>
+            
+              <option value="th-en" >Thailand (en)</option>
+            
+              <option value="tr-tr" >Turkey</option>
+            
+              <option value="us-en" selected>US (English)</option>
+            
+              <option value="us-es" >US (Spanish)</option>
+            
+              <option value="ua-uk" >Ukraine</option>
+            
+              <option value="uk-en" >United Kingdom</option>
+            
+              <option value="vn-en" >Vietnam (en)</option>
+            
+          </select>
+        </div>
+
+        <div class="frm__select frm__select--last">
+          <select class="" name="df">
+            
+              <option value="" selected>Any Time</option>
+            
+              <option value="d" >Past Day</option>
+            
+              <option value="w" >Past Week</option>
+            
+              <option value="m" >Past Month</option>
+            
+              <option value="y" >Past Year</option>
+            
+          </select>
+        </div>
+      </form>
+    </div>
+
+    
+
+    
+      <!-- Web results are present -->
+      <div>
+        <div class="serp__results">
+          <div id="links" class="results">
+            
+
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://docs.python.org/3/library/asyncio-task.html">Coroutines and tasks — Python 3.15.2 documentation</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://docs.python.org/3/library/asyncio-task.html">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/docs.python.org.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://docs.python.org/3/library/asyncio-task.html">
+                            docs.python.org/3/library/asyncio-task.html
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://docs.python.org/3/library/asyncio-task.html">This section outlines high-level <b>asyncio</b> APIs to work with coroutines and Tasks. Coroutines, Awaitables, Creating tasks, Task cancellation, Task groups, Sleeping, Running tasks concurrently, Eager ...</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://superfastpython.com/asyncio-timeout/">asyncio.timeout () To Wait and Cancel Tasks - SuperFastPython</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://superfastpython.com/asyncio-timeout/">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/superfastpython.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://superfastpython.com/asyncio-timeout/">
+                            superfastpython.com/asyncio-timeout/
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://superfastpython.com/asyncio-timeout/">The <b>asyncio.timeout</b> () context manager and associated <b>asyncio.Timeout</b> class were added to <b>Python</b> in version 3.11. Added <b>timeout</b> (), an asynchronous context manager for setting a <b>timeout</b> on asynchronous operations.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://stackoverflow.com/questions/45426713/how-to-gracefully-timeout-with-asyncio">python 3.x - How to gracefully timeout with asyncio - Stack Overflow</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://stackoverflow.com/questions/45426713/how-to-gracefully-timeout-with-asyncio">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/stackoverflow.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://stackoverflow.com/questions/45426713/how-to-gracefully-timeout-with-asyncio">
+                            stackoverflow.com/questions/45426713/how-to-gracefully-timeout-with-asyncio
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://stackoverflow.com/questions/45426713/how-to-gracefully-timeout-with-asyncio">How to gracefully <b>timeout</b> with <b>asyncio</b> Ask Question Asked 9 years, 3 months ago Modified 5 years ago</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://docs.python.org/3/library/asyncio-api-index.html">High-level API Index — Python 3.15.2 documentation</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://docs.python.org/3/library/asyncio-api-index.html">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/docs.python.org.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://docs.python.org/3/library/asyncio-api-index.html">
+                            docs.python.org/3/library/asyncio-api-index.html
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://docs.python.org/3/library/asyncio-api-index.html">Examples Using <b>asyncio</b>.gather () to run things in parallel. Using <b>asyncio</b>.wait_for () to enforce a <b>timeout</b>. Cancellation. Using <b>asyncio</b>.sleep (). See also the main Tasks documentation page. Queues ¶ Queues should be used to distribute work amongst multiple <b>asyncio</b> Tasks, implement connection pools, and pub/sub patterns.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://runebook.dev/en/docs/python/library/asyncio-task/asyncio.timeout">The async with timeout: Best Practices for Robust Python Asynchronous I/O</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://runebook.dev/en/docs/python/library/asyncio-task/asyncio.timeout">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/runebook.dev.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://runebook.dev/en/docs/python/library/asyncio-task/asyncio.timeout">
+                            runebook.dev/en/docs/python/library/asyncio-task/asyncio.timeout
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://runebook.dev/en/docs/python/library/asyncio-task/asyncio.timeout">Here&#x27;s a friendly breakdown of the <b>asyncio.timeout</b> () context manager, common pitfalls, and reliable alternatives. The <b>asyncio.timeout</b> () function provides a way to impose a time limit on an awaitable operation (like an asynchronous function, a task, or an I/O operation) within a specific block of code. It works as an async context manager</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://superfastpython.com/asyncio-timeout-best-practices/">Asyncio Timeout Best Practices - SuperFastPython</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://superfastpython.com/asyncio-timeout-best-practices/">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/superfastpython.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://superfastpython.com/asyncio-timeout-best-practices/">
+                            superfastpython.com/asyncio-timeout-best-practices/
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://superfastpython.com/asyncio-timeout-best-practices/">A <b>timeout</b> can be specified to the <b>asyncio</b>.wait () coroutine via a &quot; <b>timeout</b> &quot; argument in seconds. <b>timeout</b> (a float or int), if specified, can be used to control the maximum number of seconds to wait before returning.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://runebook.dev/en/docs/python/library/asyncio-task/timeouts">python - The asyncio Timeout Trap: Why wait_for() Doesn&#x27;t Stop Tasks ...</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://runebook.dev/en/docs/python/library/asyncio-task/timeouts">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/runebook.dev.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://runebook.dev/en/docs/python/library/asyncio-task/timeouts">
+                            runebook.dev/en/docs/python/library/asyncio-task/timeouts
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://runebook.dev/en/docs/python/library/asyncio-task/timeouts">I&#x27;ll break down the common issues and offer sample code for alternatives in a friendly way!In <b>Python&#x27;s</b> <b>asyncio</b>, <b>timeouts</b> are handled primarily using the <b>asyncio</b></a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://universopython.com/en/blog/asyncio-timeout-cancellation">Timeouts and Cancellation in Python asyncio | Universo Python</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://universopython.com/en/blog/asyncio-timeout-cancellation">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/universopython.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://universopython.com/en/blog/asyncio-timeout-cancellation">
+                            universopython.com/en/blog/asyncio-timeout-cancellation
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://universopython.com/en/blog/asyncio-timeout-cancellation">Control <b>asyncio</b> <b>timeouts</b> and cancellation with <b>timeout</b>, wait_for, CancelledError, try/finally, and shield without leaking tasks or resources.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://salivity.github.io/python/article/how-to-use-asyncio-timeout-in-modern-python">How to Use asyncio.timeout in Modern Python - python</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://salivity.github.io/python/article/how-to-use-asyncio-timeout-in-modern-python">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/salivity.github.io.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://salivity.github.io/python/article/how-to-use-asyncio-timeout-in-modern-python">
+                            salivity.github.io/python/article/how-to-use-asyncio-timeout-in-modern-python
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://salivity.github.io/python/article/how-to-use-asyncio-timeout-in-modern-python">This article covers how to implement and manage <b>timeouts</b> in modern asynchronous <b>Python</b> using the <b>asyncio.timeout</b> () context manager introduced in <b>Python</b> 3.11. You will learn the mechanics of how this context manager cancels long-running tasks, how to handle the resulting TimeoutError, how to dynamically adjust deadlines during execution, and why it provides a cleaner, more robust alternative ...</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="https://realpython.com/ref/stdlib/asyncio/">asyncio | Python Standard Library - Real Python</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="https://realpython.com/ref/stdlib/asyncio/">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/realpython.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="https://realpython.com/ref/stdlib/asyncio/">
+                            realpython.com/ref/stdlib/asyncio/
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="https://realpython.com/ref/stdlib/asyncio/">Supports structured concurrency for safer task lifetimes and cancellation via <b>asyncio</b>.TaskGroup and <b>asyncio.timeout</b> (), both added in <b>Python</b> 3.11 Includes command-line tools that inspect a running process&#x27;s task graph with <b>python</b> -m <b>asyncio</b> ps and <b>python</b> -m <b>asyncio</b> pstree, both added in <b>Python</b> 3.14 Frequently Used Classes and Functions ...</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+
+            
+              
+              
+                <div class="nav-link">
+                  <form action="/html/" method="post">
+                    <input type="submit" class='btn btn--alt' value="Next" />
+                    <input type="hidden" name="q" value="python asyncio timeout" />
+                    <input type="hidden" name="s" value="10" />
+                    <input type="hidden" name="nextParams" value="" />
+                    <input type="hidden" name="v" value="l" />
+                    <input type="hidden" name="o" value="json" />
+                    <input type="hidden" name="dc" value="11" />
+                    <input type="hidden" name="api" value="d.js" />
+                    <input type="hidden" name="vqd" value="4-43677955415727538473012763194442371200" />
+
+                    
+                    
+                    
+                      <input name="kl" value="us-en" type="hidden" />
+                    
+                    
+                    
+                    
+                  </form>
+                </div>
+              
+            
+
+            <div class="feedback-btn">
+              <a rel="nofollow" href="//duckduckgo.com/feedback.html" target="_new">Feedback</a>
+            </div>
+            <div class="clear"></div>
+          </div>
+        </div>
+      </div> <!-- links wrapper //-->
+    
+  </div>
+
+  <div id="bottom_spacing2"></div>
+
+  
+    <img src="//duckduckgo.com/t/sl_h"/>
+  
+</body>
+</html>

@@ -1,0 +1,73 @@
+// npu/geode_npu.idl - the cDSP side of Geode's NPU backend (Hexagon v79+, unsigned PD), as FastRPC sees it.
+#include "AEEStdDef.idl"
+#include "remote.idl"
+
+interface geode_npu : remote_handle64 {
+   // y = x + 1: FastRPC's round trip
+   long ping(in long x, rout long y);
+   // the DSP's VTCM size, the HMX lock API it got, and whether HMX/HVX powered up
+   long info(rout long vtcm_bytes, rout long lock_api, rout long ok);
+   // An m x k x n fp16 GEMM on HMX, reps times. mode 0: weights already in VTCM (HMX alone); mode 1: each
+   // 32-column weight block copied from DDR into VTCM by HVX first. Returns the time in us and, for check=1,
+   // the largest relative error against a float reference of the same fp16 inputs (x 1e6).
+   long hmx_gemm(in long mode, in long m, in long k, in long n, in long reps, in long check,
+                 rout long long usec, rout long long err_ppm);
+   // k = 32: activations = identity (row r has 1 at channel r), weights w[o][c] = o * 32 + c; the raw 2 KB result
+   // pattern 2: every activation 1
+   long hmx_debug(in long pattern, rout sequence<octet> res);
+   // O = A x W^T, the real thing. A [m x k] fp16 in HMX's layout: 32-row tiles one after another, each k/32
+   // croutons. W: n/32 hmx4 blocks (HMX4_BYTES(k) each) in a buffer the CPU mapped once (fastrpc_mmap,
+   // FASTRPC_MAP_FD), w_fd at byte w_off. O: the result croutons, [m/32][n/32] x 2 KB, fp16 in HMX's crouton
+   // layout. m, k, n multiples of 32; m tiled to fit VTCM. The results are multiplied by 2^-out_shift as HMX
+   // converts them (weights stored 2^out_shift larger keep their fp16 scales normal). usec: the DSP's time.
+   long gemm(in sequence<octet> a, in long w_fd, in unsigned long long w_off, rout sequence<octet> o,
+             in long m, in long k, in long n, in long out_shift, rout long long usec);
+   // DDR read speed (what decode would stream): len bytes of a buffer the CPU mapped (w_fd at w_off) read by
+   // `threads` HVX threads, each its own contiguous share. mode 0: copied into VTCM 64 KB at a time, 1: loads only
+   // (summed), 2: copied with an l2fetch of the next 64 KB first. usec: the DSP's time
+   long bw(in long w_fd, in unsigned long long w_off, in unsigned long long len, in long threads, in long mode,
+           rout long long usec);
+   // a dspqueue made on the CPU side, imported here: each packet is answered with its first word + 1
+   long queue_start(in unsigned long long queue_id);
+   long queue_stop();
+   // A decode step's products, y = W x for one token: descs = the matrices (npu_imp.c gemv_desc_t: hmx4 blocks at
+   // w_off in the buffer mapped as w_fd, k, n, where its fp16 input starts in x and its float output in y, the shift
+   // that keeps x in range), all in one call on `threads` HVX threads. check: the first matrix against a float sum
+   // (worst relative error x 1e6 of the products' absolute sum). usec: the DSP's time
+   long gemv(in sequence<octet> descs, in sequence<octet> x, rout sequence<octet> y, in long w_fd, in long threads,
+             in long check, rout long long usec, rout long long err_ppm);
+   // A decode step's products straight from tile8 matrices (the GPU's q4 layout: one copy serves both): descs
+   // (npu_imp.c gemv8_desc_t), act = the token's activations as the int8 path quantizes them (per matrix at a_at: the
+   // lo / hi words of 4 int8 inputs, 15 x the 16-input sums, the 16-input scales), y floats. threads: 1..6, | 1 << 8 =
+   // the tiles fetched into VTCM by the DMA engine ahead of the multiply instead of HVX copies. usec: the DSP's time
+   long gemv8(in sequence<octet> descs, in sequence<octet> act, rout sequence<octet> y, in long w_fd, in long threads,
+              rout long long usec);
+   // A dense Qwen3.5's whole decode step (npu/dsp/dec.c, npu/dec_cfg.h). dec_size: the scratch S needs for cfg.
+   // dec_open: its shape and its buffers W, P, S (each mapped by the CPU once), a pool of `threads` threads that stays
+   long dec_size(in sequence<octet> cfg, rout long long bytes);
+   long dec_open(in sequence<octet> cfg, in long w_fd, in long p_fd, in long s_fd, in long threads);
+   // the KV cache's chunk number `chunk` is the buffer mapped as fd
+   long dec_kv(in long chunk, in long fd);
+   // One token, or a token and its draft (x: their embeddings, hidden floats each), at positions from pos (p3: three
+   // M-RoPE positions each), through the model; the logits and the final hidden rows stay at the scratch's start
+   // (dec_cfg.h). flags: DEC_SET1 (the live states), DEC_DEBUG_*. usec: the DSP's time
+   long dec_step(in sequence<octet> x, in long pos, in sequence<long> p3, in long flags, rout sequence<octet> logits,
+                 rout long next, rout long long usec);
+   // The MTP layer for n positions from pos (e: the next tokens' embeddings, h: the hidden rows, n x hidden floats
+   // each): the last one's most likely draft and its probability
+   long dec_draft(in sequence<octet> e, in sequence<octet> h, in long pos, in sequence<long> p3, rout long draft,
+                  rout float prob, rout long long usec);
+   // Up to DEC_N tokens of a prompt (x: their embeddings) at positions from pos through every layer, the products on
+   // HMX (the matrices' hmx4 copies, the cfg's hmx_fd): the last one's logits and every token's hidden row stay at the
+   // scratch's start
+   long dec_prefill(in sequence<octet> x, in long pos, in sequence<long> p3, in long flags, rout long long usec);
+   // The MTP layer's K / V for up to DEC_N positions of a prompt from pos (e: the next tokens' embeddings, h: the
+   // hidden rows the layer reads, n x hidden floats each) into its KV cache: fc, the input norm, k and v on HMX (the
+   // rest of the layer a prompt has no use for)
+   long dec_mtp_kv(in sequence<octet> e, in sequence<octet> h, in long pos, in sequence<long> p3, in long flags,
+                   rout long long usec);
+   long dec_close();
+   // A prompt's routed experts on HMX (npu/moe_cfg.h): desc = moe_hdr_t, the buffers holding the experts' tile8
+   // matrices, the experts, their picks; io: x and y (mapped buffers). usec: the DSP's time
+   long moe(in sequence<octet> desc, in long io_fd, rout long long usec);
+};

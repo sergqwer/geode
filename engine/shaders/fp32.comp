@@ -1,0 +1,16 @@
+// Peak FP32 throughput: 8 independent FMA chains of vec4 per invocation.
+#version 450
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) writeonly buffer Out { vec4 o[]; };
+layout(push_constant) uniform P { uint iters; } p;
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    vec4 b = vec4(0.999), a = vec4(0.0001);
+    vec4 c0 = vec4(float(i) * 1e-7), c1 = c0 + 0.1, c2 = c0 + 0.2, c3 = c0 + 0.3;
+    vec4 c4 = c0 + 0.4, c5 = c0 + 0.5, c6 = c0 + 0.6, c7 = c0 + 0.7;
+    for (uint n = 0u; n < p.iters; ++n) {
+        c0 = fma(c0, b, a); c1 = fma(c1, b, a); c2 = fma(c2, b, a); c3 = fma(c3, b, a);
+        c4 = fma(c4, b, a); c5 = fma(c5, b, a); c6 = fma(c6, b, a); c7 = fma(c7, b, a);
+    }
+    o[i] = c0 + c1 + c2 + c3 + c4 + c5 + c6 + c7;
+}

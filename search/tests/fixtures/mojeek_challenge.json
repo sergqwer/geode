@@ -1,0 +1,2 @@
+<!-- 200 https://www.mojeek.com/captcha/challenge -> https://www.mojeek.com/captcha/challenge -->
+{"parameters":{"algorithm":"PBKDF2/SHA-256","cost":8000,"keyLength":32,"keyPrefix":"288f4f0acce8783a2c5c51b5b5699cd9","nonce":"5e50b5e3d72ca69c07bb62c9411f2f98","salt":"731c21709a58eeb40b170d3f4292f801","keySignature":"a12bf446ab81a287623d9aaccc02c5e5765bbfdbc434a6b70fe0cb5a7cf41f6c","expiresAt":1793209527},"signature":"cc064684538b2d14363884f4cda5ac07f133f786d9fa9667662d2d93251fe3fb"}

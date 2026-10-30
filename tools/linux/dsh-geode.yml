@@ -1,0 +1,82 @@
+# DeepSeek Harness on a phone, inside Geode's Linux (/etc/geode/dsh-geode.yml; dsh --patch). The model is Geode's own:
+# its local API on the phone's loopback, the address and key from the environment Geode starts dsh with. A phone
+# reads the prompt slowly and holds one conversation at a time, so: the tools a phone needs (each one's schema is
+# read with every new session), no title requests (a side conversation would push the agent's out of the engine),
+# and nothing that calls DeepSeek's servers or sends telemetry.
+- id: llm-pi-ai
+  config:
+    providers:
+      geode:
+        api: openai-completions
+        baseURL: !!js process.env.GEODE_BASE_URL
+        apiKeyEnv: GEODE_KEY
+        # what the model on the phone is: its context as Geode opens it (the harness compacts before it is full), and
+        # images when its pack reads them (read_image)
+        models:
+          - id: !!js process.env.GEODE_MODEL || 'geode'
+            input: !!js (process.env.GEODE_INPUT || 'text').split(',')
+            contextWindow: !!js Number(process.env.GEODE_CONTEXT) || 32768
+- id: agent-default-model
+  config:
+    provider: geode
+    model: !!js process.env.GEODE_MODEL || 'geode'
+# the web: searches by Geode's own SearXNG on the phone (web-search-geode.mjs), pages fetched directly; few sources
+# and a page's text capped - the phone's model reads every character the agent keeps
+- insert:
+    - id: web-search-geode
+      name: /etc/geode/web-search-geode.mjs
+- id: web
+  config:
+    searchProvider: geode
+    fetchProvider: http
+- id: tool-web
+  config:
+    search: true
+    fetch: true
+    searchMaxResults: 6
+    searchMaxQueries: 2
+    searchTimeoutMs: 30000
+    fetchMaxOutputChars: 12000
+# who the agent is, where, and how the user sees its work (Geode shows /workspace's new files under an answer)
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    personaPrefix: >-
+      You are Geode's agent. You run on the user's Android phone, in a small Debian Linux of your own (arm64). It
+      starts bare (bash and the basic tools): install what a task needs with apt, quietly: every line a command prints
+      is read, and reading is slow on a phone (e.g. `apt-get update -qq && apt-get install -y -qq python3 >/dev/null`;
+      nodejs, npm, git, curl the same way), then pip (in a venv, or with --break-system-packages) and npm.
+      What apt installs is shared by all the user's chats; /workspace, /root, /usr/local and /tmp are this chat's own.
+      web_search asks several search engines at once; a bang in the query picks one: !gh GitHub, !so Stack Overflow,
+      !arx arXiv, !pypi, !wp.
+    personaSuffix: >-
+      Your folder is /workspace: it belongs to this chat and the user sees it. To give the user something to look at
+      (a page, a chart, a picture, a document), save it in /workspace: the files you create appear under your answer
+      and open right in the chat with a tap (HTML and SVG pages, PNG and JPEG images, Markdown, text) - no browser
+      needed. For anything visual write one self-contained HTML file for a phone's screen. The phone's screen is small: keep answers short. Answer in the user's language.
+- {id: session-title-llm, disabled: true}
+- {id: subagent, disabled: true}
+- {id: subagent-spawn-in-process, disabled: true}
+- {id: subagent-fork-in-process, disabled: true}
+- {id: tool-subagent-control, disabled: true}
+- {id: tool-subagent-list-agents, disabled: true}
+- {id: tool-subagent, disabled: true}
+- {id: tool-subagent-fork, disabled: true}
+- {id: workflow-ptc, disabled: true}
+- {id: tool-workflow, disabled: true}
+- {id: ptc-runtime, disabled: true}
+- {id: goal, disabled: true}
+- {id: goal-round-driver, disabled: true}
+- {id: command-goal, disabled: true}
+- {id: tool-goal, disabled: true}
+- {id: plan-mode, disabled: true}
+- {id: tool-jobs, disabled: true}
+- {id: web-search-deepseek, disabled: true}
+- {id: web-deepseek-api, disabled: true}
+- {id: llm-deepseek, disabled: true}
+- {id: llm-deepseek-account, disabled: true}
+- {id: deepseek-llm-api-extensions, disabled: true}
+- {id: plugin-package-inventory-deepseek, disabled: true}
+- {id: session-log-deepseek, disabled: true}
+- {id: otel, disabled: true}
+- {id: session-telemetry-otel, disabled: true}

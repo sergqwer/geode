@@ -1,0 +1,1 @@
+[{"name": "demo", "command": "/usr/bin/python3", "args": ["/workspace/.ref-tools/mcp_demo.py"], "env": []}]

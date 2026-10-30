@@ -1,0 +1,65 @@
+# The Strata fork is its own git repository (origin: github.com/sergqwer/strata-nvfp4).
+# Geode sits beside it and does not track it.
+/strata-nvfp4/
+
+# Model weights and converted packs: far too large for git
+/models/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+
+# Build output
+build/
+/out/
+.gradle/
+.cxx/
+.kotlin/
+local.properties
+*.so
+*.apk
+*.aab
+
+# Traces and dumps pulled from the phone over adb
+/traces/
+*.perfetto-trace
+
+# Native bench binaries built with the NDK
+/bench/membw
+
+# Python environment for tools/
+/.venv/
+__pycache__/
+
+# Traces, calibration dumps and Hessians from tools/ (tens of GB)
+/work/
+*.log
+/bench/ufsbw
+/bench/ramcap
+
+# Built by bench/gpu/disasm/build.sh
+/bench/gpu/disasm/ir3dis
+/bench/gpu/disasm/ir3dis.exe
+
+# Signing: the upload key and its passwords
+keystore.properties
+*.jks
+*.keystore
+
+# geode.tifu.xyz: the sign-up backend's build and the deploy script's packages
+/site/testers/target/
+/site/deploy/node_modules/
+
+# the agent's Linux: built by tools/linux (image) and tools/linux_tools.py (proot), not kept in git
+/android/linux_pack/src/main/assets/*.tar.xz
+/android/app/src/main/jniLibs/arm64-v8a/libproot*.so
+/android/app/src/main/jniLibs/arm64-v8a/libtalloc.so
+/android/app/src/main/jniLibs/arm64-v8a/libandroid-shmem.so
+/android/linux_pack/src/main/assets/geode-linux.version
+/android/app/src/main/jniLibs/arm64-v8a/libgeodesearch.so
+/search/target/
+/android/app/src/main/jniLibs/arm64-v8a/libgeodeagent.so
+/agent/target/
+
+# Screen recordings for the Play Console review (served from the site), not source
+/playstore_assets/videos/

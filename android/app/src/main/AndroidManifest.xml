@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Hugging Face downloads (the app's only network use) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- the model keeps answering with the app in the background (AnswerService) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- the web chat's QR sign-in: the browser's code read on the phone (no picture kept or sent) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:name=".GeodeApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
+        android:supportsRtl="true"
+        android:largeHeap="false"
+        android:theme="@style/Theme.Geode"
+        tools:targetApi="36">
+
+        <!-- The vendor's OpenCL (the GPU path, gpu.cpp): from Android 12 an app reaches a vendor's public native
+             library only when it names it here; without it the dlopen fails and the engine runs on the CPU alone -->
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+        <!-- FastRPC (the NPU path, npu/host): the same for the vendor's libcdsprpc.so; without it the NPU stays off -->
+        <uses-native-library
+            android:name="libcdsprpc.so"
+            android:required="false" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- the web chat's sign-in code as a link: a camera app that reads the QR code opens Geode with it -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geode" android:host="login" />
+            </intent-filter>
+        </activity>
+
+        <!-- The engine in a process of its own, bound with BIND_IMPORTANT (PLAN.md P6.1) -->
+        <service
+            android:name=".engine.EngineService"
+            android:exported="false"
+            android:process=":engine" />
+
+        <!-- The memory test: the process Android kills is this one, never the app (PLAN.md P6.2) -->
+        <service
+            android:name=".probe.ProbeService"
+            android:exported="false"
+            android:process=":probe" />
+
+        <!-- An answer (later an agent's task) the user started goes on while the app is in the background -->
+        <service
+            android:name=".engine.AnswerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="On-device AI inference: the language model keeps writing the answer the user asked for while the app is in the background; the notification shows it and can stop it." />
+        </service>
+
+        <!-- The local server the user turned on: the model's API for the devices of the local network -->
+        <service
+            android:name=".server.ServerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="A local-network AI server the user turned on: devices on the same Wi-Fi use the on-device language model through an OpenAI- and Anthropic-compatible API; the notification shows the address and turns it off." />
+        </service>
+
+        <!-- The agents' files handed to other apps (a share, an "open with") -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Model downloads and imports -->
+        <service
+            android:name=".models.TransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Per-app language picker on API < 33 -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
+    </application>
+</manifest>

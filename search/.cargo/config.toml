@@ -1,0 +1,20 @@
+# Android (arm64) through the NDK: the app runs geode-search from its native library folder
+[target.aarch64-linux-android]
+linker = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/aarch64-linux-android30-clang.cmd"
+ar = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ar.exe"
+# BoringSSL is C++: the NDK's libc++ linked in whole (no libc++_shared.so to ship)
+rustflags = ["-C", "link-arg=-lc++abi"]
+
+[env]
+ANDROID_NDK_HOME = "D:/android-tools/sdk/ndk/29.0.14206865"
+ANDROID_NDK_ROOT = "D:/android-tools/sdk/ndk/29.0.14206865"
+CC_aarch64_linux_android = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/aarch64-linux-android30-clang.cmd"
+CXX_aarch64_linux_android = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/aarch64-linux-android30-clang++.cmd"
+AR_aarch64_linux_android = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ar.exe"
+CMAKE_GENERATOR = "Ninja"
+# BoringSSL's own build through the NDK's toolchain (btls-sys's compiler wrapper made CMake take it for Windows)
+CMAKE_TOOLCHAIN_FILE_aarch64_linux_android = { value = "android-arm64.cmake", relative = true }
+BORING_BSSL_RUST_CPPLIB_aarch64_linux_android = "c++_static"
+# its Rust bindings by the NDK's own libclang, against Android's headers
+LIBCLANG_PATH = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin"
+BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android = "--target=aarch64-linux-android30 --sysroot=D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/sysroot -ID:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/lib/clang/21/include"

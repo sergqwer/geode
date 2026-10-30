@@ -1,0 +1,9 @@
+# Android (arm64) through the NDK: the app runs geode-agent from its native library folder
+[target.aarch64-linux-android]
+linker = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/aarch64-linux-android30-clang.cmd"
+ar = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ar.exe"
+
+[env]
+# ring (rustls, MCP over HTTPS) compiles a little C and assembly
+CC_aarch64_linux_android = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/aarch64-linux-android30-clang.cmd"
+AR_aarch64_linux_android = "D:/android-tools/sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-ar.exe"

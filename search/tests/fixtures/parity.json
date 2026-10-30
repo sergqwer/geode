@@ -1,0 +1,706 @@
+{
+ "general": {
+  "results": [
+   {
+    "url": "https://docs.python.org/3/library/asyncio-task.html",
+    "title": "Coroutines and tasks — Python 3.15.2 documentation",
+    "engines": [
+     "brave",
+     "duckduckgo"
+    ],
+    "score": 4.0
+   },
+   {
+    "url": "https://discuss.python.org/t/asyncio-timeout-on-event-wait/106002",
+    "title": "Asyncio timeout on event wait - Python Help - Discussions on ...",
+    "engines": [
+     "brave",
+     "mojeek"
+    ],
+    "score": 0.583333
+   },
+   {
+    "url": "https://hynek.me/articles/waiting-in-asyncio/",
+    "title": "Waiting in asyncio",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.25
+   },
+   {
+    "url": "https://github.com/aio-libs-abandoned/async-timeout",
+    "title": "GitHub - aio-libs-abandoned/async-timeout: asyncio-compatible timeout ...",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.2
+   },
+   {
+    "url": "https://dev.to/imsushant12/making-sense-of-asyncio-tasks-futures-and-timeouts-simplified-10if",
+    "title": "Making Sense of Asyncio: Tasks, Futures, and Timeouts Simplified ...",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.166667
+   },
+   {
+    "url": "https://medium.com/@RampantLions/coroutine-timeout-injection-in-python-a-decorator-approach-with-asyncio-wait-for-171dc0a3f5be",
+    "title": "Coroutine Timeout Injection in Python: A Decorator Approach with ...",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.142857
+   },
+   {
+    "url": "https://oneuptime.com/blog/post/2025-01-06-python-asyncio-io-bound/view",
+    "title": "How to Use asyncio Effectively in Python for I/O-Bound Workloads",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.1
+   },
+   {
+    "url": "https://www.reddit.com/r/learnpython/comments/uolmp7/why_am_i_getting_asynciotimeouterror_on_my_script/",
+    "title": "r/learnpython on Reddit: Why am I getting asyncio.TimeoutError ...",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.090909
+   },
+   {
+    "url": "https://docs.python.org/3/library/asyncio-queue.html",
+    "title": "asyncio.Queue",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.083333
+   },
+   {
+    "url": "https://superfastpython.com/asyncio-timeout/",
+    "title": "asyncio.timeout() To Wait and Cancel Tasks - Super Fast Python",
+    "engines": [
+     "brave",
+     "duckduckgo",
+     "mojeek"
+    ],
+    "score": 3.375
+   },
+   {
+    "url": "https://stackoverflow.com/questions/45426713/how-to-gracefully-timeout-with-asyncio",
+    "title": "python 3.x - How to gracefully timeout with asyncio - Stack Overflow",
+    "engines": [
+     "duckduckgo",
+     "mojeek"
+    ],
+    "score": 1.066667
+   },
+   {
+    "url": "https://stackoverflow.com/questions/64534844/python-asyncio-aiohttp-timeout",
+    "title": "stackoverflow.com/questions/64534844/python-asyncio-aiohttp-timeout",
+    "engines": [
+     "mojeek"
+    ],
+    "score": 1.0
+   },
+   {
+    "url": "https://stackoverflow.com/questions/54132962/why-asyncio-timeouterror-is-raised",
+    "title": "python - Why asyncio.TimeoutError is raised? - Stack Overflow",
+    "engines": [
+     "mojeek"
+    ],
+    "score": 0.5
+   },
+   {
+    "url": "https://superfastpython.com/asyncio-timeout-best-practices/",
+    "title": "Asyncio Timeout Best Practices – SuperFastPython",
+    "engines": [
+     "brave",
+     "duckduckgo"
+    ],
+    "score": 0.458333
+   },
+   {
+    "url": "https://stackoverflow.com/questions/60663241/handling-timeouts-with-asyncio",
+    "title": "python - Handling Timeouts with asyncio - Stack Overflow",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.333333
+   },
+   {
+    "url": "https://stackoverflow.com/questions/30493801/asyncio-start-server-timeout-issue",
+    "title": "python - asyncio start_server timeout issue - Stack Overflow",
+    "engines": [
+     "mojeek"
+    ],
+    "score": 0.333333
+   },
+   {
+    "url": "https://docs.python.org/3/library/asyncio-api-index.html",
+    "title": "High-level API Index — Python 3.15.2 documentation",
+    "engines": [
+     "duckduckgo"
+    ],
+    "score": 0.25
+   },
+   {
+    "url": "https://stackoverflow.com/questions/47467025/why-does-asyncio-wait-for-need-a-timeout",
+    "title": "python - Why does asyncio.wait_for() need a timeout? - Stack",
+    "engines": [
+     "mojeek"
+    ],
+    "score": 0.25
+   },
+   {
+    "url": "https://runebook.dev/en/docs/python/library/asyncio-task/asyncio.timeout",
+    "title": "The async with timeout: Best Practices for Robust Python Asynchronous I/O",
+    "engines": [
+     "duckduckgo"
+    ],
+    "score": 0.2
+   },
+   {
+    "url": "https://runebook.dev/en/docs/python/library/asyncio-task/timeouts",
+    "title": "python - The asyncio Timeout Trap: Why wait_for() Doesn't Stop Tasks ...",
+    "engines": [
+     "duckduckgo"
+    ],
+    "score": 0.142857
+   },
+   {
+    "url": "https://superfastpython.com/asyncio-gather-timeout/",
+    "title": "Asyncio gather() Timeout - Super Fast Python",
+    "engines": [
+     "mojeek"
+    ],
+    "score": 0.142857
+   },
+   {
+    "url": "https://universopython.com/en/blog/asyncio-timeout-cancellation",
+    "title": "Timeouts and Cancellation in Python asyncio | Universo Python",
+    "engines": [
+     "duckduckgo"
+    ],
+    "score": 0.125
+   },
+   {
+    "url": "https://www.pythontutorial.net/python-concurrency/python-asyncio-wait_for/",
+    "title": "Python asyncio.wait_for(): Cancel a Task with a Timeout",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.111111
+   },
+   {
+    "url": "https://salivity.github.io/python/article/how-to-use-asyncio-timeout-in-modern-python",
+    "title": "How to Use asyncio.timeout in Modern Python - python",
+    "engines": [
+     "duckduckgo"
+    ],
+    "score": 0.111111
+   },
+   {
+    "url": "https://bugs.python.org/issue31131",
+    "title": "Issue 31131: asyncio.wait_for() TimeoutError doesn't provide",
+    "engines": [
+     "mojeek"
+    ],
+    "score": 0.111111
+   },
+   {
+    "url": "https://realpython.com/ref/stdlib/asyncio/",
+    "title": "asyncio | Python Standard Library - Real Python",
+    "engines": [
+     "duckduckgo"
+    ],
+    "score": 0.1
+   },
+   {
+    "url": "https://www.pythonlore.com/handling-timeouts-with-asyncio-wait_for/",
+    "title": "Handling Timeouts with asyncio.wait_for - Python Lore",
+    "engines": [
+     "mojeek"
+    ],
+    "score": 0.1
+   },
+   {
+    "url": "https://www.dataleadsfuture.com/why-taskgroup-and-timeout-are-so-crucial-in-python-3-11-asyncio/",
+    "title": "Why Taskgroup and Timeout Are so Crucial in Python 3.11 Asyncio",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.076923
+   },
+   {
+    "url": "https://www.w3resource.com/python-exercises/asynchronous/python-asynchronous-exercise-7.php",
+    "title": "Implementing timeouts for async operations in Python",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.071429
+   },
+   {
+    "url": "https://docs.python.org/3/library/asyncio-exceptions.html",
+    "title": "Exceptions — Python 3.15.0 documentation",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.066667
+   },
+   {
+    "url": "https://pypi.org/project/async-timeout/",
+    "title": "async-timeout · PyPI",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.055556
+   },
+   {
+    "url": "https://stackoverflow.com/questions/74718086/how-to-handle-timeout-exception-by-the-asyncio-task-itself-just-before-asyncio-r",
+    "title": "python - How to handle Timeout Exception by the asyncio task itself ...",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.058824
+   },
+   {
+    "url": "https://stackoverflow.com/questions/28609534/python-asyncio-force-timeout",
+    "title": "Python asyncio force timeout - Stack Overflow",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.052632
+   },
+   {
+    "url": "https://www.linkedin.com/advice/1/how-do-you-handle-timeouts-retries-python-eawxc",
+    "title": "Master Python Async: Timeouts and Retries Explained",
+    "engines": [
+     "brave"
+    ],
+    "score": 0.05
+   }
+  ],
+  "suggestions": [
+   "asyncio create_task",
+   "asyncio gather",
+   "asyncio run",
+   "asyncio sleep",
+   "asyncio timeout error",
+   "asyncio.gather timeout",
+   "python asyncio example",
+   "python asyncio run",
+   "python asyncio set timeout",
+   "python asyncio sleep"
+  ]
+ },
+ "it": {
+  "results": [
+   {
+    "url": "https://stackoverflow.com/q/66296945",
+    "title": "Discord.py - Asyncio Timeout not working properly",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 1.0
+   },
+   {
+    "url": "https://stackoverflow.com/q/28609534",
+    "title": "Python asyncio force timeout",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 0.5
+   },
+   {
+    "url": "https://stackoverflow.com/q/77720567",
+    "title": "Adding a timeout to an asyncio aiohttp",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 0.333333
+   },
+   {
+    "url": "https://stackoverflow.com/q/72144450",
+    "title": "asyncio whether to support tracking lines to a specific timeout",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 0.25
+   },
+   {
+    "url": "https://stackoverflow.com/q/34452590",
+    "title": "Timeout handling while using run_in_executor and asyncio",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 0.2
+   },
+   {
+    "url": "https://stackoverflow.com/q/64534844",
+    "title": "python asyncio aiohttp timeout",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 0.166667
+   },
+   {
+    "url": "https://stackoverflow.com/q/74882216",
+    "title": "Handling TimeOut Exception in AsyncIO",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 0.142857
+   },
+   {
+    "url": "https://stackoverflow.com/q/29756507",
+    "title": "How can I add a connection timeout with asyncio?",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 0.125
+   },
+   {
+    "url": "https://stackoverflow.com/q/68700666",
+    "title": "asyncio: wait for async callback with timeout",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 0.111111
+   },
+   {
+    "url": "https://github.com/deepseek-ai/deepseek-harness",
+    "title": "deepseek-ai/deepseek-harness",
+    "engines": [
+     "github"
+    ],
+    "score": 1.0
+   },
+   {
+    "url": "https://github.com/zhayujie/CowAgent",
+    "title": "zhayujie/CowAgent",
+    "engines": [
+     "github"
+    ],
+    "score": 0.5
+   },
+   {
+    "url": "https://github.com/anywhere-labs/dsh-desktop",
+    "title": "anywhere-labs/dsh-desktop",
+    "engines": [
+     "github"
+    ],
+    "score": 0.333333
+   },
+   {
+    "url": "https://github.com/liyupi/ai-guide",
+    "title": "liyupi/ai-guide",
+    "engines": [
+     "github"
+    ],
+    "score": 0.25
+   },
+   {
+    "url": "https://github.com/awesome-dsh-plugin/awesome-dsh-plugin",
+    "title": "awesome-dsh-plugin/awesome-dsh-plugin",
+    "engines": [
+     "github"
+    ],
+    "score": 0.2
+   },
+   {
+    "url": "https://github.com/voyager-crew/voyager",
+    "title": "voyager-crew/voyager",
+    "engines": [
+     "github"
+    ],
+    "score": 0.166667
+   },
+   {
+    "url": "https://github.com/dataelement/dsh-desktop",
+    "title": "dataelement/dsh-desktop",
+    "engines": [
+     "github"
+    ],
+    "score": 0.142857
+   },
+   {
+    "url": "https://github.com/MemTensor/MemOS",
+    "title": "MemTensor/MemOS",
+    "engines": [
+     "github"
+    ],
+    "score": 0.125
+   },
+   {
+    "url": "https://github.com/YuJunZhiXue/dsh-purge",
+    "title": "YuJunZhiXue/dsh-purge",
+    "engines": [
+     "github"
+    ],
+    "score": 0.111111
+   },
+   {
+    "url": "https://stackoverflow.com/q/60663241",
+    "title": "Handling Timeouts with asyncio",
+    "engines": [
+     "stackoverflow"
+    ],
+    "score": 0.1
+   },
+   {
+    "url": "https://github.com/zhu1090093659/dsh-web",
+    "title": "zhu1090093659/dsh-web",
+    "engines": [
+     "github"
+    ],
+    "score": 0.1
+   },
+   {
+    "url": "https://github.com/dsh-market/dsh-market",
+    "title": "dsh-market/dsh-market",
+    "engines": [
+     "github"
+    ],
+    "score": 0.090909
+   },
+   {
+    "url": "https://github.com/Devin-AXIS/iPolloWork",
+    "title": "Devin-AXIS/iPolloWork",
+    "engines": [
+     "github"
+    ],
+    "score": 0.083333
+   },
+   {
+    "url": "https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget",
+    "title": "MeteorNOX/DeepSeek-Balance-Whale-Widget",
+    "engines": [
+     "github"
+    ],
+    "score": 0.076923
+   },
+   {
+    "url": "https://github.com/liustack/modlens",
+    "title": "liustack/modlens",
+    "engines": [
+     "github"
+    ],
+    "score": 0.071429
+   },
+   {
+    "url": "https://github.com/zhukunpenglinyutong/desktop-cc-gui",
+    "title": "zhukunpenglinyutong/desktop-cc-gui",
+    "engines": [
+     "github"
+    ],
+    "score": 0.066667
+   },
+   {
+    "url": "https://github.com/Fei2411/DS-Bot",
+    "title": "Fei2411/DS-Bot",
+    "engines": [
+     "github"
+    ],
+    "score": 0.0625
+   },
+   {
+    "url": "https://github.com/crafter-station/petdex",
+    "title": "crafter-station/petdex",
+    "engines": [
+     "github"
+    ],
+    "score": 0.058824
+   },
+   {
+    "url": "https://github.com/CommandCodeAI/command-code",
+    "title": "CommandCodeAI/command-code",
+    "engines": [
+     "github"
+    ],
+    "score": 0.055556
+   },
+   {
+    "url": "https://github.com/bowenliang123/dsh-context",
+    "title": "bowenliang123/dsh-context",
+    "engines": [
+     "github"
+    ],
+    "score": 0.052632
+   },
+   {
+    "url": "https://github.com/xiaobright/dsh-anchored-standard",
+    "title": "xiaobright/dsh-anchored-standard",
+    "engines": [
+     "github"
+    ],
+    "score": 0.05
+   },
+   {
+    "url": "https://github.com/whiteguo233/OpenBiliClaw",
+    "title": "whiteguo233/OpenBiliClaw",
+    "engines": [
+     "github"
+    ],
+    "score": 0.047619
+   },
+   {
+    "url": "https://github.com/chuspeeism/dashi-taskboard",
+    "title": "chuspeeism/dashi-taskboard",
+    "engines": [
+     "github"
+    ],
+    "score": 0.045455
+   },
+   {
+    "url": "https://github.com/dsh-tauri/deepseek-harness-desktop",
+    "title": "dsh-tauri/deepseek-harness-desktop",
+    "engines": [
+     "github"
+    ],
+    "score": 0.043478
+   },
+   {
+    "url": "https://github.com/kingcharleslzy-ai/dsh-purge",
+    "title": "kingcharleslzy-ai/dsh-purge",
+    "engines": [
+     "github"
+    ],
+    "score": 0.041667
+   },
+   {
+    "url": "https://github.com/Derpyu520/qq-bridge",
+    "title": "Derpyu520/qq-bridge",
+    "engines": [
+     "github"
+    ],
+    "score": 0.04
+   },
+   {
+    "url": "https://github.com/Prism-Shadow/penguin-harness",
+    "title": "Prism-Shadow/penguin-harness",
+    "engines": [
+     "github"
+    ],
+    "score": 0.038462
+   },
+   {
+    "url": "https://github.com/Small-tailqwq/dsh-deep-whale",
+    "title": "Small-tailqwq/dsh-deep-whale",
+    "engines": [
+     "github"
+    ],
+    "score": 0.037037
+   },
+   {
+    "url": "https://github.com/xmanrui/dsh-im",
+    "title": "xmanrui/dsh-im",
+    "engines": [
+     "github"
+    ],
+    "score": 0.035714
+   },
+   {
+    "url": "https://github.com/mmparko/dsh-purge",
+    "title": "mmparko/dsh-purge",
+    "engines": [
+     "github"
+    ],
+    "score": 0.034483
+   },
+   {
+    "url": "https://github.com/DSH-APP/DSHA",
+    "title": "DSH-APP/DSHA",
+    "engines": [
+     "github"
+    ],
+    "score": 0.033333
+   }
+  ],
+  "suggestions": []
+ },
+ "arxiv": {
+  "results": [
+   {
+    "url": "http://arxiv.org/abs/2410.17954v2",
+    "title": "ExpertFlow: Efficient Mixture-of-Experts Inference via Predictive Expert Caching and Token Scheduling",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 1.0
+   },
+   {
+    "url": "http://arxiv.org/abs/2402.14800v2",
+    "title": "Not All Experts are Equal: Efficient Expert Pruning and Skipping for Mixture-of-Experts Large Language Models",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 0.5
+   },
+   {
+    "url": "http://arxiv.org/abs/2312.04693v3",
+    "title": "GraphMETRO: Mitigating Complex Graph Distribution Shifts via Mixture of Aligned Experts",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 0.333333
+   },
+   {
+    "url": "http://arxiv.org/abs/1806.08200v1",
+    "title": "Mixtures of Experts Models",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 0.25
+   },
+   {
+    "url": "http://arxiv.org/abs/2503.03213v1",
+    "title": "Convergence Rates for Softmax Gating Mixture of Experts",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 0.2
+   },
+   {
+    "url": "http://arxiv.org/abs/2601.15021v1",
+    "title": "Mixture-of-Experts Models in Vision: Routing, Optimization, and Generalization",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 0.166667
+   },
+   {
+    "url": "http://arxiv.org/abs/1902.11104v3",
+    "title": "Tensor-variate Mixture of Experts for Proportional Myographic Control of a Robotic Hand",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 0.142857
+   },
+   {
+    "url": "http://arxiv.org/abs/2604.21478v1",
+    "title": "Rethinking Cross-Domain Evaluation for Face Forgery Detection with Semantic Fine-grained Alignment and Mixture-of-Experts",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 0.125
+   },
+   {
+    "url": "http://arxiv.org/abs/2508.05993v3",
+    "title": "Efficient Multimodal Streaming Recommendation via Expandable Side Mixture-of-Experts",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 0.111111
+   },
+   {
+    "url": "http://arxiv.org/abs/2603.11114v1",
+    "title": "Task-Conditioned Routing Signatures in Sparse Mixture-of-Experts Transformers",
+    "engines": [
+     "arxiv"
+    ],
+    "score": 0.1
+   }
+  ],
+  "suggestions": []
+ }
+}

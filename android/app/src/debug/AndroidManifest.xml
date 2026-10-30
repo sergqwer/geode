@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- the agent's Linux driven from adb (debug builds only) -->
+        <receiver
+            android:name=".agent.LinuxDebugReceiver"
+            android:exported="true" />
+        <!-- does an app process reach the NPU (npu/host/probe.c, debug builds only) -->
+        <receiver
+            android:name=".npu.NpuDebugReceiver"
+            android:exported="true"
+            android:process=":engine" />
+    </application>
+</manifest>

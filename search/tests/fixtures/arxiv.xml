@@ -1,0 +1,276 @@
+<!-- 200 https://export.arxiv.org/api/query?search_query=all%3Amixture+of+experts&start=0&max_results=10 -> https://export.arxiv.org/api/query?search_query=all%3Amixture+of+experts&start=0&max_results=10 -->
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/E9CEZS/jtriee2YqrDpZejDKffs</id>
+  <title>arXiv Query: search_query=all:mixture OR all:of OR all:experts&amp;id_list=&amp;start=0&amp;max_results=10</title>
+  <updated>2026-10-28T16:46:24Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=all:mixture+OR+(all:of+OR+all:experts)&amp;start=0&amp;max_results=10&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>10</opensearch:itemsPerPage>
+  <opensearch:totalResults>65296</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2410.17954v2</id>
+    <title>ExpertFlow: Efficient Mixture-of-Experts Inference via Predictive Expert Caching and Token Scheduling</title>
+    <updated>2026-04-02T11:06:15Z</updated>
+    <link href="https://arxiv.org/abs/2410.17954v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2410.17954v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Sparse Mixture-of-Experts (MoE) models can outperform dense large language models at similar computation by activating only a small set of experts per token. However, stacking many expert modules introduces substantial parameter memory, which makes MoE models difficult to deploy in memory-constrained environments such as single-GPU devices. Offloading alleviates this issue by storing inactive experts in CPU memory and loading them on demand, but existing methods remain limited: static caches disregard input-dependent routing, and methods that train separate models to predict expert usage ahead of time are often inaccurate or require significant training cost. We propose ExpertFlow, a lightweight MoE inference system that addresses this routing dependency through three coordinated components: 1) a transformer-based routing path predictor that estimates expert usage across all MoE layers in a single forward pass, 2) a token scheduler that groups tokens with similar predicted routes to improve expert utilization, and 3) a predictive expert cache that loads only the required experts while correcting mispredictions at runtime. Together, these components enable efficient expert loading and execution, reducing GPU memory usage by up to 93.72% and improving inference throughput by up to 10x over strong offloading baselines on a single GPU.</summary>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-10-23T15:24:54Z</published>
+    <arxiv:comment>Accepted in DAC'26, Mixture-of-Experts, Inference, Offloading</arxiv:comment>
+    <arxiv:primary_category term="cs.AI"/>
+    <author>
+      <name>Xin He</name>
+    </author>
+    <author>
+      <name>Shunkang Zhang</name>
+    </author>
+    <author>
+      <name>Kaijie Tang</name>
+    </author>
+    <author>
+      <name>Shaohuai Shi</name>
+    </author>
+    <author>
+      <name>Yuxin Wang</name>
+    </author>
+    <author>
+      <name>Zihao Zeng</name>
+    </author>
+    <author>
+      <name>Zhenheng Tang</name>
+    </author>
+    <author>
+      <name>Xiaowen Chu</name>
+    </author>
+    <author>
+      <name>Haiyan Yin</name>
+    </author>
+    <author>
+      <name>Ivor W. Tsang</name>
+    </author>
+    <author>
+      <name>Yew Soon Ong</name>
+    </author>
+    <arxiv:doi>10.1145/3770743.3804292</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1145/3770743.3804292" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2402.14800v2</id>
+    <title>Not All Experts are Equal: Efficient Expert Pruning and Skipping for Mixture-of-Experts Large Language Models</title>
+    <updated>2024-05-30T16:24:16Z</updated>
+    <link href="https://arxiv.org/abs/2402.14800v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2402.14800v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>A pivotal advancement in the progress of large language models (LLMs) is the emergence of the Mixture-of-Experts (MoE) LLMs. Compared to traditional LLMs, MoE LLMs can achieve higher performance with fewer parameters, but it is still hard to deploy them due to their immense parameter sizes. Different from previous weight pruning methods that rely on specifically designed hardware, this paper mainly aims to enhance the deployment efficiency of MoE LLMs by introducing plug-and-play expert-level sparsification techniques. Specifically, we propose, for the first time to our best knowledge, post-training approaches for task-agnostic and task-specific expert pruning and skipping of MoE LLMs, tailored to improve deployment efficiency while maintaining model performance across a wide range of tasks. Extensive experiments show that our proposed methods can simultaneously reduce model sizes and increase the inference speed, while maintaining satisfactory performance. Data and code will be available at https://github.com/Lucky-Lance/Expert_Sparsity.</summary>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-02-22T18:56:07Z</published>
+    <arxiv:comment>Mixture-of-Experts Large Language Models, ACL2024</arxiv:comment>
+    <arxiv:primary_category term="cs.CL"/>
+    <author>
+      <name>Xudong Lu</name>
+    </author>
+    <author>
+      <name>Qi Liu</name>
+    </author>
+    <author>
+      <name>Yuhui Xu</name>
+    </author>
+    <author>
+      <name>Aojun Zhou</name>
+    </author>
+    <author>
+      <name>Siyuan Huang</name>
+    </author>
+    <author>
+      <name>Bo Zhang</name>
+    </author>
+    <author>
+      <name>Junchi Yan</name>
+    </author>
+    <author>
+      <name>Hongsheng Li</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2312.04693v3</id>
+    <title>GraphMETRO: Mitigating Complex Graph Distribution Shifts via Mixture of Aligned Experts</title>
+    <updated>2024-10-28T11:34:06Z</updated>
+    <link href="https://arxiv.org/abs/2312.04693v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2312.04693v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Graph data are inherently complex and heterogeneous, leading to a high natural diversity of distributional shifts. However, it remains unclear how to build machine learning architectures that generalize to the complex distributional shifts naturally occurring in the real world. Here, we develop GraphMETRO, a Graph Neural Network architecture that models natural diversity and captures complex distributional shifts. GraphMETRO employs a Mixture-of-Experts (MoE) architecture with a gating model and multiple expert models, where each expert model targets a specific distributional shift to produce a referential representation w.r.t. a reference model, and the gating model identifies shift components. Additionally, we design a novel objective that aligns the representations from different expert models to ensure reliable optimization. GraphMETRO achieves state-of-the-art results on four datasets from the GOOD benchmark, which is comprised of complex and natural real-world distribution shifts, improving by 67% and 4.2% on the WebKB and Twitch datasets. Code and data are available at https://github.com/Wuyxin/GraphMETRO.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-12-07T20:56:07Z</published>
+    <arxiv:comment>Graph Neural Networks, Mixture-of-experts, Distribution Shifts, Generalization</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Shirley Wu</name>
+    </author>
+    <author>
+      <name>Kaidi Cao</name>
+    </author>
+    <author>
+      <name>Bruno Ribeiro</name>
+    </author>
+    <author>
+      <name>James Zou</name>
+    </author>
+    <author>
+      <name>Jure Leskovec</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1806.08200v1</id>
+    <title>Mixtures of Experts Models</title>
+    <updated>2018-06-21T12:30:12Z</updated>
+    <link href="https://arxiv.org/abs/1806.08200v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1806.08200v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Mixtures of experts models provide a framework in which covariates may be included in mixture models. This is achieved by modelling the parameters of the mixture model as functions of the concomitant covariates. Given their mixture model foundation, mixtures of experts models possess a diverse range of analytic uses, from clustering observations to capturing parameter heterogeneity in cross-sectional data. This chapter focuses on delineating the mixture of experts modelling framework and demonstrates the utility and flexibility of mixtures of experts models as an analytic tool.</summary>
+    <category term="stat.ME" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2018-06-21T12:30:12Z</published>
+    <arxiv:comment>A chapter prepared for the forthcoming Handbook of Mixture Analysis</arxiv:comment>
+    <arxiv:primary_category term="stat.ME"/>
+    <author>
+      <name>Isobel Claire Gormley</name>
+    </author>
+    <author>
+      <name>Sylvia Frühwirth-Schnatter</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2503.03213v1</id>
+    <title>Convergence Rates for Softmax Gating Mixture of Experts</title>
+    <updated>2025-03-05T06:11:24Z</updated>
+    <link href="https://arxiv.org/abs/2503.03213v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2503.03213v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Mixture of experts (MoE) has recently emerged as an effective framework to advance the efficiency and scalability of machine learning models by softly dividing complex tasks among multiple specialized sub-models termed experts. Central to the success of MoE is an adaptive softmax gating mechanism which takes responsibility for determining the relevance of each expert to a given input and then dynamically assigning experts their respective weights. Despite its widespread use in practice, a comprehensive study on the effects of the softmax gating on the MoE has been lacking in the literature. To bridge this gap in this paper, we perform a convergence analysis of parameter estimation and expert estimation under the MoE equipped with the standard softmax gating or its variants, including a dense-to-sparse gating and a hierarchical softmax gating, respectively. Furthermore, our theories also provide useful insights into the design of sample-efficient expert structures. In particular, we demonstrate that it requires polynomially many data points to estimate experts satisfying our proposed \emph{strong identifiability} condition, namely a commonly used two-layer feed-forward network. In stark contrast, estimating linear experts, which violate the strong identifiability condition, necessitates exponentially many data points as a result of intrinsic parameter interactions expressed in the language of partial differential equations. All the theoretical results are substantiated with a rigorous guarantee.</summary>
+    <category term="stat.ML" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-03-05T06:11:24Z</published>
+    <arxiv:comment>Section 2 of this work comes from our previous paper titled "On Least Square Estimation in Softmax Gating Mixture of Experts" and published at the ICML 2024</arxiv:comment>
+    <arxiv:primary_category term="stat.ML"/>
+    <author>
+      <name>Huy Nguyen</name>
+    </author>
+    <author>
+      <name>Nhat Ho</name>
+    </author>
+    <author>
+      <name>Alessandro Rinaldo</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2601.15021v1</id>
+    <title>Mixture-of-Experts Models in Vision: Routing, Optimization, and Generalization</title>
+    <updated>2026-01-21T14:22:25Z</updated>
+    <link href="https://arxiv.org/abs/2601.15021v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2601.15021v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Mixture-of-Experts (MoE) architectures enable conditional computation by routing inputs to multiple expert subnetworks and are often motivated as a mechanism for scaling large language models. In this project, we instead study MoE behavior in an image classification setting, focusing on predictive performance, expert utilization, and generalization. We compare dense, SoftMoE, and SparseMoE classifier heads on the CIFAR10 dataset under comparable model capacity. Both MoE variants achieve slightly higher validation accuracy than the dense baseline while maintaining balanced expert utilization through regularization, avoiding expert collapse. To analyze generalization, we compute Hessian-based sharpness metrics at convergence, including the largest eigenvalue and trace of the loss Hessian, evaluated on both training and test data. We find that SoftMoE exhibits higher sharpness by these metrics, while Dense and SparseMoE lie in a similar curvature regime, despite all models achieving comparable generalization performance. Complementary loss surface perturbation analyses reveal qualitative differences in non-local behavior under finite parameter perturbations between dense and MoE models, which help contextualize curvature-based measurements without directly explaining validation accuracy. We further evaluate empirical inference efficiency and show that naively implemented conditional routing does not yield inference speedups on modern hardware at this scale, highlighting the gap between theoretical and realized efficiency in sparse MoE models.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-01-21T14:22:25Z</published>
+    <arxiv:comment>7 pages, 8 figures. Code available at: https://github.com/moe-project-uu/mixture-of-experts-project</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Adam Rokah</name>
+    </author>
+    <author>
+      <name>Daniel Veress</name>
+    </author>
+    <author>
+      <name>Caleb Caulk</name>
+    </author>
+    <author>
+      <name>Sourav Sharan</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1902.11104v3</id>
+    <title>Tensor-variate Mixture of Experts for Proportional Myographic Control of a Robotic Hand</title>
+    <updated>2021-05-23T16:28:46Z</updated>
+    <link href="https://arxiv.org/abs/1902.11104v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1902.11104v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>When data are organized in matrices or arrays of higher dimensions (tensors), classical regression methods first transform these data into vectors, therefore ignoring the underlying structure of the data and increasing the dimensionality of the problem. This flattening operation typically leads to overfitting when only few training data is available. In this paper, we present a mixture-of-experts model that exploits tensorial representations for regression of tensor-valued data. The proposed formulation takes into account the underlying structure of the data and remains efficient when few training data are available. Evaluation on artificially generated data, as well as offline and real-time experiments recognizing hand movements from tactile myography prove the effectiveness of the proposed approach.</summary>
+    <category term="cs.RO" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2019-02-28T14:38:31Z</published>
+    <arxiv:comment>Accepted for publication in Robotics and Autonomous Systems (RAS). Code and video available at: https://sites.google.com/view/tensor-mixture-of-experts/ . 14 pages, 10 figures, 6 tables</arxiv:comment>
+    <arxiv:primary_category term="cs.RO"/>
+    <author>
+      <name>Noémie Jaquier</name>
+    </author>
+    <author>
+      <name>Robert Haschke</name>
+    </author>
+    <author>
+      <name>Sylvain Calinon</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2604.21478v1</id>
+    <title>Rethinking Cross-Domain Evaluation for Face Forgery Detection with Semantic Fine-grained Alignment and Mixture-of-Experts</title>
+    <updated>2026-04-23T09:39:33Z</updated>
+    <link href="https://arxiv.org/abs/2604.21478v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2604.21478v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Nowadays, visual data forgery detection plays an increasingly important role in social and economic security with the rapid development of generative models. Existing face forgery detectors still can't achieve satisfactory performance because of poor generalization ability across datasets. The key factor that led to this phenomenon is the lack of suitable metrics: the commonly used cross-dataset AUC metric fails to reveal an important issue where detection scores may shift significantly across data domains. To explicitly evaluate cross-domain score comparability, we propose \textbf{Cross-AUC}, an evaluation metric that can compute AUC across dataset pairs by contrasting real samples from one dataset with fake samples from another (and vice versa). It is interesting to find that evaluating representative detectors under the Cross-AUC metric reveals substantial performance drops, exposing an overlooked robustness problem. Besides, we also propose the novel framework \textbf{S}emantic \textbf{F}ine-grained \textbf{A}lignment and \textbf{M}ixture-of-Experts (\textbf{SFAM}), consisting of a patch-level image-text alignment module that enhances CLIP's sensitivity to manipulation artifacts, and the facial region mixture-of-experts module, which routes features from different facial regions to specialized experts for region-aware forgery analysis. Extensive qualitative and quantitative experiments on the public datasets prove that the proposed method achieves superior performance compared with the state-of-the-art methods with various suitable metrics.</summary>
+    <category term="cs.CV" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-04-23T09:39:33Z</published>
+    <arxiv:comment>The source code is available at https://github.com/Yuhan-Luo/Semantic-Fine-grained-Alignment-and-Mixture-of-Experts</arxiv:comment>
+    <arxiv:primary_category term="cs.CV"/>
+    <author>
+      <name>Yuhan Luo</name>
+    </author>
+    <author>
+      <name>Tao Chen</name>
+    </author>
+    <author>
+      <name>Decheng Liu</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2508.05993v3</id>
+    <title>Efficient Multimodal Streaming Recommendation via Expandable Side Mixture-of-Experts</title>
+    <updated>2025-10-23T04:04:56Z</updated>
+    <link href="https://arxiv.org/abs/2508.05993v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2508.05993v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Streaming recommender systems (SRSs) are widely deployed in real-world applications, where user interests shift and new items arrive over time. As a result, effectively capturing users' latest preferences is challenging, as interactions reflecting recent interests are limited and new items often lack sufficient feedback. A common solution is to enrich item representations using multimodal encoders (e.g., BERT or ViT) to extract visual and textual features. However, these encoders are pretrained on general-purpose tasks: they are not tailored to user preference modeling, and they overlook the fact that user tastes toward modality-specific features such as visual styles and textual tones can also drift over time. This presents two key challenges in streaming scenarios: the high cost of fine-tuning large multimodal encoders, and the risk of forgetting long-term user preferences due to continuous model updates.
+  To tackle these challenges, we propose Expandable Side Mixture-of-Experts (XSMoE), a memory-efficient framework for multimodal streaming recommendation. XSMoE attaches lightweight side-tuning modules consisting of expandable expert networks to frozen pretrained encoders and incrementally expands them in response to evolving user feedback. A gating router dynamically combines expert and backbone outputs, while a utilization-based pruning strategy maintains model compactness. By learning new patterns through expandable experts without overwriting previously acquired knowledge, XSMoE effectively captures both cold start and shifting preferences in multimodal features. Experiments on three real-world datasets demonstrate that XSMoE outperforms state-of-the-art baselines in both recommendation quality and computational efficiency.</summary>
+    <category term="cs.IR" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-08-08T04:00:05Z</published>
+    <arxiv:comment>Accepted to CIKM 2025. Code is available at https://github.com/qykcq/Efficient-Multimodal-Streaming-Recommendation-via-Expandable-Side-Mixture-of-Experts</arxiv:comment>
+    <arxiv:primary_category term="cs.IR"/>
+    <author>
+      <name>Yunke Qu</name>
+    </author>
+    <author>
+      <name>Liang Qu</name>
+    </author>
+    <author>
+      <name>Tong Chen</name>
+    </author>
+    <author>
+      <name>Quoc Viet Hung Nguyen</name>
+    </author>
+    <author>
+      <name>Hongzhi Yin</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2603.11114v1</id>
+    <title>Task-Conditioned Routing Signatures in Sparse Mixture-of-Experts Transformers</title>
+    <updated>2026-03-11T12:45:53Z</updated>
+    <link href="https://arxiv.org/abs/2603.11114v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2603.11114v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Sparse Mixture-of-Experts (MoE) architectures enable efficient scaling of large language models through conditional computation, yet the routing mechanisms responsible for expert selection remain poorly understood. In this work, we introduce routing signatures, a vector representation summarizing expert activation patterns across layers for a given prompt, and use them to study whether MoE routing exhibits task-conditioned structure. Using OLMoE-1B-7B-0125-Instruct as an empirical testbed, we show that prompts from the same task category induce highly similar routing signatures, while prompts from different categories exhibit substantially lower similarity. Within-category routing similarity (0.8435 +/- 0.0879) significantly exceeds across-category similarity (0.6225 +/- 0.1687), corresponding to Cohen's d = 1.44. A logistic regression classifier trained solely on routing signatures achieves 92.5% +/- 6.1% cross-validated accuracy on four-way task classification. To ensure statistical validity, we introduce permutation and load-balancing baselines and show that the observed separation is not explained by sparsity or balancing constraints alone. We further analyze layer-wise signal strength and low-dimensional projections of routing signatures, finding that task structure becomes increasingly apparent in deeper layers. These results suggest that routing in sparse transformers is not merely a balancing mechanism, but a measurable task-sensitive component of conditional computation. We release MOE-XRAY, a lightweight toolkit for routing telemetry and analysis.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-03-11T12:45:53Z</published>
+    <arxiv:comment>11 pages, 5 figures. Empirical analysis of routing behavior in sparse Mixture-of-Experts transformers using OLMoE</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Mynampati Sri Ranganadha Avinash</name>
+    </author>
+  </entry>
+</feed>

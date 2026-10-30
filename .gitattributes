@@ -1,0 +1,9 @@
+# what runs inside the agent's Linux or on the phone keeps Unix line ends whatever the checkout
+tools/linux/** text eol=lf
+# the Rust crates embed texts byte for byte (tool schemas, locale tables): Unix line ends
+agent/** text eol=lf
+search/** text eol=lf
+# pages captured from the phone: the parser and parity tests read them byte for byte
+search/tests/fixtures/** -text
+# reference requests and ACP logs recorded from dsh on the phone: the parity tests read them byte for byte
+agent/tests/ref/** -text

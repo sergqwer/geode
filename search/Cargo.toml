@@ -1,0 +1,50 @@
+[package]
+name = "geode-search"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+description = "Geode's web search: SearXNG's metasearch rewritten in Rust, run on the phone with Chrome-on-Android's TLS and HTTP/2"
+publish = false
+
+[lib]
+name = "geode_search"
+path = "src/lib.rs"
+
+[[bin]]
+name = "geode-search"
+path = "src/main.rs"
+
+[features]
+# the network (BoringSSL, HTTP/2, the async runtime); without it the parsing, merging and scoring build and test on
+# the PC host alone: cargo test --no-default-features
+default = ["net"]
+net = ["dep:wreq", "dep:wreq-util", "dep:tokio", "dep:encoding_rs", "dep:url"]
+
+[dependencies]
+# BoringSSL (Chrome's TLS) with a browser's ClientHello, HTTP/2 settings and header order
+wreq = { version = "0.16", optional = true, features = ["gzip", "brotli", "zstd", "deflate", "charset", "stream"] }
+wreq-util = { version = "0.2", optional = true, features = ["emulation"] }
+tokio = { version = "1", optional = true, features = ["rt", "macros", "time"] }
+# a fetched page's charset (geode-search --fetch: the agent's web_fetch)
+encoding_rs = { version = "0.8", optional = true }
+url = { version = "2", optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# HTML as a browser parses it (html5ever) and CSS selectors for the engines' result lists
+scraper = { version = "0.24", default-features = false }
+# arXiv's Atom feed
+roxmltree = { version = "0.20", default-features = false, features = ["std"] }
+# Mojeek's Altcha (PBKDF2-SHA256) and Startpage's Anubis (SHA-256) proofs of work
+sha2 = { version = "0.10", default-features = false }
+
+# the phone's ARMv8 SHA-2 instructions (detected at run time): Mojeek's captcha is 8000 PBKDF2 rounds per guess
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+sha2 = { version = "0.10", default-features = false, features = ["asm"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

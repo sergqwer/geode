@@ -1,0 +1,5 @@
+# DeepSeek Harness's ACP mode in Geode (with dsh-geode.yml): its sessions start on Geode's model too
+- id: acp
+  config:
+    provider: geode
+    model: !!js process.env.GEODE_MODEL || 'geode'
