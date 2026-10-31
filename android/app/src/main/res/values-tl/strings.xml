@@ -430,4 +430,5 @@
     <string name="report_send">Ipadala</string>
     <string name="report_sent">Salamat, naipadala na ang report</string>
     <string name="report_queued">Walang koneksyon: ipapadala ang report mamaya</string>
+    <string name="cpu_unsupported">Hindi suportado ang processor ng phone na ito: kailangan ng Geode ng 64-bit na ARM processor na may dot product na instruction (ARMv8.2, karamihan ng phone mula 2019).</string>
 </resources>

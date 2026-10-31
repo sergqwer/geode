@@ -173,6 +173,8 @@ class EngineClient(private val context: Context) : ServiceConnection {
 
     /** Opens a model; returns null on success or the reason it failed. */
     suspend fun open(dir: String, options: EngineOptions): String? {
+        // a CPU the engine cannot run on: said so, instead of the engine's process dying on its first kernel
+        if (!CpuSupport.engine) return context.getString(xyz.tifu.geode.R.string.cpu_unsupported)
         bind()
         connected.await()
         val done = CompletableDeferred<String?>()

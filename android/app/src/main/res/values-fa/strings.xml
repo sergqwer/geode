@@ -430,4 +430,5 @@
     <string name="report_send">ارسال</string>
     <string name="report_sent">سپاسگزاریم، گزارش ارسال شد</string>
     <string name="report_queued">اتصال برقرار نیست: گزارش بعداً ارسال می‌شود</string>
+    <string name="cpu_unsupported">پردازندهٔ این گوشی پشتیبانی نمی‌شود: Geode به یک پردازندهٔ ARM ۶۴ بیتی با دستورهای dot product نیاز دارد (ARMv8.2، بیشتر گوشی‌ها از ۲۰۱۹).</string>
 </resources>

@@ -430,4 +430,5 @@
     <string name="report_send">ਭੇਜੋ</string>
     <string name="report_sent">ਧੰਨਵਾਦ, ਰਿਪੋਰਟ ਭੇਜ ਦਿੱਤੀ ਗਈ</string>
     <string name="report_queued">ਕੋਈ ਕਨੈਕਸ਼ਨ ਨਹੀਂ: ਰਿਪੋਰਟ ਬਾਅਦ ਵਿੱਚ ਭੇਜੀ ਜਾਵੇਗੀ</string>
+    <string name="cpu_unsupported">ਇਸ ਫ਼ੋਨ ਦਾ ਪ੍ਰੋਸੈਸਰ ਸਮਰਥਿਤ ਨਹੀਂ ਹੈ: Geode ਨੂੰ dot product ਹਦਾਇਤਾਂ ਵਾਲਾ 64-ਬਿੱਟ ARM ਪ੍ਰੋਸੈਸਰ ਚਾਹੀਦਾ ਹੈ (ARMv8.2, 2019 ਤੋਂ ਬਾਅਦ ਦੇ ਜ਼ਿਆਦਾਤਰ ਫ਼ੋਨ)।</string>
 </resources>

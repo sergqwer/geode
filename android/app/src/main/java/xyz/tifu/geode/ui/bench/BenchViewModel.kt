@@ -19,6 +19,7 @@ import xyz.tifu.geode.bench.DeviceSpeed
 import xyz.tifu.geode.bench.Estimate
 import xyz.tifu.geode.bench.ModelShape
 import xyz.tifu.geode.bench.SpeedModel
+import xyz.tifu.geode.engine.CpuSupport
 import xyz.tifu.geode.models.ModelStore
 import java.io.File
 
@@ -155,6 +156,8 @@ class BenchViewModel(private val app: GeodeApp) : ViewModel() {
     /** One test: its result stored; null, or why it failed (the engine stopping during the GPU check: at which step) */
     private suspend fun runOne(t: String): String? {
         _state.update { it.copy(running = t) }
+        // the tests that run the engine's own kernels: on a CPU without them they would stop the engine (CpuSupport)
+        if (t in KERNEL_TESTS && !CpuSupport.engine) return app.getString(xyz.tifu.geode.R.string.cpu_unsupported)
         val s = app.settings.flow.first()
         val arg = when (t) {
             // flash: the selected model's expert files (read only); otherwise a temporary file in the app's storage
@@ -197,5 +200,7 @@ class BenchViewModel(private val app: GeodeApp) : ViewModel() {
     companion object {
         /** Check and send's order: what the phone is, whether Geode's GPU code runs on it, then the rest, flash last */
         val CHECK_ORDER = listOf("system", "gpucheck", "npucheck", "opencl", "cpu", "memory", "gpu", "flash")
+        /** The tests built with the engine's ARMv8.2 kernels (the rest only ask the system, the GPU or the DSP) */
+        private val KERNEL_TESTS = setOf("cpu", "memory", "flash")
     }
 }

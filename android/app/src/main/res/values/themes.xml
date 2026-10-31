@@ -3,5 +3,9 @@
     <!-- AppCompat host only (needed for the per-app language picker); Compose Material 3 paints everything. -->
     <style name="Theme.Geode" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">@android:color/transparent</item>
+        <!-- edge to edge on Android 11-14 (MainActivity): the content shows through the bars; with three-button
+             navigation the system keeps a scrim behind the buttons (enforceNavigationBarContrast) -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 </resources>

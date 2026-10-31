@@ -430,4 +430,5 @@
     <string name="report_send">Kirim</string>
     <string name="report_sent">Matur nuwun, laporan wis dikirim</string>
     <string name="report_queued">Ora ana sambungan: laporan bakal dikirim mengko</string>
+    <string name="cpu_unsupported">Prosesor HP iki ora didhukung: Geode butuh prosesor ARM 64-bit sing nduwé instruksi dot product (ARMv8.2, akèh-akèhé HP wiwit 2019).</string>
 </resources>

@@ -430,4 +430,5 @@
     <string name="report_send">મોકલો</string>
     <string name="report_sent">આભાર, રિપોર્ટ મોકલાઈ ગયો</string>
     <string name="report_queued">કનેક્શન નથી: રિપોર્ટ પછીથી મોકલાશે</string>
+    <string name="cpu_unsupported">આ ફોનનું પ્રોસેસર સમર્થિત નથી: Geode ને dot product સૂચનાઓવાળું 64-બિટ ARM પ્રોસેસર જોઈએ (ARMv8.2, 2019 પછીના મોટાભાગના ફોન).</string>
 </resources>

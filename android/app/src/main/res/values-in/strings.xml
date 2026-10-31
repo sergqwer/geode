@@ -430,4 +430,5 @@
     <string name="report_send">Kirim</string>
     <string name="report_sent">Terima kasih, laporan telah dikirim</string>
     <string name="report_queued">Tidak ada koneksi: laporan akan dikirim nanti</string>
+    <string name="cpu_unsupported">Prosesor ponsel ini tidak didukung: Geode memerlukan prosesor ARM 64-bit dengan instruksi dot product (ARMv8.2, sebagian besar ponsel sejak 2019).</string>
 </resources>

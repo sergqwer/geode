@@ -430,4 +430,5 @@
     <string name="report_send">إرسال</string>
     <string name="report_sent">شكرًا لك، تم إرسال البلاغ</string>
     <string name="report_queued">لا يوجد اتصال: سيُرسل البلاغ لاحقًا</string>
+    <string name="cpu_unsupported">معالج هذا الهاتف غير مدعوم: يحتاج Geode إلى معالج ARM بمعمارية 64 بت يدعم تعليمات dot product (ARMv8.2، معظم الهواتف منذ 2019).</string>
 </resources>

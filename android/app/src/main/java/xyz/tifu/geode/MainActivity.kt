@@ -3,9 +3,9 @@ package xyz.tifu.geode
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.getValue
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.first
@@ -21,7 +21,11 @@ import xyz.tifu.geode.ui.theme.GeodeTheme
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Edge to edge with current APIs only: the content under the system bars (Compose pads it by their insets),
+        // the bars transparent through the theme on Android 11-14 (Android 15+ draws them so itself), their icons in
+        // the app's theme (GeodeTheme). androidx's enableEdgeToEdge() sets the bars' colours and the cutout mode
+        // through window calls Android 15 deprecates, which Play flags.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         val app = application as GeodeApp
         // the local server comes back with the app while it is on (a foreground service starts only from here)
         lifecycleScope.launch { if (app.settings.flow.first().serverRuns) ServerService.start(app) }

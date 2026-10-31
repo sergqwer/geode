@@ -430,4 +430,5 @@
     <string name="report_send">傳送</string>
     <string name="report_sent">謝謝，檢舉已送出</string>
     <string name="report_queued">沒有網路連線：檢舉將稍後送出</string>
+    <string name="cpu_unsupported">不支援此手機的處理器：Geode 需要支援 dot product 指令的 64 位元 ARM 處理器（ARMv8.2，2019 年以後的大多數手機）。</string>
 </resources>

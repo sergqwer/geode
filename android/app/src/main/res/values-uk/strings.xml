@@ -424,4 +424,5 @@
     <string name="report_send">Надіслати</string>
     <string name="report_sent">Дякуємо, скаргу надіслано</string>
     <string name="report_queued">Немає зв’язку: скаргу буде надіслано пізніше</string>
+    <string name="cpu_unsupported">Процесор цього телефона не підтримується: Geode потрібен 64-бітний процесор ARM з інструкціями dot product (ARMv8.2, більшість телефонів з 2019 року).</string>
 </resources>

@@ -430,4 +430,5 @@
     <string name="report_send">送信</string>
     <string name="report_sent">ありがとうございます。報告を送信しました</string>
     <string name="report_queued">接続がありません。報告は後で送信されます</string>
+    <string name="cpu_unsupported">このスマートフォンのプロセッサには対応していません。Geode には dot product 命令を備えた 64 ビット ARM プロセッサ（ARMv8.2、2019 年以降のほとんどのスマートフォン）が必要です。</string>
 </resources>

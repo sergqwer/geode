@@ -430,4 +430,5 @@
     <string name="report_send">Enviar</string>
     <string name="report_sent">Obrigado, a denúncia foi enviada</string>
     <string name="report_queued">Sem conexão: a denúncia será enviada mais tarde</string>
+    <string name="cpu_unsupported">O processador deste telefone não é compatível: o Geode precisa de um processador ARM de 64 bits com instruções dot product (ARMv8.2, a maioria dos telefones desde 2019).</string>
 </resources>

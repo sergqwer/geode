@@ -430,4 +430,5 @@
     <string name="report_send">Aika</string>
     <string name="report_sent">Mun gode, an aika rahoton</string>
     <string name="report_queued">Babu haɗi: za a aika rahoton daga baya</string>
+    <string name="cpu_unsupported">Ba a tallafa wa na\'urar sarrafa wannan wayar ba: Geode na buƙatar na\'urar sarrafa ARM ta 64-bit mai umarnin dot product (ARMv8.2, yawancin wayoyi tun 2019).</string>
 </resources>

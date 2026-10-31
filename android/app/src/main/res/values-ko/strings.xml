@@ -430,4 +430,5 @@
     <string name="report_send">보내기</string>
     <string name="report_sent">감사합니다. 신고가 전송되었습니다</string>
     <string name="report_queued">연결 없음: 신고는 나중에 전송됩니다</string>
+    <string name="cpu_unsupported">이 휴대전화의 프로세서는 지원되지 않습니다. Geode에는 dot product 명령어를 지원하는 64비트 ARM 프로세서(ARMv8.2, 2019년 이후 대부분의 휴대전화)가 필요합니다.</string>
 </resources>

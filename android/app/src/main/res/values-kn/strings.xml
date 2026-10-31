@@ -430,4 +430,5 @@
     <string name="report_send">ಕಳುಹಿಸಿ</string>
     <string name="report_sent">ಧನ್ಯವಾದಗಳು, ವರದಿಯನ್ನು ಕಳುಹಿಸಲಾಗಿದೆ</string>
     <string name="report_queued">ಸಂಪರ್ಕವಿಲ್ಲ: ವರದಿಯನ್ನು ನಂತರ ಕಳುಹಿಸಲಾಗುತ್ತದೆ</string>
+    <string name="cpu_unsupported">ಈ ಫೋನ್‌ನ ಪ್ರೊಸೆಸರ್ ಬೆಂಬಲಿತವಾಗಿಲ್ಲ: Geode ಗೆ dot product ಸೂಚನೆಗಳಿರುವ 64-ಬಿಟ್ ARM ಪ್ರೊಸೆಸರ್ ಬೇಕು (ARMv8.2, 2019 ರಿಂದ ಬಹುತೇಕ ಫೋನ್‌ಗಳು).</string>
 </resources>

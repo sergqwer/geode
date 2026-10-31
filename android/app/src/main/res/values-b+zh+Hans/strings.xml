@@ -430,4 +430,5 @@
     <string name="report_send">发送</string>
     <string name="report_sent">谢谢，举报已发送</string>
     <string name="report_queued">没有网络连接：举报将稍后发送</string>
+    <string name="cpu_unsupported">不支持此手机的处理器：Geode 需要支持 dot product 指令的 64 位 ARM 处理器（ARMv8.2，2019 年以后的大多数手机）。</string>
 </resources>

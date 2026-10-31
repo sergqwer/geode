@@ -430,4 +430,5 @@
     <string name="report_send">Отправить</string>
     <string name="report_sent">Спасибо, жалоба отправлена</string>
     <string name="report_queued">Нет связи: жалоба будет отправлена позже</string>
+    <string name="cpu_unsupported">Процессор этого телефона не поддерживается: Geode нужен 64-битный процессор ARM с инструкциями dot product (ARMv8.2, большинство телефонов с 2019 года).</string>
 </resources>

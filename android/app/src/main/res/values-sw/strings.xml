@@ -430,4 +430,5 @@
     <string name="report_send">Tuma</string>
     <string name="report_sent">Asante, ripoti imetumwa</string>
     <string name="report_queued">Hakuna muunganisho: ripoti itatumwa baadaye</string>
+    <string name="cpu_unsupported">Kichakataji cha simu hii hakitumiki: Geode inahitaji kichakataji cha ARM cha biti 64 chenye maagizo ya dot product (ARMv8.2, simu nyingi tangu 2019).</string>
 </resources>

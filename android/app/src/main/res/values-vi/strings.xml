@@ -430,4 +430,5 @@
     <string name="report_send">Gửi</string>
     <string name="report_sent">Cảm ơn, báo cáo đã được gửi</string>
     <string name="report_queued">Không có kết nối: báo cáo sẽ được gửi sau</string>
+    <string name="cpu_unsupported">Bộ xử lý của điện thoại này không được hỗ trợ: Geode cần bộ xử lý ARM 64 bit có lệnh dot product (ARMv8.2, hầu hết điện thoại từ năm 2019).</string>
 </resources>

@@ -430,4 +430,5 @@
     <string name="report_send">Gönder</string>
     <string name="report_sent">Teşekkürler, rapor gönderildi</string>
     <string name="report_queued">Bağlantı yok: rapor daha sonra gönderilecek</string>
+    <string name="cpu_unsupported">Bu telefonun işlemcisi desteklenmiyor: Geode, dot product komutlarına sahip 64 bit bir ARM işlemci gerektirir (ARMv8.2, 2019’dan beri çoğu telefon).</string>
 </resources>
