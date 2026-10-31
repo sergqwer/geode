@@ -241,7 +241,10 @@ fun SettingsScreen(vm: SettingsViewModel, openDrawer: () -> Unit) {
                 s.prefetch, vm::setPrefetch)
             SwitchRow(stringResource(R.string.settings_gpu), stringResource(R.string.settings_gpu_desc), s.gpu,
                 vm::setGpu)
-            if (s.gpu) {
+            // the share splits a prompt's rows on the Adreno 618's path only (its status "... of their rows",
+            // model.cpp); the Adreno 7xx+ int8 path takes whole products and a dense model has no GPU path: there the
+            // slider would change nothing
+            if (s.gpu && gpuStatus?.endsWith("of their rows") == true) {
                 FloatSlider(s.gpuShare, 0.1f..0.6f, 0.05f,
                     { stringResource(R.string.settings_gpu_share, (it * 100).roundToInt()) }, vm::setGpuShare)
             }
