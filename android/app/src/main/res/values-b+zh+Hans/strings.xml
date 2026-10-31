@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">尽可能在手机的图形芯片上运行模型：在 Adreno 7xx 及更新型号上运行整个回答；在 Adreno 618 上，承担提示词中一部分大型矩阵乘法。</string>
     <string name="settings_route_prior">模型无法完全放入内存时加快回答</string>
     <string name="settings_route_prior_desc">优先使用已在内存中的专家，从存储读取更少。回答的措辞可能略有变化，偶尔也会影响质量。默认关闭。</string>
-    <string name="settings_npu">用 NPU 读取提示</string>
-    <string name="settings_npu_desc">使用手机的 AI 处理器（Snapdragon Hexagon）更快、更精确地读取提示。如果没有或未通过检查，则像以前一样由 GPU 或 CPU 读取。</string>
+    <string name="settings_npu">使用 NPU</string>
+    <string name="settings_npu_desc">在有帮助的地方使用手机的 AI 处理器（Snapdragon Hexagon）：更快、更精确地读取提示；在 Snapdragon 8 Elite 上还会承担 35B 模型的部分专家，并完整运行轻量模型。如果没有或未通过检查，则像以前一样由 GPU 和 CPU 处理。</string>
     <string name="settings_word_experts">每个词使用的专家数</string>
     <string name="settings_word_experts_desc">8（默认）：模型选中的所有专家，即完整质量。6 或 4：如果最后选中的 2 个或 4 个专家中有不在内存中的，就跳过它而不读取。模型放不进内存时更快，但模型的回答会变得不那么准确。</string>
     <string name="settings_gpu_share">GPU 承担的行比例：%1$d%%</string>

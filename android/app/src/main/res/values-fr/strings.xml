@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Exécute le modèle sur la puce graphique du téléphone quand c\'est possible : toute la réponse sur un Adreno 7xx ou plus récent ; sur l\'Adreno 618, une partie des grands produits d\'un prompt.</string>
     <string name="settings_route_prior">Réponses plus rapides quand le modèle ne tient pas en mémoire</string>
     <string name="settings_route_prior_desc">Privilégie les experts déjà en mémoire, pour lire moins depuis le stockage. Les réponses peuvent changer un peu dans leur formulation et parfois en qualité. Désactivé par défaut.</string>
-    <string name="settings_npu">Lire les invites sur le NPU</string>
-    <string name="settings_npu_desc">Utilise le processeur d\'IA du téléphone (Snapdragon Hexagon) pour lire les invites plus vite et un peu plus précisément. S\'il n\'y en a pas ou s\'il échoue à sa vérification, le GPU ou le CPU les lit comme avant.</string>
+    <string name="settings_npu">Utiliser le NPU</string>
+    <string name="settings_npu_desc">Utilise le processeur d\'IA du téléphone (Snapdragon Hexagon) là où il aide : il lit les invites plus vite et un peu plus précisément, et sur le Snapdragon 8 Elite il prend aussi une partie des experts du modèle 35B et exécute entièrement le modèle léger. S\'il n\'y en a pas ou s\'il échoue à sa vérification, le GPU et le CPU travaillent comme avant.</string>
     <string name="settings_word_experts">Experts lus par mot</string>
     <string name="settings_word_experts_desc">8 (par défaut) : tous les experts choisis par le modèle, sa qualité complète. 6 ou 4 : si l\'un des 2 ou 4 derniers experts choisis n\'est pas en mémoire, il est ignoré au lieu d\'être lu. Plus rapide quand le modèle ne tient pas en mémoire, mais ses réponses deviennent moins précises.</string>
     <string name="settings_gpu_share">Part des lignes pour le GPU : %1$d %%</string>

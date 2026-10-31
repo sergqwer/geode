@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">يشغّل النموذج على شريحة رسوميات الهاتف حيثما أمكن: الإجابة كاملة على Adreno 7xx أو أحدث؛ وعلى Adreno 618 جزءًا من عمليات الضرب الكبيرة في الموجّه.</string>
     <string name="settings_route_prior">إجابات أسرع عندما لا يتسع النموذج في الذاكرة</string>
     <string name="settings_route_prior_desc">يفضّل الخبراء الموجودين في الذاكرة مسبقًا، فيقلّ ما يُقرأ من التخزين. قد تتغير صياغة الإجابات قليلًا، وأحيانًا جودتها. معطّل افتراضيًا.</string>
-    <string name="settings_npu">قراءة الطلبات على وحدة NPU</string>
-    <string name="settings_npu_desc">يستخدم معالج الذكاء الاصطناعي في الهاتف (Snapdragon Hexagon) لقراءة الطلبات بسرعة أكبر ودقة أعلى قليلًا. إن لم يوجد أو فشل في الفحص، تقرؤها وحدة GPU أو المعالج كما كان سابقًا.</string>
+    <string name="settings_npu">استخدام وحدة NPU</string>
+    <string name="settings_npu_desc">يستخدم معالج الذكاء الاصطناعي في الهاتف (Snapdragon Hexagon) حيث يفيد: يقرأ الطلبات بسرعة أكبر ودقة أعلى قليلًا، وعلى Snapdragon 8 Elite يتولى أيضًا جزءًا من خبراء نموذج 35B ويشغّل النموذج الخفيف بالكامل. إن لم يوجد أو فشل في الفحص، تعمل وحدة GPU والمعالج كما كان سابقًا.</string>
     <string name="settings_word_experts">عدد الخبراء لكل كلمة</string>
     <string name="settings_word_experts_desc">8 (الافتراضي): كل الخبراء الذين يختارهم النموذج، أي جودته الكاملة. 6 أو 4: إذا لم يكن أحد آخر 2 أو 4 خبراء مختارين في الذاكرة، فيُتخطّى بدل قراءته. أسرع عندما لا يتسع النموذج في الذاكرة، لكن إجابات النموذج تصبح أقل دقة.</string>
     <string name="settings_gpu_share">حصة GPU من الصفوف: %1$d%%</string>

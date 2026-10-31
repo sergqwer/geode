@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Menjalankan model di chip grafis ponsel jika memungkinkan: seluruh jawaban di Adreno 7xx atau yang lebih baru; di Adreno 618, sebagian perkalian besar dari prompt.</string>
     <string name="settings_route_prior">Jawaban lebih cepat saat model tidak muat di memori</string>
     <string name="settings_route_prior_desc">Mengutamakan expert yang sudah ada di memori sehingga lebih sedikit yang dibaca dari penyimpanan. Susunan kata jawaban bisa sedikit berubah, kadang juga kualitasnya. Nonaktif secara default.</string>
-    <string name="settings_npu">Baca prompt di NPU</string>
-    <string name="settings_npu_desc">Memakai prosesor AI ponsel (Snapdragon Hexagon) untuk membaca prompt lebih cepat dan sedikit lebih akurat. Jika tidak ada atau gagal pemeriksaan, GPU atau CPU membacanya seperti sebelumnya.</string>
+    <string name="settings_npu">Gunakan NPU</string>
+    <string name="settings_npu_desc">Memakai prosesor AI ponsel (Snapdragon Hexagon) di bagian yang terbantu: membaca prompt lebih cepat dan sedikit lebih akurat, dan di Snapdragon 8 Elite juga mengambil sebagian expert model 35B serta menjalankan model ringan sepenuhnya. Jika tidak ada atau gagal pemeriksaan, GPU dan CPU bekerja seperti sebelumnya.</string>
     <string name="settings_word_experts">Expert per kata</string>
     <string name="settings_word_experts_desc">8 (bawaan): semua expert yang dipilih model, kualitas penuhnya. 6 atau 4: jika salah satu dari 2 atau 4 expert terakhir yang dipilih tidak ada di memori, expert itu dilewati, bukan dibaca. Lebih cepat saat model tidak muat di memori, tetapi jawaban model menjadi kurang akurat.</string>
     <string name="settings_gpu_share">Porsi baris untuk GPU: %1$d%%</string>

@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Esegue il modello sul chip grafico del telefono dove possibile: l\'intera risposta su un Adreno 7xx o successivo; sull\'Adreno 618, una parte dei grandi prodotti di un prompt.</string>
     <string name="settings_route_prior">Risposte più veloci quando il modello non entra in memoria</string>
     <string name="settings_route_prior_desc">Preferisce gli esperti già in memoria, così si legge meno dall\'archiviazione. Le risposte possono cambiare un po\' nella formulazione e talvolta nella qualità. Disattivato per impostazione predefinita.</string>
-    <string name="settings_npu">Leggi i prompt sulla NPU</string>
-    <string name="settings_npu_desc">Usa il processore IA del telefono (Snapdragon Hexagon) per leggere i prompt più velocemente e con un po\' più di precisione. Se manca o non supera il controllo, li leggono GPU o CPU come prima.</string>
+    <string name="settings_npu">Usa la NPU</string>
+    <string name="settings_npu_desc">Usa il processore IA del telefono (Snapdragon Hexagon) dove aiuta: legge i prompt più velocemente e con un po\' più di precisione e, sullo Snapdragon 8 Elite, prende anche una parte degli esperti del modello 35B ed esegue interamente il modello leggero. Se manca o non supera il controllo, GPU e CPU lavorano come prima.</string>
     <string name="settings_word_experts">Esperti per parola</string>
     <string name="settings_word_experts_desc">8 (predefinito): tutti gli esperti scelti dal modello, la sua qualità piena. 6 o 4: se uno degli ultimi 2 o 4 esperti scelti non è in memoria, viene saltato invece di essere letto. Più veloce quando il modello non entra in memoria, ma le risposte diventano meno precise.</string>
     <string name="settings_gpu_share">Quota di righe della GPU: %1$d%%</string>

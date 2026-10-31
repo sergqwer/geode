@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Führt das Modell, wo möglich, auf dem Grafikchip des Smartphones aus: die ganze Antwort auf Adreno 7xx oder neuer; auf Adreno 618 einen Teil der großen Matrixprodukte eines Prompts.</string>
     <string name="settings_route_prior">Schnellere Antworten, wenn das Modell nicht in den Arbeitsspeicher passt</string>
     <string name="settings_route_prior_desc">Bevorzugt Experten, die schon im Arbeitsspeicher liegen, sodass weniger aus dem Gerätespeicher gelesen wird. Antworten können sich im Wortlaut leicht und gelegentlich in der Qualität ändern. Standardmäßig aus.</string>
-    <string name="settings_npu">Prompts auf der NPU lesen</string>
-    <string name="settings_npu_desc">Nutzt den KI-Prozessor des Telefons (Snapdragon Hexagon), um Prompts schneller und etwas genauer zu lesen. Fehlt er oder besteht er die Prüfung nicht, lesen GPU oder CPU sie wie bisher.</string>
+    <string name="settings_npu">NPU verwenden</string>
+    <string name="settings_npu_desc">Nutzt den KI-Prozessor des Telefons (Snapdragon Hexagon), wo er hilft: Er liest Prompts schneller und etwas genauer und übernimmt auf dem Snapdragon 8 Elite außerdem einen Teil der Experten des 35B-Modells und das leichte Modell ganz. Fehlt er oder besteht er die Prüfung nicht, arbeiten GPU und CPU wie bisher.</string>
     <string name="settings_word_experts">Experten pro Wort</string>
     <string name="settings_word_experts_desc">8 (Standard): alle Experten, die das Modell wählt – seine volle Qualität. 6 oder 4: Ist einer der letzten 2 oder 4 gewählten Experten nicht im Arbeitsspeicher, wird er übersprungen statt gelesen. Schneller, wenn das Modell nicht in den Speicher passt, aber die Antworten werden ungenauer.</string>
     <string name="settings_gpu_share">GPU-Anteil der Zeilen: %1$d%%</string>

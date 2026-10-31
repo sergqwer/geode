@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Pinapatakbo ang model sa graphics chip ng phone kung kaya: ang buong sagot sa Adreno 7xx o mas bago; sa Adreno 618, bahagi ng malalaking product ng prompt.</string>
     <string name="settings_route_prior">Mas mabilis na sagot kapag hindi kasya ang model sa memory</string>
     <string name="settings_route_prior_desc">Inuuna ang mga expert na nasa memory na, kaya mas kaunti ang binabasa mula sa storage. Maaaring bahagyang magbago ang pananalita ng mga sagot, at paminsan-minsan ang kalidad. Naka-off bilang default.</string>
-    <string name="settings_npu">Basahin ang prompt sa NPU</string>
-    <string name="settings_npu_desc">Ginagamit ang AI processor ng telepono (Snapdragon Hexagon) para mas mabilis at medyo mas tumpak na mabasa ang prompt. Kung wala o hindi pumasa sa pagsusuri, ang GPU o CPU ang babasa gaya ng dati.</string>
+    <string name="settings_npu">Gamitin ang NPU</string>
+    <string name="settings_npu_desc">Ginagamit ang AI processor ng telepono (Snapdragon Hexagon) kung saan ito nakakatulong: mas mabilis at medyo mas tumpak nitong binabasa ang prompt, at sa Snapdragon 8 Elite ay hinahawakan din nito ang bahagi ng mga expert ng 35B model at pinapatakbo nang buo ang magaan na model. Kung wala o hindi pumasa sa pagsusuri, ang GPU at CPU ang gagawa gaya ng dati.</string>
     <string name="settings_word_experts">Mga expert sa bawat salita</string>
     <string name="settings_word_experts_desc">8 (default): lahat ng expert na pinipili ng model, ang buong kalidad nito. 6 o 4: kapag ang isa sa huling 2 o 4 na napiling expert ay wala sa memory, nilalaktawan ito sa halip na basahin. Mas mabilis kapag hindi kasya ang model sa memory, pero nagiging hindi gaanong tumpak ang mga sagot ng model.</string>
     <string name="settings_gpu_share">Bahagi ng GPU sa mga row: %1$d%%</string>

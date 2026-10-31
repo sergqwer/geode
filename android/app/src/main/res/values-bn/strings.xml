@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">যেখানে সম্ভব ফোনের গ্রাফিক্স চিপে মডেল চালায়: Adreno 7xx বা নতুনতরতে পুরো উত্তর; Adreno 618-এ প্রম্পটের বড় গুণফলের একাংশ।</string>
     <string name="settings_route_prior">মডেল মেমরিতে পুরোপুরি না আঁটলে দ্রুত উত্তর</string>
     <string name="settings_route_prior_desc">আগে থেকেই মেমরিতে থাকা এক্সপার্টদের অগ্রাধিকার দেয়, ফলে স্টোরেজ থেকে কম পড়তে হয়। উত্তরের শব্দচয়ন সামান্য বদলাতে পারে, কখনো কখনো মানও। ডিফল্টভাবে বন্ধ।</string>
-    <string name="settings_npu">NPU-তে প্রম্পট পড়ুন</string>
-    <string name="settings_npu_desc">প্রম্পট দ্রুত ও একটু বেশি নির্ভুলভাবে পড়তে ফোনের AI প্রসেসর (Snapdragon Hexagon) ব্যবহার করে। না থাকলে বা পরীক্ষায় ব্যর্থ হলে আগের মতো GPU বা CPU পড়ে।</string>
+    <string name="settings_npu">NPU ব্যবহার করুন</string>
+    <string name="settings_npu_desc">যেখানে সাহায্য করে সেখানে ফোনের AI প্রসেসর (Snapdragon Hexagon) ব্যবহার করে: প্রম্পট দ্রুত ও একটু বেশি নির্ভুলভাবে পড়ে, আর Snapdragon 8 Elite-এ 35B মডেলের এক্সপার্টের একাংশও নেয় এবং হালকা মডেলটি পুরোটা চালায়। না থাকলে বা পরীক্ষায় ব্যর্থ হলে আগের মতো GPU ও CPU কাজ করে।</string>
     <string name="settings_word_experts">প্রতিটি শব্দের জন্য এক্সপার্ট</string>
     <string name="settings_word_experts_desc">8 (ডিফল্ট): মডেলের বেছে নেওয়া সব এক্সপার্ট, অর্থাৎ পূর্ণ মান। 6 বা 4: বেছে নেওয়া শেষ 2 বা 4টি এক্সপার্টের কোনোটি মেমরিতে না থাকলে সেটি পড়ার বদলে বাদ দেওয়া হয়। মডেল মেমরিতে পুরো না ধরলে এটি দ্রুত, তবে মডেলের উত্তর কম নির্ভুল হয়।</string>
     <string name="settings_gpu_share">সারিগুলোর মধ্যে GPU-এর ভাগ: %1$d%%</string>

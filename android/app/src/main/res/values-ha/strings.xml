@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Yana gudanar da model ɗin a chip na zane na wayar inda zai iya: amsar gaba ɗaya a Adreno 7xx ko sababbi; a Adreno 618, wani kaso na manyan lissafin prompt.</string>
     <string name="settings_route_prior">Amsoshi da sauri lokacin da samfurin bai isa a ƙwaƙwalwa ba</string>
     <string name="settings_route_prior_desc">Yana fifita ƙwararrun da suke cikin ƙwaƙwalwa tun farko, don a karanta kaɗan daga wurin ajiya. Kalmomin amsoshi na iya ɗan canzawa, wani lokaci har da inganci. A kashe yake ta tsohuwa.</string>
-    <string name="settings_npu">Karanta saƙon umarni a NPU</string>
-    <string name="settings_npu_desc">Yana amfani da na\'urar AI ta waya (Snapdragon Hexagon) don karanta saƙon umarni da sauri kuma da ɗan ƙarin daidaito. Idan babu ko ta kasa gwaji, GPU ko CPU za su karanta kamar da.</string>
+    <string name="settings_npu">Yi amfani da NPU</string>
+    <string name="settings_npu_desc">Yana amfani da na\'urar AI ta waya (Snapdragon Hexagon) inda take taimakawa: tana karanta saƙon umarni da sauri kuma da ɗan ƙarin daidaito, kuma a Snapdragon 8 Elite tana ɗaukar wani ɓangare na ƙwararrun samfurin 35B tare da gudanar da samfurin mai sauƙi gaba ɗaya. Idan babu ko ta kasa gwaji, GPU da CPU za su yi aiki kamar da.</string>
     <string name="settings_word_experts">Ƙwararru ga kowace kalma</string>
     <string name="settings_word_experts_desc">8 (tsoho): duk ƙwararrun da samfurin ya zaɓa, cikakken ingancinsa. 6 ko 4: idan ɗaya daga cikin ƙwararru 2 ko 4 na ƙarshe da aka zaɓa ba ya cikin ƙwaƙwalwa, ana tsallake shi maimakon a karanta shi. Ya fi sauri idan samfurin bai dace a ƙwaƙwalwa ba, amma amsoshin samfurin suna raguwa a daidaito.</string>
     <string name="settings_gpu_share">Kason layuka na GPU: %1$d%%</string>

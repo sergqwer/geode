@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">جہاں ممکن ہو ماڈل کو فون کی گرافکس چپ پر چلاتا ہے: Adreno 7xx یا نئے پر پورا جواب؛ Adreno 618 پر پرامپٹ کی بڑی ضربوں کا ایک حصہ۔</string>
     <string name="settings_route_prior">ماڈل میموری میں پورا نہ آنے پر تیز جوابات</string>
     <string name="settings_route_prior_desc">پہلے سے میموری میں موجود ایکسپرٹس کو ترجیح دیتا ہے، اس لیے اسٹوریج سے کم پڑھنا پڑتا ہے۔ جوابات کے الفاظ تھوڑے بدل سکتے ہیں اور کبھی کبھار معیار بھی۔ ڈیفالٹ طور پر بند۔</string>
-    <string name="settings_npu">پرامپٹ NPU پر پڑھیں</string>
-    <string name="settings_npu_desc">پرامپٹ کو تیز اور کچھ زیادہ درست پڑھنے کے لیے فون کا AI پروسیسر (Snapdragon Hexagon) استعمال کرتا ہے۔ اگر یہ نہ ہو یا جانچ میں ناکام ہو تو GPU یا CPU پہلے کی طرح پڑھتے ہیں۔</string>
+    <string name="settings_npu">NPU استعمال کریں</string>
+    <string name="settings_npu_desc">جہاں مدد ملے وہاں فون کا AI پروسیسر (Snapdragon Hexagon) استعمال کرتا ہے: پرامپٹ کو تیز اور کچھ زیادہ درست پڑھتا ہے، اور Snapdragon 8 Elite پر 35B ماڈل کے ماہرین کا ایک حصہ بھی سنبھالتا ہے اور ہلکا ماڈل پورا چلاتا ہے۔ اگر یہ نہ ہو یا جانچ میں ناکام ہو تو GPU اور CPU پہلے کی طرح کام کرتے ہیں۔</string>
     <string name="settings_word_experts">ہر لفظ کے لیے ایکسپرٹس</string>
     <string name="settings_word_experts_desc">8 (ڈیفالٹ): ماڈل کے چنے ہوئے تمام ایکسپرٹس، یعنی پوری کوالٹی۔ 6 یا 4: اگر چنے گئے آخری 2 یا 4 ایکسپرٹس میں سے کوئی میموری میں نہ ہو تو اسے پڑھنے کے بجائے چھوڑ دیا جاتا ہے۔ جب ماڈل میموری میں پورا نہ آئے تو یہ تیز ہے، لیکن ماڈل کے جوابات کم درست ہو جاتے ہیں۔</string>
     <string name="settings_gpu_share">قطاروں میں GPU کا حصہ: %1$d%%</string>

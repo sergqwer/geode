@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Mümkün olduğunda modeli telefonun grafik çipinde çalıştırır: Adreno 7xx veya daha yenisinde yanıtın tamamını; Adreno 618\'de bir istemin büyük çarpımlarının bir kısmını.</string>
     <string name="settings_route_prior">Model belleğe sığmadığında daha hızlı yanıtlar</string>
     <string name="settings_route_prior_desc">Zaten bellekte olan uzmanları tercih eder, böylece depolamadan daha az okunur. Yanıtların ifadesi biraz, bazen de kalitesi değişebilir. Varsayılan olarak kapalı.</string>
-    <string name="settings_npu">İstemleri NPU\'da oku</string>
-    <string name="settings_npu_desc">İstemleri daha hızlı ve biraz daha doğru okumak için telefonun yapay zekâ işlemcisini (Snapdragon Hexagon) kullanır. Yoksa ya da denetimi geçemezse istemleri eskisi gibi GPU veya CPU okur.</string>
+    <string name="settings_npu">NPU\'yu kullan</string>
+    <string name="settings_npu_desc">Telefonun yapay zekâ işlemcisini (Snapdragon Hexagon) işe yaradığı yerde kullanır: istemleri daha hızlı ve biraz daha doğru okur, Snapdragon 8 Elite\'te ayrıca 35B modelin uzmanlarının bir kısmını üstlenir ve hafif modeli tamamen çalıştırır. Yoksa ya da denetimi geçemezse GPU ve CPU eskisi gibi çalışır.</string>
     <string name="settings_word_experts">Kelime başına uzman</string>
     <string name="settings_word_experts_desc">8 (varsayılan): modelin seçtiği tüm uzmanlar, tam kalitesi. 6 veya 4: seçilen son 2 veya 4 uzmandan biri bellekte değilse okunmak yerine atlanır. Model belleğe sığmadığında daha hızlıdır, ancak modelin yanıtları daha az doğru olur.</string>
     <string name="settings_gpu_share">GPU\'nun satır payı: %%%1$d</string>

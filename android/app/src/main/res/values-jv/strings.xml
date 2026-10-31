@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Nglakokake model ing chip grafis telpon yen bisa: kabeh wangsulan ing Adreno 7xx utawa sing luwih anyar; ing Adreno 618, sebagian saka perkalian gedhe ing prompt.</string>
     <string name="settings_route_prior">Wangsulan luwih cepet nalika model ora cukup ing memori</string>
     <string name="settings_route_prior_desc">Ngutamakake expert sing wis ana ing memori, saengga luwih sithik sing diwaca saka panyimpenan. Tembung ing wangsulan bisa rada owah, kadhangkala uga kualitase. Mati kanthi gawan.</string>
-    <string name="settings_npu">Waca prompt nganggo NPU</string>
-    <string name="settings_npu_desc">Nganggo prosesor AI telpon (Snapdragon Hexagon) supaya prompt diwaca luwih cepet lan rada luwih pas. Yen ora ana utawa gagal dipriksa, GPU utawa CPU sing maca kaya biyasane.</string>
+    <string name="settings_npu">Gunakna NPU</string>
+    <string name="settings_npu_desc">Nganggo prosesor AI telpon (Snapdragon Hexagon) ing panggonan sing mbiyantu: prompt diwaca luwih cepet lan rada luwih pas, lan ing Snapdragon 8 Elite uga njupuk sapérangan expert model 35B sarta nglakokaké model entheng kabèh. Yen ora ana utawa gagal dipriksa, GPU lan CPU makarya kaya biyasane.</string>
     <string name="settings_word_experts">Expert saben tembung</string>
     <string name="settings_word_experts_desc">8 (gawan): kabeh expert sing dipilih model, kualitas jangkepe. 6 utawa 4: yen salah siji saka 2 utawa 4 expert pungkasan sing dipilih ora ana ing memori, expert kuwi dilewati, ora diwaca. Luwih cepet yen model ora muat ing memori, nanging wangsulane model dadi kurang akurat.</string>
     <string name="settings_gpu_share">Bagean baris kanggo GPU: %1$d%%</string>

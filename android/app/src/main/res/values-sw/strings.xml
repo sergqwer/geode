@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Huendesha modeli kwenye chipu ya michoro ya simu inapowezekana: jibu zima kwenye Adreno 7xx au mpya zaidi; kwenye Adreno 618, sehemu ya mazidisho makubwa ya kidokezo.</string>
     <string name="settings_route_prior">Majibu ya haraka zaidi modeli isipotosha kwenye kumbukumbu</string>
     <string name="settings_route_prior_desc">Hupendelea wataalamu ambao tayari wako kwenye kumbukumbu, hivyo husoma kidogo kutoka kwenye hifadhi. Majibu yanaweza kubadilika kidogo kimaneno, na mara chache kwa ubora. Imezimwa kwa chaguomsingi.</string>
-    <string name="settings_npu">Soma maagizo kwenye NPU</string>
-    <string name="settings_npu_desc">Hutumia kichakataji cha AI cha simu (Snapdragon Hexagon) kusoma maagizo kwa haraka zaidi na kwa usahihi zaidi kidogo. Kisipokuwepo au kikishindwa ukaguzi, GPU au CPU husoma kama awali.</string>
+    <string name="settings_npu">Tumia NPU</string>
+    <string name="settings_npu_desc">Hutumia kichakataji cha AI cha simu (Snapdragon Hexagon) pale kinaposaidia: husoma maagizo kwa haraka zaidi na kwa usahihi zaidi kidogo, na kwenye Snapdragon 8 Elite pia huchukua sehemu ya wataalamu wa modeli ya 35B na kuendesha modeli nyepesi yote. Kisipokuwepo au kikishindwa ukaguzi, GPU na CPU hufanya kazi kama awali.</string>
     <string name="settings_word_experts">Wataalamu kwa kila neno</string>
     <string name="settings_word_experts_desc">8 (chaguo-msingi): wataalamu wote ambao modeli inawachagua, ubora wake kamili. 6 au 4: ikiwa mmoja wa wataalamu 2 au 4 wa mwisho waliochaguliwa hayuko kwenye kumbukumbu, anarukwa badala ya kusomwa. Ni haraka zaidi modeli isipotosha kwenye kumbukumbu, lakini majibu ya modeli yanakuwa si sahihi sana.</string>
     <string name="settings_gpu_share">Sehemu ya safu mlalo kwa GPU: %1$d%%</string>

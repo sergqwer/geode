@@ -239,8 +239,8 @@
     <string name="settings_gpu_desc">Runs the model on the phone\'s graphics chip where it can: the whole answer on an Adreno 7xx or newer; on the Adreno 618, a share of a prompt\'s big products.</string>
     <string name="settings_route_prior">Faster answers when the model does not fit in memory</string>
     <string name="settings_route_prior_desc">Prefers experts already in memory, so fewer are read from storage. Answers may change a little in wording and occasionally in quality. Off by default.</string>
-    <string name="settings_npu">Read prompts on the NPU</string>
-    <string name="settings_npu_desc">Uses the phone\'s AI processor (Snapdragon Hexagon) to read prompts faster and a little more precisely. Where there is none, or it fails its check, the GPU or CPU reads them as before.</string>
+    <string name="settings_npu">Use the NPU</string>
+    <string name="settings_npu_desc">Uses the phone\'s AI processor (Snapdragon Hexagon) where it helps: it reads prompts faster and a little more precisely, and on the Snapdragon 8 Elite also takes part of the 35B model\'s experts and runs the light model entirely. Where there is none, or it fails its check, the GPU and CPU work as before.</string>
     <string name="settings_word_experts">Experts read for each word</string>
     <string name="settings_word_experts_desc">8 (default): every expert the model picks, its full quality. 6 or 4: when one of the last 2 or 4 picked experts is not in memory, it is skipped instead of read. Faster when the model does not fit in memory, but the model\'s answers become less accurate.</string>
     <string name="settings_gpu_share">GPU\'s share of the rows: %1$d%%</string>

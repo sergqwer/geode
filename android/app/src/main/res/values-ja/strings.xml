@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">可能な場合、端末のグラフィックチップでモデルを実行します。Adreno 7xx以降では回答全体を、Adreno 618ではプロンプトの大きな行列積の一部を処理します。</string>
     <string name="settings_route_prior">モデルがメモリに収まらないときに応答を高速化</string>
     <string name="settings_route_prior_desc">すでにメモリにあるエキスパートを優先し、ストレージからの読み込みを減らします。回答の言い回しが少し変わり、まれに品質にも影響することがあります。既定ではオフです。</string>
-    <string name="settings_npu">プロンプトを NPU で読む</string>
-    <string name="settings_npu_desc">スマートフォンの AI プロセッサ (Snapdragon Hexagon) でプロンプトをより速く、少し正確に読みます。搭載されていない場合やチェックに失敗した場合は、これまでどおり GPU か CPU が読みます。</string>
+    <string name="settings_npu">NPU を使う</string>
+    <string name="settings_npu_desc">効果がある場面でスマートフォンの AI プロセッサ (Snapdragon Hexagon) を使います。プロンプトをより速く、少し正確に読み、Snapdragon 8 Elite では 35B モデルのエキスパートの一部も担当し、軽量モデルを丸ごと実行します。搭載されていない場合やチェックに失敗した場合は、これまでどおり GPU と CPU が処理します。</string>
     <string name="settings_word_experts">1語あたりのエキスパート数</string>
     <string name="settings_word_experts_desc">8（既定）：モデルが選んだすべてのエキスパート。本来の品質です。6 または 4：選ばれた最後の 2 つまたは 4 つのエキスパートがメモリにない場合、読み込まずにスキップします。モデルがメモリに収まらないときは速くなりますが、回答の精度は下がります。</string>
     <string name="settings_gpu_share">GPUが担当する行の割合：%1$d%%</string>

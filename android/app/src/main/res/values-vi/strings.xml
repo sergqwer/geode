@@ -237,8 +237,8 @@
     <string name="settings_gpu_desc">Chạy mô hình trên chip đồ họa của điện thoại khi có thể: toàn bộ câu trả lời trên Adreno 7xx trở lên; trên Adreno 618, một phần các phép nhân ma trận lớn của lời nhắc.</string>
     <string name="settings_route_prior">Trả lời nhanh hơn khi mô hình không vừa bộ nhớ</string>
     <string name="settings_route_prior_desc">Ưu tiên các chuyên gia đã có sẵn trong bộ nhớ để đọc ít hơn từ bộ lưu trữ. Câu trả lời có thể thay đổi đôi chút về cách diễn đạt và đôi khi về chất lượng. Mặc định tắt.</string>
-    <string name="settings_npu">Đọc lời nhắc bằng NPU</string>
-    <string name="settings_npu_desc">Dùng bộ xử lý AI của điện thoại (Snapdragon Hexagon) để đọc lời nhắc nhanh hơn và chính xác hơn một chút. Nếu không có hoặc không qua được bước kiểm tra, GPU hoặc CPU sẽ đọc như trước.</string>
+    <string name="settings_npu">Dùng NPU</string>
+    <string name="settings_npu_desc">Dùng bộ xử lý AI của điện thoại (Snapdragon Hexagon) ở những chỗ có ích: đọc lời nhắc nhanh hơn và chính xác hơn một chút, và trên Snapdragon 8 Elite còn đảm nhận một phần chuyên gia của mô hình 35B và chạy toàn bộ mô hình nhẹ. Nếu không có hoặc không qua được bước kiểm tra, GPU và CPU sẽ làm việc như trước.</string>
     <string name="settings_word_experts">Số chuyên gia cho mỗi từ</string>
     <string name="settings_word_experts_desc">8 (mặc định): tất cả chuyên gia mà mô hình chọn, chất lượng đầy đủ. 6 hoặc 4: nếu một trong 2 hoặc 4 chuyên gia được chọn cuối cùng không có trong bộ nhớ, nó sẽ bị bỏ qua thay vì được đọc. Nhanh hơn khi mô hình không vừa bộ nhớ, nhưng câu trả lời của mô hình kém chính xác hơn.</string>
     <string name="settings_gpu_share">Phần hàng dành cho GPU: %1$d%%</string>
