@@ -13,6 +13,10 @@
     <!-- the web chat's QR sign-in: the browser's code read on the phone (no picture kept or sent) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- voice messages for models that hear (Gemma 4): recorded while the user holds the button, heard on the phone,
+         never sent; a phone without a microphone still gets the app -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:name=".GeodeApp"
