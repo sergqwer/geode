@@ -252,6 +252,10 @@ class ApiEngine(private val app: GeodeApp) {
     }
 
     private suspend fun generate(req: GenRequest, callPrefix: String, send: suspend (GenEvent) -> Unit): GenResult {
+        // the user's stops so far: one that comes while this request waits for the engine (or opens the model) ends
+        // it before it generates (the engine's STOP only reaches what it already runs)
+        val stops = app.engine.stops
+        val stopped = { app.engine.stops != stops }
         val model = model()
         val s = app.settings.flow.first()
         val tok = withContext(Dispatchers.IO) { app.tokenizer(model.dir) }
@@ -261,6 +265,7 @@ class ApiEngine(private val app: GeodeApp) {
         val toolsKey = Json.write(req.tools) + if (tpl.modelOpensReasoning) "|thinking=${req.thinking}" else ""
         return app.gate.use(this) { kept ->
             if (!kept) held = null
+            if (stopped()) throw ApiError(500, STOPPED)
             // the shared start a read ahead left in the engine: this request's, if it begins with it
             val background = currentCoroutineContext()[xyz.tifu.geode.engine.EngineGate.Background] != null
             // the shared start a read ahead left in the engine: this request's, if it begins with it (and the
@@ -332,7 +337,7 @@ class ApiEngine(private val app: GeodeApp) {
             }
             send(GenEvent.Started(used + p.size, used))
             val out = Output(req, tpl, tok.decode(intArrayOf(tpl.callStart)), p.reasoning, tok.StreamDecoder(), send)
-            val done = stream(tpl, p, mediaFiles, req, s, maxTokens, out)
+            val done = stream(tpl, p, mediaFiles, req, s, maxTokens, out, stopped)
             out.end()
             val ok = done.code == GeodeNative.OK || (done.code == GeodeNative.E_STOPPED && out.received > 0)
             if (!ok) {
@@ -543,7 +548,8 @@ class ApiEngine(private val app: GeodeApp) {
      * is cancelled (the client went away) the engine is stopped and waited for, so the next request finds it free.
      */
     private suspend fun stream(tpl: ApiTemplate, prompt: Prompt, mediaFiles: List<EngineMedia>,
-                               req: GenRequest, s: AppSettings, maxTokens: Int, out: Output): EngineEvent.Done =
+                               req: GenRequest, s: AppSettings, maxTokens: Int, out: Output,
+                               stopped: () -> Boolean): EngineEvent.Done =
         coroutineScope {
             val events = Channel<EngineEvent>(Channel.UNLIMITED)
             // subscribed before the request goes out: the events have no replay
@@ -556,10 +562,19 @@ class ApiEngine(private val app: GeodeApp) {
                 presencePenalty = req.presencePenalty ?: s.presencePenalty,
                 seed = req.seed ?: System.nanoTime(),
             )
+            // a stop sequence the content met ends the generation itself (its tokens past it would only be dropped):
+            // the engine stops, and its Done (E_STOPPED, tokens received: a normal end) closes the request
+            var stopping = false
             suspend fun pump(): EngineEvent.Done {
                 while (true) {
                     when (val e = events.receive()) {
-                        is EngineEvent.Token -> out.token(e.id)
+                        is EngineEvent.Token -> {
+                            out.token(e.id)
+                            if (out.stopHit != null && !stopping) {
+                                stopping = true
+                                app.engine.stopRunning()
+                            }
+                        }
                         is EngineEvent.Done -> return e
                         else -> Unit
                     }
@@ -571,6 +586,11 @@ class ApiEngine(private val app: GeodeApp) {
                 // (a model that opens its reasoning itself is held to the budget as well: reasoning asked for)
                 val reasons = out.reasoning || (tpl.modelOpensReasoning && req.thinking)
                 val budget = if (reasons && thinkBudget > 0) minOf(thinkBudget, maxTokens) else maxTokens
+                // the user stopped while it got here: nothing sent to the engine (what it holds is as it was)
+                if (stopped()) {
+                    finished = true
+                    return@coroutineScope EngineEvent.Done(GeodeNative.E_STOPPED, STOPPED, null)
+                }
                 app.engine.generate(prompt.ids, sampling(budget), tpl.stopTokens, mediaFiles)
                 var done = pump()
                 if (done.code == GeodeNative.OK && out.received >= budget && budget < maxTokens &&
@@ -596,7 +616,7 @@ class ApiEngine(private val app: GeodeApp) {
                 listener.cancel()
                 if (!finished) withContext(NonCancellable) {
                     held = null
-                    app.engine.stop()
+                    app.engine.stopRunning()
                     withTimeoutOrNull(STOP_WAIT_MS) { app.engine.running.first { !it } }
                 }
             }
@@ -787,5 +807,7 @@ class ApiEngine(private val app: GeodeApp) {
         private const val SAVE_IDLE_MS = 5_000L
         const val KEEPALIVE_MS = 10_000L
         private const val STOP_WAIT_MS = 30_000L
+        /** A request the user stopped before it generated. */
+        private const val STOPPED = "Stopped."
     }
 }

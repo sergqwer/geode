@@ -268,7 +268,8 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
     private fun stop(r: HttpResponder) {
         if (running != null) {
             runningJob?.cancel()
-            if (app.gate.holder.value === engine) app.engine.stop()
+            // its own turn only (not the phone's it may be waiting for); before the engine has it too
+            if (app.agent.turn.value == running) app.engine.stop()
         }
         r.json(200, mapOf("ok" to true))
     }

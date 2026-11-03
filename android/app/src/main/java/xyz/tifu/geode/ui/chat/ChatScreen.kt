@@ -329,7 +329,7 @@ private fun ChatInfo(st: ChatUiState, run: xyz.tifu.geode.engine.EngineRun?, unl
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 8.dp))
                     Text(xyz.tifu.geode.ui.runModeText(run), style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton(onClick = onUnload, enabled = !unloading && !st.generating,
+                    OutlinedButton(onClick = onUnload, enabled = !unloading,
                         modifier = Modifier.padding(top = 8.dp)) {
                         Text(stringResource(if (unloading) R.string.models_unloading else R.string.models_unload))
                     }

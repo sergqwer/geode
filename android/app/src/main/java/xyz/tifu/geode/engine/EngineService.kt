@@ -22,14 +22,27 @@ class EngineService : Service() {
     private val ipc = HandlerThread("geode-ipc").apply { start() }
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "geode-worker") }
     @Volatile private var handle = 0L
-    /** STOP arrived while a request's images were encoded (geode_generate would not see it). */
-    @Volatile private var stopped = false
+    /**
+     * The GENERATE and PREFILL requests are numbered as they come (on the ipc thread, in order): a STOP stops every one
+     * that came before it - the one running, its media still to encode, those still queued behind it - and none that
+     * comes after. (A flag the next request cleared lost a STOP that came before that request started: the answer
+     * then ran to its end.)
+     */
+    private var queued = 0L
+    /** The last request a STOP stopped (ipc thread writes, the worker and the engine's thread read). */
+    @Volatile private var stopUpTo = 0L
+    /** The request the worker runs now (0: none); changed and looked at under [runLock]: a late re-stop that saw a
+     *  stopped request cannot land on the next one starting meanwhile. */
+    @Volatile private var running = 0L
+    private val runLock = Any()
+    private lateinit var ipcHandler: Handler
     private lateinit var messenger: Messenger
 
     override fun onCreate() {
         super.onCreate()
         debugEnv()
-        messenger = Messenger(Handler(ipc.looper) { msg -> onMessage(msg); true })
+        ipcHandler = Handler(ipc.looper) { msg -> onMessage(msg); true }
+        messenger = Messenger(ipcHandler)
     }
 
     /**
@@ -61,10 +74,13 @@ class EngineService : Service() {
         val data = msg.data
         when (msg.what) {
             P.OPEN -> worker.execute { open(data, reply) }
-            P.GENERATE -> worker.execute { generate(data, reply) }
+            P.GENERATE -> {
+                val seq = ++queued
+                worker.execute { generate(data, reply, seq) }
+            }
             P.STOP -> {
-                stopped = true
-                handle.takeIf { it != 0L }?.let { GeodeNative.stop(it) }
+                stopUpTo = queued
+                stopRunning()
             }
             P.RESET -> worker.execute { handle.takeIf { it != 0L }?.let { GeodeNative.reset(it) } }
             P.CLOSE -> worker.execute { closeModel() }
@@ -78,11 +94,19 @@ class EngineService : Service() {
             P.LOAD -> worker.execute {
                 state(reply, P.LOADED) { h, err -> GeodeNative.stateLoad(h, data.getString(P.K_PATH).orEmpty(), err) }
             }
-            P.PREFILL -> worker.execute {
-                stopped = false
-                state(reply, P.PREFILLED) { h, err ->
-                    val rc = GeodeNative.prefill(h, data.getIntArray(P.K_PROMPT) ?: IntArray(0), err)
-                    if (rc == GeodeNative.OK) GeodeNative.stats(h)[5].toInt() else -rc
+            P.PREFILL -> {
+                val seq = ++queued
+                worker.execute {
+                    synchronized(runLock) { running = seq }
+                    try {
+                        state(reply, P.PREFILLED) { h, err ->
+                            val rc = if (stopped(seq)) GeodeNative.E_STOPPED
+                            else GeodeNative.prefill(h, data.getIntArray(P.K_PROMPT) ?: IntArray(0), err)
+                            if (rc == GeodeNative.OK) GeodeNative.stats(h)[5].toInt() else -rc
+                        }
+                    } finally {
+                        synchronized(runLock) { running = 0L }
+                    }
                 }
             }
             P.RESERVE -> worker.execute { reserve(data.getLong(P.K_BYTES), reply) }
@@ -147,7 +171,33 @@ class EngineService : Service() {
         })
     }
 
-    private fun generate(data: Bundle, reply: Messenger?) {
+    private fun stopped(seq: Long) = seq <= stopUpTo
+
+    /**
+     * The engine told to stop the request running now. geode_generate clears the engine's flag as it begins, so a STOP
+     * that comes in the moment between the worker's last look and that would be lost: told again a little later while
+     * a stopped request still runs.
+     */
+    private fun stopRunning() {
+        handle.takeIf { it != 0L }?.let { GeodeNative.stop(it) }
+        for (ms in RESTOP_MS) ipcHandler.postDelayed({
+            synchronized(runLock) {
+                val r = running
+                if (r != 0L && stopped(r)) handle.takeIf { it != 0L }?.let { GeodeNative.stop(it) }
+            }
+        }, ms)
+    }
+
+    private fun generate(data: Bundle, reply: Messenger?, seq: Long) {
+        synchronized(runLock) { running = seq }
+        try {
+            generateNow(data, reply, seq)
+        } finally {
+            synchronized(runLock) { running = 0L }
+        }
+    }
+
+    private fun generateNow(data: Bundle, reply: Messenger?, seq: Long) {
         val h = handle
         if (h == 0L) {
             send(reply, Message.obtain(null, P.DONE, -1, 0).apply {
@@ -156,7 +206,16 @@ class EngineService : Service() {
             return
         }
         val err = arrayOfNulls<String>(1)
-        stopped = false
+        // stopped before it began: nothing read, nothing changed
+        if (stopped(seq)) {
+            send(reply, Message.obtain(null, P.DONE, GeodeNative.E_STOPPED, 0).apply {
+                this.data = Bundle().apply {
+                    putString(P.K_ERROR, "stopped")
+                    putLongArray(P.K_STATS, GeodeNative.stats(h))
+                }
+            })
+            return
+        }
         // the prompt's media first, in order: each read from the UI's file and encoded (seconds each)
         val images = data.getStringArray(P.K_IMAGES) ?: emptyArray()
         if (images.isNotEmpty()) {
@@ -166,7 +225,7 @@ class EngineService : Service() {
             send(reply, Message.obtain(null, P.ENCODING, 1, 0))
             var code = GeodeNative.OK
             for (i in images.indices) {
-                if (stopped) {
+                if (stopped(seq)) {
                     code = GeodeNative.E_STOPPED
                     break
                 }
@@ -191,7 +250,7 @@ class EngineService : Service() {
                     break
                 }
             }
-            if (code == GeodeNative.OK && stopped) code = GeodeNative.E_STOPPED
+            if (code == GeodeNative.OK && stopped(seq)) code = GeodeNative.E_STOPPED
             send(reply, Message.obtain(null, P.ENCODING, 0, 0))
             if (code != GeodeNative.OK) {
                 // the images added so far would wait for pads that are not coming: the conversation goes
@@ -217,7 +276,8 @@ class EngineService : Service() {
                         this.data = Bundle().apply { putLongArray(P.K_STATS, GeodeNative.stats(h)) }
                     })
                 }
-                !send(reply, Message.obtain(null, P.TOKEN, token, 0))
+                // true: stop (the UI is gone, or a STOP came for this request - the engine's own flag may have missed it)
+                !send(reply, Message.obtain(null, P.TOKEN, token, 0)) || stopped(seq)
             },
             err,
         )
@@ -281,6 +341,8 @@ class EngineService : Service() {
     }
 
     private companion object {
+        /** When a stopped request still runs, the engine is told again (ms after the STOP). */
+        private val RESTOP_MS = longArrayOf(50, 250, 1000)
         const val STATS_EVERY = 8
 
         /** An image's feature file: beside its raw RGB in ImageStore's cache. */

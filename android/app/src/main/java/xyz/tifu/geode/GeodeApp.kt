@@ -97,6 +97,16 @@ class GeodeApp : Application() {
     private var tokenizerDir: String? = null
     private var tokenizerCached: Tokenizer? = null
 
+    /**
+     * The model out of memory now (the Models screen's Unload, the chat's details): an answer running - the chat's, the
+     * web chat's, the local server's - is stopped first, not waited for; nothing in the background opens it again.
+     */
+    suspend fun unloadNow() {
+        agent.cancelTurn()
+        engine.stop()
+        gate.unload(engine)
+    }
+
     /** The model's tokenizer, one kept (the chat and the local server share it: ~10 MB); off the main thread. */
     @Synchronized
     fun tokenizer(modelDir: File): Tokenizer {

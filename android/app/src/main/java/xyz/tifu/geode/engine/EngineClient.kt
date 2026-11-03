@@ -341,7 +341,20 @@ class EngineClient(private val context: Context) : ServiceConnection {
         putIntArray(P.K_IMAGE_H, intArrayOf(h))
     })
 
-    fun stop() = send(P.STOP, Bundle())
+    /** How many times the user stopped (a chat's Stop, an unload): a request that came before the last one is not
+     *  answered even when it reaches the engine after it (ApiEngine looks before it generates). */
+    private val userStops = java.util.concurrent.atomic.AtomicLong()
+    val stops: Long get() = userStops.get()
+
+    /** The user's stop: the answer running and every request that came before now. */
+    fun stop() {
+        userStops.incrementAndGet()
+        send(P.STOP, Bundle())
+    }
+
+    /** The generation running now stopped (a stop sequence met, background work giving the engine up): not a
+     *  request waiting for the engine. */
+    fun stopRunning() = send(P.STOP, Bundle())
     fun reset() = send(P.RESET, Bundle())
 
     fun close() {

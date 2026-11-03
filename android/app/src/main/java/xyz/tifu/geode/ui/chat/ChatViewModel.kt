@@ -165,17 +165,18 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     /** The model in memory and how it runs (null: none), for the chat's details. */
     val engineRun: StateFlow<xyz.tifu.geode.engine.EngineRun?> = app.engine.run
 
-    /** Unloading the model now (it waits for an answer running to end). */
+    /** Unloading the model now (an answer running is stopped first). */
     private val _unloading = MutableStateFlow(false)
     val unloading: StateFlow<Boolean> = _unloading.asStateFlow()
 
-    /** The model out of memory (after an answer running ends); the next message loads it again. */
+    /** The model out of memory now (an answer running is stopped, not waited for); the next message loads it again. */
     fun unloadModel() {
         if (_unloading.value) return
         _unloading.value = true
+        if (_state.value.generating) stop()
         viewModelScope.launch {
             try {
-                app.gate.unload(app.engine)
+                app.unloadNow()
             } finally {
                 _unloading.value = false
             }
@@ -190,6 +191,8 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     private var chatCreated = 0L
     /** The question running. */
     private var answerJob: Job? = null
+    /** The answer the chat shows as running (a stopped one's own end - the harness's, seconds later - is not it). */
+    private var answering = 0L
     /** The agent's session for this chat (its next message goes on with it). */
     private var agentSession: String? = null
 
@@ -538,13 +541,27 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
                 clips = emptyList(), videos = emptyList())
         }
         persist()
-        answerJob = viewModelScope.launch { agentAnswer(before, user, answer.id) }
+        val turn = ++answering
+        answerJob = viewModelScope.launch { agentAnswer(before, user, answer.id, turn) }
     }
 
-    /** Stops the answer: the agent's run stops whole (its console and whatever it started). */
+    /**
+     * Stops the answer: the agent's run stops whole (its console and whatever it started). At once for the chat: the
+     * answer ends as it is now and the next message can go (it waits for the harness to end the stopped turn, if that
+     * is still under way); the engine stops what it runs or is about to run for this chat.
+     */
     fun stop() {
+        val st = _state.value
+        if (!st.generating) return
+        answering++
         answerJob?.cancel()
-        app.engine.stop()
+        // the engine is this chat's turn's (or about to be): not the web chat's this one may still wait for
+        if (!st.waiting) app.engine.stop()
+        st.messages.lastOrNull { !it.user && it.streaming }?.let { m ->
+            edit(m.id) { it.copy(streaming = false, error = app.getString(R.string.chat_stopped)) }
+        }
+        _state.update { it.copy(generating = false, agentStatus = null, encodingImage = false, waiting = false) }
+        persist()
     }
 
     /** The agent compacts the conversation (its /compact): a summary it goes on from, its context free again. */
@@ -565,7 +582,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
      * [before]: the chat's messages before it - told to the agent when its session has not seen them (a chat from
      * before every chat was the agent's).
      */
-    private suspend fun agentAnswer(before: List<ChatMessage>, user: ChatMessage, id: Long) {
+    private suspend fun agentAnswer(before: List<ChatMessage>, user: ChatMessage, id: Long, turn: Long) {
         val chatId = _state.value.chatId ?: return fail(id, "the chat is not saved")
         val started = System.currentTimeMillis()
         // the speeds, the context and the expert cache's figures of each of the agent's requests, as a chat's
@@ -581,7 +598,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
                             last = e.stats
                             cacheFigures(b, e.stats)
                         }
-                        is EngineEvent.Encoding -> _state.update { it.copy(encodingImage = e.on) }
+                        is EngineEvent.Encoding -> if (turn == answering) _state.update { it.copy(encodingImage = e.on) }
                         else -> Unit
                     }
                 }
@@ -600,8 +617,13 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
                         v.audio?.let { clips.file(it) }?.takeIf { it.isFile }, v.ms)
                 }.filter { v -> v.frames.isNotEmpty() && v.frames.all { it.first.isFile } }
             }
-            val stop = app.agent.prompt(chatId, agentSession, task, files, sounds, films) { e -> onAgent(id, e) }
+            // (a stopped answer's last updates, while the harness ends its turn, change nothing)
+            val stop = app.agent.prompt(chatId, agentSession, task, files, sounds, films) { e ->
+                if (turn == answering || e is AgentEvent.Session) onAgent(id, e)
+            }
             if (stop == "max_tokens") edit(id) { it.copy(error = app.getString(R.string.agent_max_tokens)) }
+            // cancelled from elsewhere (an unload)
+            if (stop == "cancelled") edit(id) { it.copy(error = app.getString(R.string.chat_stopped)) }
         } catch (e: CancellationException) {
             withContext(NonCancellable) { edit(id) { it.copy(error = app.getString(R.string.chat_stopped)) } }
             throw e
@@ -614,7 +636,9 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
                 AgentTurns.changedSince(app.agent.workspace(chatId), started)
             }
             edit(id) { it.finished(made) }
-            _state.update { it.copy(generating = false, agentStatus = null, encodingImage = false, waiting = false) }
+            // (a stopped answer freed the chat already: a newer one may run now)
+            if (turn == answering)
+                _state.update { it.copy(generating = false, agentStatus = null, encodingImage = false, waiting = false) }
             persist()
             // the share of expert picks the cache served: the Benchmark tab's speed estimate uses it
             val b = base

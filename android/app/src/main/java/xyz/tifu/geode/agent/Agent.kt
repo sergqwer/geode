@@ -357,7 +357,7 @@ class Agent(private val app: GeodeApp) {
         android.util.Log.i(TAG, "the shared start read ahead: giving the engine up (it was reading: ${app.gate.backgroundIn})")
         yielded = true
         r.cancel()
-        if (app.gate.backgroundIn) app.engine.stop()
+        if (app.gate.backgroundIn) app.engine.stopRunning()
     }
 
     /**
@@ -471,6 +471,12 @@ class Agent(private val app: GeodeApp) {
     /** The app went to the background: an idle harness goes (a frozen one would keep its RAM). */
     fun stopIfIdle() {
         if (!busy && reading == null) stop()
+    }
+
+    /** The turn running cancelled in the harness (whoever's it is: the phone's chat, the web chat's) - an unload does
+     *  not wait for it. The turn ends as "cancelled" (its prompt returns). */
+    fun cancelTurn() {
+        if (_turn.value != null) live?.cancelTurn()
     }
 
     /** The harness gone (the agent off, another chat, the app in the background): RAM back to the model. */
@@ -735,6 +741,11 @@ private class Harness(
         } finally {
             onUpdate = null
         }
+    }
+
+    /** Its turn running cancelled (session/cancel): its prompt returns "cancelled". */
+    fun cancelTurn() {
+        if (pending.isNotEmpty()) notify("session/cancel", mapOf("sessionId" to sessionId))
     }
 
     private fun commands(u: Map<String, Any?>): List<AgentCommand> =

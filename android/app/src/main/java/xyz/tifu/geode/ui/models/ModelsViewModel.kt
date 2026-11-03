@@ -154,13 +154,14 @@ class ModelsViewModel(private val app: GeodeApp) : ViewModel() {
         viewModelScope.launch { app.settings.setSelectedModel(m.id) }
     }
 
-    /** The model out of memory now (after an answer running ends); nothing in the background loads it again. */
+    /** The model out of memory now (an answer running is stopped, not waited for); nothing in the background loads it
+     *  again. */
     fun unload() {
         if (_state.value.unloading) return
         _state.update { it.copy(unloading = true, loadError = null) }
         viewModelScope.launch {
             try {
-                app.gate.unload(app.engine)
+                app.unloadNow()
             } finally {
                 _state.update { it.copy(unloading = false) }
             }
