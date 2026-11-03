@@ -11,12 +11,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(geode_core STATIC
     src/bench.cpp
     src/experts.cpp
+    src/gemma.cpp
     src/geode.cpp
     src/json.cpp
     src/kernels.cpp
     src/model.cpp
     src/pack.cpp
     src/vision.cpp
+    src/media.cpp
+    src/audio.cpp
+    src/drafter.cpp
     src/platform.cpp
     src/sampler.cpp
     src/state.cpp
@@ -94,8 +98,12 @@ if(GEODE_TOOLS)
     endif()
     add_executable(geode-vision tools/vision.cpp)
     target_link_libraries(geode-vision PRIVATE geode_core)
+    add_executable(geode-audio tools/audio.cpp)
+    target_link_libraries(geode-audio PRIVATE geode_core)
     add_executable(geode-state tools/state_test.cpp)
     target_link_libraries(geode-state PRIVATE geode_core)
+    add_executable(geode-draft tools/draft_test.cpp)
+    target_link_libraries(geode-draft PRIVATE geode_core)
     add_executable(geode-spec tools/spec_test.cpp)
     target_link_libraries(geode-spec PRIVATE geode_core)
     add_executable(geode-threads tools/threads_test.cpp)

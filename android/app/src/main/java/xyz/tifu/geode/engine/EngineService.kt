@@ -157,11 +157,12 @@ class EngineService : Service() {
         }
         val err = arrayOfNulls<String>(1)
         stopped = false
-        // the prompt's images first, in order: each read from the UI's file and encoded (seconds each)
+        // the prompt's media first, in order: each read from the UI's file and encoded (seconds each)
         val images = data.getStringArray(P.K_IMAGES) ?: emptyArray()
         if (images.isNotEmpty()) {
             val ws = data.getIntArray(P.K_IMAGE_W) ?: IntArray(0)
             val hs = data.getIntArray(P.K_IMAGE_H) ?: IntArray(0)
+            val kinds = data.getIntArray(P.K_MEDIA_KIND) ?: IntArray(0)
             send(reply, Message.obtain(null, P.ENCODING, 1, 0))
             var code = GeodeNative.OK
             for (i in images.indices) {
@@ -169,13 +170,24 @@ class EngineService : Service() {
                     code = GeodeNative.E_STOPPED
                     break
                 }
-                val rgb = runCatching { File(images[i]).readBytes() }.getOrNull()
-                val r = if (rgb == null || i >= ws.size || i >= hs.size) -GeodeNative.E_IO
-                // the features beside the RGB file (ImageStore's cache): a conversation sent again skips the encoder
-                else GeodeNative.addImage(h, rgb, ws[i], hs[i], featureFile(images[i]), err)
+                val r = when (kinds.getOrElse(i) { EngineMedia.IMAGE }) {
+                    EngineMedia.AUDIO -> {
+                        val pcm = runCatching { xyz.tifu.geode.media.AudioStore.read(File(images[i])) }.getOrNull()
+                        if (pcm == null) -GeodeNative.E_IO else GeodeNative.addAudio(h, pcm, err)
+                    }
+                    else -> {
+                        val rgb = runCatching { File(images[i]).readBytes() }.getOrNull()
+                        if (rgb == null || i >= ws.size || i >= hs.size) -GeodeNative.E_IO
+                        // the features beside the RGB file (ImageStore's cache): a conversation sent again skips the
+                        // encoder
+                        else if (kinds.getOrElse(i) { EngineMedia.IMAGE } == EngineMedia.FRAME)
+                            GeodeNative.addVideoFrame(h, rgb, ws[i], hs[i], featureFile(images[i]), err)
+                        else GeodeNative.addImage(h, rgb, ws[i], hs[i], featureFile(images[i]), err)
+                    }
+                }
                 if (r < 0) {
                     code = -r
-                    if (err[0] == null) err[0] = "cannot read the image"
+                    if (err[0] == null) err[0] = "cannot read the image or the sound"
                     break
                 }
             }

@@ -73,15 +73,19 @@ int read_prompt(geode_model &m, const int32_t *prompt, int32_t n_prompt, bool &s
     if (m.pending >= 0) feed.push_back(m.pending);
     feed.insert(feed.end(), prompt, prompt + n_prompt);
     if (feed.empty()) return fail(err, err_len, GEODE_E_ARG, "nothing to continue from");
-    // the prompt's image pads are the images added (geode_add_image), every one of them
-    if (m.model.has_vision()) {
-        const int pad = m.model.vision().shape().pad_token;
-        const auto pads = static_cast<int>(std::count(feed.begin(), feed.end(), pad));
+    // the prompt's image and audio pads are the images and clips added (geode_add_image, geode_add_audio), all of them
+    if (m.model.has_vision() || m.model.has_audio()) {
+        const int pad = m.model.has_vision() ? m.model.vision().shape().pad_token : -1;
+        const int apad = m.model.has_audio() ? m.model.audio().shape().pad_token : -1;
+        const int vpad = m.model.has_vision() ? m.model.vision().shape().video_pad : -1;
+        const auto pads = static_cast<int>(std::count_if(feed.begin(), feed.end(), [&](int32_t t) {
+            return (pad >= 0 && t == pad) || (apad >= 0 && t == apad) || (vpad >= 0 && t == vpad);
+        }));
         if (pads != m.model.pending_image_tokens()) {
             const int want = m.model.pending_image_tokens();
             m.model.drop_pending_images();
             return fail(err, err_len, GEODE_E_ARG, "the prompt holds " + std::to_string(pads) +
-                        " image tokens, the images added take " + std::to_string(want));
+                        " image and audio tokens, the images and clips added take " + std::to_string(want));
         }
     }
     if (m.model.position() + static_cast<int>(feed.size()) >= m.model.context_length()) {
@@ -241,13 +245,14 @@ int geode_generate(geode_model *model, const int32_t *prompt, int32_t n_prompt, 
         }
         return tok;
     };
-    // after a token went out: whether to go on (rc set when stopped)
-    const auto more = [&](bool wants_stop) {
+    // after a token went out: whether to go on (rc set when stopped). at: the position one token at a time would be
+    // at (a verified batch has moved the model past the drafts still being read: the context's end is the same then)
+    const auto more = [&](bool wants_stop, int at = -1) {
         if (wants_stop || m.stop.load()) {
             rc = GEODE_E_STOPPED;
             return false;
         }
-        return produced < sampling->max_tokens && m.model.position() + 1 < m.model.context_length();
+        return produced < sampling->max_tokens && (at < 0 ? m.model.position() : at) + 1 < m.model.context_length();
     };
     // the MTP layer's next positions to fill (and draft from): the tokens after them, from the last GPU pass's hidden
     // states (rows 0..), or after the prompt from its last hidden state
@@ -325,7 +330,7 @@ int geode_generate(geode_model *model, const int32_t *prompt, int32_t n_prompt, 
                         ++produced;
                         const bool ws = callback(user, y) != 0;
                         mtp_tok[i] = y;
-                        if (!more(ws)) {
+                        if (!more(ws, P + i + 1)) {
                             stop_now = true;
                             break;
                         }
@@ -406,6 +411,38 @@ int geode_cache_image(geode_model *model, const uint8_t *rgb, int32_t w, int32_t
     std::string e;
     if (!model->model.cache_image(rgb, w, h, cache_path, e))
         return fail(err, err_len, e.find("memory") != std::string::npos ? GEODE_E_MEMORY : GEODE_E_IO, e);
+    return GEODE_OK;
+}
+
+int geode_add_video_frame(geode_model *model, const uint8_t *rgb, int32_t w, int32_t h, const char *cache_path,
+                          int32_t *n_tokens, char *err, size_t err_len) {
+    if (!model || !rgb || w <= 0 || h <= 0) return fail(err, err_len, GEODE_E_ARG, "bad arguments");
+    if (!model->model.has_vision() || model->model.vision().shape().video_pad < 0)
+        return fail(err, err_len, GEODE_E_NOT_IMPLEMENTED, "no video: " + model->model.vision_status());
+    std::string e;
+    int n = 0;
+    if (!model->model.add_video_frame(rgb, w, h, cache_path ? cache_path : "", n, e))
+        return fail(err, err_len, e.find("memory") != std::string::npos ? GEODE_E_MEMORY : GEODE_E_IO, e);
+    if (n_tokens) *n_tokens = n;
+    return GEODE_OK;
+}
+
+int32_t geode_audio_tokens(geode_model *model, int64_t n_samples) {
+    if (!model || !model->model.has_audio()) return 0;
+    return model->model.audio().tokens(n_samples);
+}
+
+int geode_add_audio(geode_model *model, const float *pcm, int64_t n_samples, int32_t *n_tokens, char *err,
+                    size_t err_len) {
+    if (!model || !pcm || n_samples <= 0) return fail(err, err_len, GEODE_E_ARG, "bad arguments");
+    if (!model->model.has_audio())
+        return fail(err, err_len, GEODE_E_NOT_IMPLEMENTED, "no audio encoder: " + model->model.audio_status());
+    std::string e;
+    int n = 0;
+    if (!model->model.add_audio(pcm, n_samples, n, e))
+        return fail(err, err_len, e.find("memory") != std::string::npos ? GEODE_E_MEMORY
+                                  : e.find("too short") != std::string::npos ? GEODE_E_ARG : GEODE_E_IO, e);
+    if (n_tokens) *n_tokens = n;
     return GEODE_OK;
 }
 
@@ -497,12 +534,14 @@ void geode_profile(geode_model *model, char *buf, size_t len) {
     const auto &m = model->model;
     char spec[16];
     if (!m.can_draft()) std::snprintf(spec, sizeof spec, "off");
+    else if (m.has_drafter()) std::snprintf(spec, sizeof spec, "cpu:%d", m.spec_tokens());
     else if (m.speculates_on_cpu()) std::snprintf(spec, sizeof spec, "cpu:2");
     else std::snprintf(spec, sizeof spec, "gpu:%d", m.spec_tokens());
-    std::snprintf(buf, len, "prompt: %s\nanswer: %s\nGPU: %s\nNPU: %s\nrun: threads=%d spec=%s\n%s",
+    const std::string vision = m.has_vision() ? m.vision().profile() : "vision: " + m.vision_status();
+    const std::string audio = "audio: " + (m.has_audio() ? m.audio().profile() : m.audio_status());
+    std::snprintf(buf, len, "prompt: %s\nanswer: %s\nGPU: %s\nNPU: %s\nrun: threads=%d spec=%s\n%s\n%s",
                   model->prompt_profile.c_str(), m.profile().c_str(), m.gpu_status().c_str(), m.npu_status().c_str(),
-                  m.compute_threads(), spec,
-                  m.has_vision() ? m.vision().profile().c_str() : ("vision: " + m.vision_status()).c_str());
+                  m.compute_threads(), spec, vision.c_str(), audio.c_str());
 }
 
 int geode_bench(const char *what, const char *arg, char *out, size_t out_len) {

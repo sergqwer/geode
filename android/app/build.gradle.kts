@@ -33,8 +33,8 @@ android {
         // 30: ActivityManager.getHistoricalProcessExitReasons for the memory test
         minSdk = 30
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.9.11"
+        versionCode = 13
+        versionName = "0.9.12"
         buildConfigField("byte[]", "SITE_MASK", javaBytes(siteMask))
         buildConfigField("byte[]", "SITE_KEY",
             javaBytes(ByteArray(siteKey.size) { (siteKey[it].toInt() xor siteMask[it].toInt()).toByte() }))
@@ -108,10 +108,12 @@ android {
         generateLocaleConfig = false
     }
     testOptions {
-        // TokenizerTest reads what tools/tokbin.py wrote
+        // TokenizerTest and GemmaTokenizerTest read what tools/tokbin.py wrote
         unitTests.all {
             it.systemProperty("geode.tokdir", rootProject.file("../work/tok").absolutePath)
             it.inputs.files(rootProject.fileTree("../work/tok"))
+            it.systemProperty("geode.gemmatokdir", rootProject.file("../work/tok-gemma").absolutePath)
+            it.inputs.files(rootProject.fileTree("../work/tok-gemma"))
         }
     }
 }

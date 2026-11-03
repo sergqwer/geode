@@ -11,7 +11,9 @@
 
 namespace geode {
 
-enum class DType : uint8_t { F32, BF16, Q2, Q3, NVFP4, Q8, Q4, Unknown };
+// Q4I (Gemma 4's QAT Q4_0): q4's nibbles with the levels code - 8 and signed block scales (tools/geodepack.py); after
+// Unknown so the older values stay what they were
+enum class DType : uint8_t { F32, BF16, Q2, Q3, NVFP4, Q8, Q4, Unknown, Q4I };
 
 DType dtype_from_name(const std::string &name);
 const char *dtype_name(DType t);
@@ -128,7 +130,8 @@ inline float bf16_to_f32(uint16_t v) {
     return f;
 }
 
-// x / rms(x) * (1 + w) (Qwen3.6's zero-centred norm) or * w (plain); computed in f32 as transformers does.
+// x / rms(x) * (1 + w) (Qwen3.6's zero-centred norm) or * w (plain); computed in f32 as transformers does. w nullptr:
+// no weight (Gemma 4's value norm).
 void rmsnorm(const float *x, const float *w, float *out, int n, float eps, bool zero_centered);
 
 inline float silu(float x) { return x / (1.0f + std::exp(-x)); }

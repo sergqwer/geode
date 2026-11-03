@@ -53,7 +53,8 @@ bool Pack::open(const std::string &dir, std::string &err) {
         err = "not a geode-pack v1 (format '" + m["format"].str() + "')";
         return false;
     }
-    if (m["arch"].str() != "qwen35moe" && m["arch"].str() != "qwen35") {   // qwen35: the dense models (Qwen3.5-2B)
+    const bool gemma = m["arch"].str() == "gemma4";   // Gemma 4 E2B / E4B (tools/pack_gemma4.py)
+    if (m["arch"].str() != "qwen35moe" && m["arch"].str() != "qwen35" && !gemma) {   // qwen35: the dense models (Qwen3.5-2B)
         err = "unknown architecture '" + m["arch"].str() + "'";
         return false;
     }
@@ -108,6 +109,40 @@ bool Pack::open(const std::string &dir, std::string &err) {
         return false;
     }
     for (int l = 0; l < k.n_layers; ++l) k.attention.push_back(types.at(static_cast<size_t>(l)).str() == "full_attention");
+    if (gemma) {
+        k.gemma = k.dense = true;
+        k.n_experts = k.top_k = k.moe_ff = 0;
+        const auto ints = [&](const char *key, std::vector<int> &out) {
+            const auto &a = c[key];
+            for (size_t i = 0; i < a.size(); ++i) out.push_back(static_cast<int>(a.at(i).i64()));
+            return static_cast<int>(out.size()) == k.n_layers;
+        };
+        const auto &th = c["rope_thetas"];
+        for (size_t i = 0; i < th.size(); ++i) k.rope_thetas.push_back(static_cast<float>(th.at(i).f64()));
+        if (!ints("kv_layer", k.kv_layer) || !ints("ffn", k.ffn) || !ints("head_dims", k.head_dims) ||
+            !ints("rotary_pairs", k.rot_pairs) || static_cast<int>(k.rope_thetas.size()) != k.n_layers) {
+            err = "geode.json: a gemma4 pack needs kv_layer, ffn, head_dims, rotary_pairs and rope_thetas per layer";
+            return false;
+        }
+        k.window = geti(c, "sliding_window");
+        k.ple_dim = geti(c, "hidden_size_per_layer_input");
+        k.embed_scale = static_cast<float>(c["embed_scale"].f64(1.0));
+        k.softcap = static_cast<float>(c["final_logit_softcapping"].f64(0.0));
+        k.pad_id = static_cast<int>(c["pad_token_id"].i64(0));
+        k.head_dim = *std::max_element(k.head_dims.begin(), k.head_dims.end());
+        k.rope_dim = k.head_dim;
+        k.shared_ff = *std::max_element(k.ffn.begin(), k.ffn.end());
+        for (int l = 0; l < k.n_layers; ++l) {
+            const int src = k.kv_layer[static_cast<size_t>(l)];
+            const size_t i = static_cast<size_t>(l), s = static_cast<size_t>(std::max(0, src));
+            if (src < 0 || src > l || k.kv_layer[s] != src || k.attention[s] != k.attention[i] ||
+                k.head_dims[s] != k.head_dims[i] || k.head_dims[i] % 16 || k.ffn[i] % kBlock ||
+                2 * k.rot_pairs[i] > k.head_dims[i] || k.window <= 0) {
+                err = "geode.json: inconsistent gemma4 layer " + std::to_string(l);
+                return false;
+            }
+        }
+    }
     const bool moe_ok = k.dense ? k.n_experts == 0 && k.shared_ff > 0 && k.shared_ff % kBlock == 0
                                 : k.top_k > 0 && k.top_k <= k.n_experts;
     if (k.hidden <= 0 || k.hidden % kBlock || !moe_ok || k.gdn_v_heads % std::max(1, k.gdn_k_heads) ||
@@ -288,6 +323,18 @@ size_t Pack::max_expert_block_bytes() const {
         for (DType t : x.types) best = std::max(best, expert_block_bytes(t));
     }
     return best;
+}
+
+bool Pack::read_row(const Tensor &t, int64_t r, float *out) const {
+    if (r < 0 || r >= t.rows || !is_quantized(t.type)) return false;
+    const size_t rb = row_bytes(t.type, t.cols);
+    thread_local std::vector<uint8_t> row;
+    row.resize(rb);
+    if (!files_[static_cast<size_t>(t.file)]->read_at(t.offset + static_cast<uint64_t>(r) * rb, row.data(), rb))
+        return false;
+    QView v{t.type, 1, t.cols, rb, row.data(), t.global};
+    dequant_row(v, 0, out);
+    return true;
 }
 
 bool Pack::embedding(int token, float *out) const {

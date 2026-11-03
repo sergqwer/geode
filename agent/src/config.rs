@@ -21,6 +21,10 @@ pub struct Config {
     pub context_window: usize,
     pub max_tokens: usize,
     pub image_input: bool,
+    /// The model hears audio (GEODE_INPUT has "audio": Gemma 4's packs).
+    pub audio_input: bool,
+    /// The model watches video (GEODE_INPUT has "video": Gemma 4's packs with vision).
+    pub video_input: bool,
     /// The app's native library folder: libproot.so, libproot-loader.so, libgeodesearch.so.
     pub libdir: Option<PathBuf>,
     /// The Linux image (shared by every chat, read-mostly).
@@ -57,6 +61,8 @@ impl Config {
             context_window: env::var("GEODE_CONTEXT").ok().and_then(|v| v.parse().ok()).unwrap_or(32768),
             max_tokens: env::var("GEODE_MAX_TOKENS").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_MAX_TOKENS),
             image_input: env::var("GEODE_INPUT").map(|v| v.split(',').any(|s| s.trim() == "image")).unwrap_or(false),
+            audio_input: env::var("GEODE_INPUT").map(|v| v.split(',').any(|s| s.trim() == "audio")).unwrap_or(false),
+            video_input: env::var("GEODE_INPUT").map(|v| v.split(',').any(|s| s.trim() == "video")).unwrap_or(false),
             libdir: path("GEODE_LIBDIR"),
             rootfs: path("GEODE_ROOTFS"),
             proot_tmp: path("GEODE_PROOT_TMP"),
@@ -83,6 +89,8 @@ impl Config {
             context_window: 32768,
             max_tokens: DEFAULT_MAX_TOKENS,
             image_input: true,
+            audio_input: true,
+            video_input: true,
             libdir: None,
             rootfs: None,
             proot_tmp: None,
@@ -98,6 +106,11 @@ impl Config {
             auto_compact: true,
             chat,
         }
+    }
+
+    /// What the model takes besides text.
+    pub fn input(&self) -> crate::msg::Input {
+        crate::msg::Input { image: self.image_input, audio: self.audio_input, video: self.video_input }
     }
 
     pub fn workspace(&self) -> PathBuf {

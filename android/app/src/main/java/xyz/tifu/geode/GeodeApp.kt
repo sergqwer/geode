@@ -73,6 +73,12 @@ class GeodeApp : Application() {
             reports.flush()
             runCatching { xyz.tifu.geode.bench.DeviceReport.flush(this@GeodeApp) }
         }
+        // media no chat holds (attached, never sent) and the local server's copies not used for a day - the agent's
+        // requests make those too, also when the network server is never on
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { xyz.tifu.geode.data.ChatStore(this@GeodeApp).dropUnheldMedia() }
+            runCatching { apiEngine.tidy() }
+        }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_TRANSFERS, getString(R.string.notif_channel_transfers),

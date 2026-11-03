@@ -121,6 +121,9 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
     private fun decode(b64: String): ByteArray =
         runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrElse { throw ApiError(400, "An image's base64 is broken.") }
 
+    private fun decodeAudio(b64: String): ByteArray =
+        runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrElse { throw ApiError(400, "A clip's base64 is broken.") }
+
     // ---- OpenAI ----
 
     private suspend fun openaiParts(model: InstalledModel, content: Any?): List<Part> = when (content) {
@@ -132,6 +135,26 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
                 "text", "input_text" -> Part.Text(p.str("text").orEmpty())
                 "image_url" -> dataUrl(model, (p["image_url"] as? Map<String, Any?>)?.str("url") ?: p.str("image_url")
                     ?: throw ApiError(400, "An image_url part has no url."))
+                // OpenAI's input_audio: base64 bytes and their format (wav, mp3; any Android decodes)
+                "input_audio" -> {
+                    val a = p.obj("input_audio") ?: throw ApiError(400, "An input_audio part has no input_audio.")
+                    val data = a.str("data") ?: throw ApiError(400, "An input_audio part has no data.")
+                    engine.audio(model, decodeAudio(data), a.str("format").orEmpty())
+                }
+                // Geode's input_video: a video's frames (base64 images, each at its second) and its sound (as
+                // input_audio's), as the app's agent sends them
+                "input_video" -> {
+                    val v = p.obj("input_video") ?: throw ApiError(400, "An input_video part has no input_video.")
+                    val frames = (v.list("frames") ?: throw ApiError(400, "An input_video part has no frames.")).map { x ->
+                        val fr = x as? Map<String, Any?> ?: throw ApiError(400, "A video's frame is not an object.")
+                        decode(fr.str("data") ?: throw ApiError(400, "A video's frame has no data.")) to
+                            ((fr["second"] as? Number)?.toInt() ?: 0)
+                    }
+                    val sound = v.obj("audio")?.let { a ->
+                        decodeAudio(a.str("data") ?: throw ApiError(400, "A video's sound has no data.")) to a.str("format").orEmpty()
+                    }
+                    engine.video(model, frames, sound)
+                }
                 else -> throw ApiError(400, "Content parts of type ${p.str("type")} are not supported.")
             }
         }
@@ -160,7 +183,8 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
                         }
                         ToolCall((tc as Map<String, Any?>).str("id").orEmpty(), f.str("name").orEmpty(), args)
                     })
-                "tool", "function" -> out += TemplateMessage("tool", openaiParts(model, m["content"]))
+                "tool", "function" -> out += TemplateMessage("tool", openaiParts(model, m["content"]),
+                    toolCallId = m.str("tool_call_id"))
                 else -> throw ApiError(400, "Messages of role $role are not supported.")
             }
         }
@@ -317,7 +341,7 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
                                 "text" -> result += Part.Text(rb.str("text").orEmpty())
                                 "image" -> result += anthropicImage(model, rb)
                             }
-                            out += TemplateMessage("tool", result)
+                            out += TemplateMessage("tool", result, toolCallId = blk.str("tool_use_id"))
                         }
                         "document" -> blk.obj("source")?.takeIf { it.str("type") == "text" }?.str("data")
                             ?.let { parts += Part.Text(it) }

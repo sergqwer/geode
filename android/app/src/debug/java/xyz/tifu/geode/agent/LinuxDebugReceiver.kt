@@ -18,6 +18,8 @@ import java.io.File
  *     adb shell am broadcast -n xyz.tifu.geode/.agent.LinuxDebugReceiver --es op install --es file linux/rootfs.tar.gz
  *     adb shell am broadcast -n xyz.tifu.geode/.agent.LinuxDebugReceiver --es op run --es cmd 'python3 -V'
  *     adb shell am broadcast -n xyz.tifu.geode/.agent.LinuxDebugReceiver --es op attach --es file debug/image.png
+ *     adb shell am broadcast -n xyz.tifu.geode/.agent.LinuxDebugReceiver --es op attach_audio --es file debug/voice.wav
+ *     adb shell am broadcast -n xyz.tifu.geode/.agent.LinuxDebugReceiver --es op attach_video --es file debug/video.mp4
  *
  * The result goes to files/linux/debug.log (adb shell run-as xyz.tifu.geode cat files/linux/debug.log).
  */
@@ -76,6 +78,20 @@ class LinuxDebugReceiver : BroadcastReceiver() {
                         val name = xyz.tifu.geode.vision.ImageStore(app).importChatBytes(src.readBytes())
                         xyz.tifu.geode.util.DebugHooks.attach.tryEmit(name)
                         "attached $name"
+                    }
+                    // a sound file (adb-pushed: any format Android decodes) attached as a clip, as the sound picker would
+                    "attach_audio" -> {
+                        val src = File(app.filesDir, intent.getStringExtra("file") ?: "debug/voice.wav")
+                        val pcm = xyz.tifu.geode.media.AudioDecoder.decode(src)
+                        val name = xyz.tifu.geode.media.AudioStore(app).save(pcm)
+                        xyz.tifu.geode.util.DebugHooks.attachAudio.tryEmit(name)
+                        "attached $name (${pcm.size} samples)"
+                    }
+                    // a video file (adb-pushed) attached to the open chat's next question, as the video picker would
+                    "attach_video" -> {
+                        val src = File(app.filesDir, intent.getStringExtra("file") ?: "debug/video.mp4")
+                        xyz.tifu.geode.util.DebugHooks.attachVideo.tryEmit(android.net.Uri.fromFile(src))
+                        "attaching ${src.name} (${src.length()} bytes)"
                     }
                     "kvtest" -> kvTest(app as xyz.tifu.geode.GeodeApp) { s -> log.writeText("running kvtest\n$s") }
                     "speed" -> speedTest(app as xyz.tifu.geode.GeodeApp) { s -> log.writeText("running speed\n$s") }

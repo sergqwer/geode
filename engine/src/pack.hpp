@@ -44,6 +44,17 @@ struct ModelConfig {
     // the MTP layer (tools/pack_mtp.py): one full-attention layer that drafts the token after next; its experts are
     // expert layer n_layers
     int mtp_layers = 0;
+    // Gemma 4 (arch "gemma4", tools/pack_gemma4.py; dense, no experts): per layer the layer whose K / V it attends
+    // over (itself, or for a KV-shared layer the last non-shared one of its type), its MLP's width, its head dim, the
+    // rotary pairs it turns and their theta; attention[l] is a full layer (else a sliding one). head_dim is the
+    // largest head dim (the KV cache's rows), shared_ff the widest MLP. The sliding window, the per-layer inputs'
+    // width (0: none), the embedding's scale, the logits' soft cap (0: none); the pad token (a media token's per-layer
+    // input is its row).
+    bool gemma = false;
+    std::vector<int> kv_layer, ffn, head_dims, rot_pairs;
+    std::vector<float> rope_thetas;
+    int window = 0, ple_dim = 0, pad_id = 0;
+    float embed_scale = 1.0f, softcap = 0.0f;
 };
 
 struct ExpertLayer {
@@ -75,6 +86,9 @@ public:
 
     // The embedding row of a token, dequantized (read from flash: the table stays there).
     bool embedding(int token, float *out) const;
+    // Row r of a quantized tensor, dequantized, read from its file (a table that stays on flash: Gemma's per-layer
+    // embeddings)
+    bool read_row(const Tensor &t, int64_t r, float *out) const;
     // q4 experts stored in tile8 (kernels.hpp; geode.json formats.q4.layout, tools/q4_tile8.py)
     bool experts_tile8() const { return experts_tile8_; }
 

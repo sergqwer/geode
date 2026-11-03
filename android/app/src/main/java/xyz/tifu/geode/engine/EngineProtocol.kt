@@ -5,7 +5,8 @@ object EngineProtocol {
     // UI -> engine
     const val OPEN = 1        // data: dir, budget, threads, ioThreads, helpers, context, prefetch, gpu, gpuShare
     const val GENERATE = 2    // data: prompt, temperature, topP, topK, presence, seed, maxTokens, stops; images:
-                              // raw RGB files and their sizes, encoded first (the prompt's image pads, in order)
+                              // the prompt's media in order, encoded first - files and their sizes, media_kind each
+                              // (EngineMedia: an image or a video frame as raw RGB, a clip as 16 kHz float32)
     const val STOP = 3
     const val RESET = 4
     const val CLOSE = 5
@@ -65,6 +66,7 @@ object EngineProtocol {
     const val K_IMAGES = "images"
     const val K_IMAGE_W = "image_w"
     const val K_IMAGE_H = "image_h"
+    const val K_MEDIA_KIND = "media_kind"
     const val K_PATH = "path"
     const val K_APPEND = "append"
     const val K_BYTES = "bytes"

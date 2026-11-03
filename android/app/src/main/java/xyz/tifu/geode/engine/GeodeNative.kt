@@ -37,6 +37,18 @@ object GeodeNative {
      *  tokens, or -(a geode.h code) with the reason in errOut[0]. */
     external fun addImage(handle: Long, rgb: ByteArray, w: Int, h: Int, cache: String?, errOut: Array<String?>): Int
 
+    /** geode_add_video_frame: a video's frame (raw RGB, w x h a size ImageStore.fitGemma gave for a frame's budget)
+     *  for the next prompt's <|video|> pads, as [addImage]. Its tokens, or -(a geode.h code) with the reason in
+     *  errOut[0]. */
+    external fun addVideoFrame(handle: Long, rgb: ByteArray, w: Int, h: Int, cache: String?, errOut: Array<String?>): Int
+
+    /** geode_add_audio: a sound clip (16 kHz mono, [-1, 1]; its first 30 s) for the next prompt's <|audio|> pads,
+     *  encoded now. Its tokens, or -(a geode.h code) with the reason in errOut[0]. */
+    external fun addAudio(handle: Long, pcm: FloatArray, errOut: Array<String?>): Int
+
+    /** geode_audio_tokens: the <|audio|> tokens a clip of [samples] takes; 0: no audio encoder, or too short. */
+    external fun audioTokens(handle: Long, samples: Long): Int
+
     /** geode_cache_image: the image's features into [cache] only (nothing queued for a prompt). A geode.h code. */
     external fun cacheImage(handle: Long, rgb: ByteArray, w: Int, h: Int, cache: String): Int
 

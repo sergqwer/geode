@@ -12,8 +12,15 @@ data class CatalogPack(val pack: HfPack, val manifest: PackManifest)
  * holds a geode.json, its name and description read from that file - a pack added there shows up without an update.
  */
 object Catalog {
-    /** Geode's repositories, each with its packs: the big model first, then the light one for weaker phones. */
-    val REPOS = listOf("Maximilian228/Geode-Qwen3.6-35B-A3B", "Maximilian228/Geode-Qwen3.5-2B")
+    /**
+     * Geode's repositories, each with its packs: the big model first, then the light ones for weaker phones (Gemma 4
+     * E2B, the one that sees video and hears sound, last).
+     */
+    val REPOS = listOf(
+        "Maximilian228/Geode-Qwen3.6-35B-A3B",
+        "Maximilian228/Geode-Qwen3.5-2B",
+        "Maximilian228/Geode-Gemma-4-E2B",
+    )
     private const val REVISION = "main"
 
     /**

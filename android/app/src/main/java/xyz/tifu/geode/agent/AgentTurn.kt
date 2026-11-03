@@ -40,7 +40,7 @@ object AgentTurns {
      * kept when it is long. Empty: nothing before.
      */
     fun earlier(before: List<ChatMessage>): String {
-        val done = before.filter { !it.streaming && it.error == null && (it.text.isNotBlank() || it.images.isNotEmpty()) }
+        val done = before.filter { !it.streaming && it.error == null && (it.text.isNotBlank() || it.images.isNotEmpty() || it.audio.isNotEmpty() || it.videos.isNotEmpty()) }
         if (done.isEmpty()) return ""
         val from = done.indexOfLast { it.summary }.coerceAtLeast(0)
         val lines = done.drop(from).map { m ->
@@ -50,7 +50,9 @@ object AgentTurns {
                 else -> "Assistant"
             }
             val pics = if (m.images.isNotEmpty()) " [${m.images.size} image(s)]" else ""
-            "$who$pics: ${m.text.trim()}"
+            val sounds = if (m.audio.isNotEmpty()) " [${m.audio.size} audio clip(s)]" else ""
+            val films = if (m.videos.isNotEmpty()) " [${m.videos.size} video(s)]" else ""
+            "$who$pics$films$sounds: ${m.text.trim()}"
         }
         var text = lines.joinToString("\n\n")
         if (text.length > EARLIER_MAX) text = "…" + text.takeLast(EARLIER_MAX)

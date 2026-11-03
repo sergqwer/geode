@@ -119,6 +119,58 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_addImage(JNIEnv *e
     return tokens;
 }
 
+// A video's frame for the next prompt (geode_add_video_frame), as addImage. Returns its <|video|> tokens, or -(a
+// GEODE_* code) with the message in errOut[0].
+JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_addVideoFrame(JNIEnv *env, jobject, jlong handle,
+                                                                            jbyteArray rgb, jint w, jint h,
+                                                                            jstring cache, jobjectArray errOut) {
+    const jsize n = env->GetArrayLength(rgb);
+    if (static_cast<int64_t>(n) != static_cast<int64_t>(w) * h * 3) {
+        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, "bad frame size"));
+        return -GEODE_E_ARG;
+    }
+    jbyte *p = env->GetByteArrayElements(rgb, nullptr);
+    const char *c = cache ? env->GetStringUTFChars(cache, nullptr) : nullptr;
+    char err[512] = {0};
+    int32_t tokens = 0;
+    const int rc = geode_add_video_frame(reinterpret_cast<geode_model *>(handle), reinterpret_cast<const uint8_t *>(p),
+                                         w, h, c, &tokens, err, sizeof err);
+    if (c) env->ReleaseStringUTFChars(cache, c);
+    env->ReleaseByteArrayElements(rgb, p, JNI_ABORT);
+    if (rc != GEODE_OK) {
+        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
+        return -rc;
+    }
+    return tokens;
+}
+
+// A sound clip for the next prompt (geode_add_audio): 16 kHz mono floats in [-1, 1]. Returns its <|audio|> tokens,
+// or -(a GEODE_* code) with the message in errOut[0].
+JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_addAudio(JNIEnv *env, jobject, jlong handle,
+                                                                       jfloatArray pcm, jobjectArray errOut) {
+    const jsize n = pcm ? env->GetArrayLength(pcm) : 0;
+    if (n <= 0) {
+        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, "an empty clip"));
+        return -GEODE_E_ARG;
+    }
+    jfloat *p = env->GetFloatArrayElements(pcm, nullptr);
+    char err[512] = {0};
+    int32_t tokens = 0;
+    const int rc = geode_add_audio(reinterpret_cast<geode_model *>(handle), p, n, &tokens, err, sizeof err);
+    env->ReleaseFloatArrayElements(pcm, p, JNI_ABORT);
+    if (rc != GEODE_OK) {
+        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
+        return -rc;
+    }
+    return tokens;
+}
+
+// geode_audio_tokens: the <|audio|> tokens a clip of n samples takes (0: no audio encoder, or too short a clip).
+JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_audioTokens(JNIEnv *, jobject, jlong handle,
+                                                                          jlong samples) {
+    return geode_audio_tokens(reinterpret_cast<geode_model *>(handle), samples);
+}
+
 // geode_cache_image: the image's features into its cache file only. A GEODE_* code.
 JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_cacheImage(JNIEnv *env, jobject, jlong handle,
                                                                          jbyteArray rgb, jint w, jint h, jstring cache) {

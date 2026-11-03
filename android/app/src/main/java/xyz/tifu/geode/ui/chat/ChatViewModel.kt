@@ -31,6 +31,10 @@ import xyz.tifu.geode.agent.finished
 import xyz.tifu.geode.agent.withAgent
 import xyz.tifu.geode.engine.AnswerService
 import xyz.tifu.geode.engine.EngineEvent
+import xyz.tifu.geode.media.AudioDecoder
+import xyz.tifu.geode.media.AudioStore
+import xyz.tifu.geode.media.ClipPlayer
+import xyz.tifu.geode.media.Microphone
 import xyz.tifu.geode.models.InstalledModel
 import xyz.tifu.geode.models.ModelStore
 import xyz.tifu.geode.server.GenResult
@@ -53,11 +57,21 @@ data class ChatMessage(
     val summary: Boolean = false,
     /** A question's images (ImageStore's names), before its text. */
     val images: List<String> = emptyList(),
+    /** A question's sound clips (AudioStore's names: a voice message, a sound file), after its images. */
+    val audio: List<String> = emptyList(),
+    /** A question's videos, as the model watches them (after its images, before its clips). */
+    val videos: List<ChatVideo> = emptyList(),
     /** The agent's answer: what it did on the way (its words between the tools, the tools' calls and results). */
     val steps: List<AgentStep> = emptyList(),
     /** The files the agent made or changed for this answer (paths in its /workspace): shown under it, opened here. */
     val files: List<String> = emptyList(),
 )
+
+/**
+ * A video as the model watches it (VideoDecoder): its frames (ImageStore's names) with the second each is at, its
+ * sound (AudioStore's name; null: none), its length. The file itself is not kept.
+ */
+data class ChatVideo(val frames: List<String>, val seconds: List<Int>, val audio: String?, val ms: Long)
 
 /**
  * One thing the agent did: a tool's call - [tool] its name, [title] what it was asked (a command, a path, a pattern)
@@ -101,6 +115,16 @@ data class ChatUiState(
     val stats: ChatStats = ChatStats(),
     /** Images attached to the next question (ImageStore's names). */
     val attachments: List<String> = emptyList(),
+    /** Sound clips attached to the next question (AudioStore's names). */
+    val clips: List<String> = emptyList(),
+    /** Videos attached to the next question. */
+    val videos: List<ChatVideo> = emptyList(),
+    /** A picked video being turned into its frames and sound. */
+    val preparingVideo: Boolean = false,
+    /** A voice message being recorded: its seconds so far (null: none). */
+    val recording: Float? = null,
+    /** The clip playing back (null: none). */
+    val playing: String? = null,
     /** The engine is encoding the question's images (before it reads the prompt). */
     val encodingImage: Boolean = false,
     /** The question waits: the local server is answering a request. */
@@ -127,8 +151,14 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     private val store = ModelStore(app)
     private val chatStore = ChatStore(app)
     private val images = ImageStore(app)
+    private val clips = AudioStore(app)
+    private val player = ClipPlayer()
     private val _state = MutableStateFlow(ChatUiState())
     val state: StateFlow<ChatUiState> = _state.asStateFlow()
+    private val _notices = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** Short messages for the user (a toast): a recording too short, a sound file not read. */
+    val notices: kotlinx.coroutines.flow.SharedFlow<String> = _notices
     private val _chats = MutableStateFlow<List<ChatInfo>>(emptyList())
     val chats: StateFlow<List<ChatInfo>> = _chats.asStateFlow()
 
@@ -222,9 +252,15 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
                 t != null && t == c && !g
             }.distinctUntilChanged().collect { e -> _state.update { it.copy(answeringElsewhere = e) } }
         }
-        if (xyz.tifu.geode.BuildConfig.DEBUG) viewModelScope.launch {
-            // debug builds: an image attached from adb (LinuxDebugReceiver's attach), as the photo picker would
-            xyz.tifu.geode.util.DebugHooks.attach.collect { name -> _state.update { it.copy(attachments = it.attachments + name) } }
+        if (xyz.tifu.geode.BuildConfig.DEBUG) {
+            // debug builds: an image or a clip attached from adb (LinuxDebugReceiver's attach), as the pickers would
+            viewModelScope.launch {
+                xyz.tifu.geode.util.DebugHooks.attach.collect { name -> _state.update { it.copy(attachments = it.attachments + name) } }
+            }
+            viewModelScope.launch {
+                xyz.tifu.geode.util.DebugHooks.attachAudio.collect { name -> _state.update { it.copy(clips = it.clips + name) } }
+            }
+            viewModelScope.launch { xyz.tifu.geode.util.DebugHooks.attachVideo.collect { attachVideo(it) } }
         }
     }
 
@@ -253,8 +289,16 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         }
         // the title too (a chat's first question names it)
         if (chatTitle.isEmpty()) {
-            chatTitle = msgs.first { it.user }.text.lineSequence().first().take(60)
-                .ifBlank { app.getString(R.string.chat_image_title) }
+            val first = msgs.first { it.user }
+            chatTitle = first.text.lineSequence().first().take(60)
+                .ifBlank {
+                    app.getString(when {
+                        first.images.isNotEmpty() -> R.string.chat_image_title
+                        first.videos.isNotEmpty() -> R.string.chat_video_title
+                        first.audio.isNotEmpty() -> R.string.chat_voice_title
+                        else -> R.string.chat_image_title
+                    })
+                }
             _state.update { it.copy(title = chatTitle) }
         }
         val title = chatTitle
@@ -336,6 +380,128 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     /** A chat image's small copy (on a background thread). */
     fun thumbnail(name: String, px: Int) = images.thumbnail(name, px)
 
+    // ---- sound ----
+
+    private var recordJob: Job? = null
+    private var recordStop: java.util.concurrent.atomic.AtomicBoolean? = null
+
+    /**
+     * A voice message recorded while the button is held ([stopRecording] on its release): attached to the next
+     * question as a clip, a too short one (a tap) dropped. The caller has the microphone's permission.
+     */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun startRecording() {
+        if (recordJob?.isActive == true || _state.value.model?.audio != true) return
+        player.stop()
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        recordStop = stop
+        _state.update { it.copy(recording = 0f, playing = null) }
+        recordJob = viewModelScope.launch {
+            try {
+                val pcm = Microphone.record(stop) { n -> _state.update { it.copy(recording = n.toFloat() / AudioStore.RATE) } }
+                if (pcm.size >= MIN_CLIP) {
+                    val name = withContext(Dispatchers.IO) { clips.save(pcm) }
+                    _state.update { it.copy(clips = it.clips + name) }
+                } else {
+                    _notices.tryEmit(app.getString(R.string.chat_record_hold))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _notices.tryEmit(app.getString(R.string.chat_record_failed, e.message.orEmpty()))
+            } finally {
+                _state.update { it.copy(recording = null) }
+            }
+        }
+    }
+
+    /** The button let go: the recording so far becomes the clip. */
+    fun stopRecording() {
+        recordStop?.set(true)
+    }
+
+    /** A picked sound file into the chat's store (its first 30 s), attached to the next question. */
+    fun attachAudio(uri: Uri) {
+        viewModelScope.launch {
+            val name = withContext(Dispatchers.IO) {
+                runCatching { clips.save(AudioDecoder.decode(app, uri)) }.getOrNull()
+            }
+            if (name == null) _notices.tryEmit(app.getString(R.string.chat_audio_unreadable))
+            else _state.update { it.copy(clips = it.clips + name) }
+        }
+    }
+
+    fun removeClip(name: String) {
+        if (_state.value.playing == name) stopPlaying()
+        _state.update { it.copy(clips = it.clips - name) }
+        viewModelScope.launch(Dispatchers.IO) { clips.delete(listOf(name)) }
+    }
+
+    /**
+     * A picked video into the chat's stores - its frames (about one a second, at most 32) and its sound - attached to
+     * the next question.
+     */
+    fun attachVideo(uri: Uri) {
+        if (_state.value.model?.video != true || _state.value.preparingVideo) return
+        _state.update { it.copy(preparingVideo = true) }
+        viewModelScope.launch {
+            val v = withContext(Dispatchers.IO) { runCatching { importVideo(uri) }.getOrNull() }
+            _state.update { st -> if (v == null) st.copy(preparingVideo = false) else st.copy(preparingVideo = false, videos = st.videos + v) }
+            if (v == null) _notices.tryEmit(app.getString(R.string.chat_video_unreadable))
+        }
+    }
+
+    private fun importVideo(uri: Uri): ChatVideo {
+        val video = xyz.tifu.geode.media.VideoDecoder.decode(app, uri)
+        val names = ArrayList<String>()
+        try {
+            for (f in video.frames) {
+                val bytes = java.io.ByteArrayOutputStream().use { o ->
+                    f.bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, o)
+                    o.toByteArray()
+                }
+                f.bitmap.recycle()
+                names += images.importChatBytes(bytes)
+            }
+            val sound = video.audio?.takeIf { AudioStore.tokens(it.size.toLong()) > 0 }?.let { clips.save(it) }
+            return ChatVideo(names, video.frames.map { it.second }, sound, video.durationMs)
+        } catch (e: Exception) {
+            for (f in video.frames) if (!f.bitmap.isRecycled) f.bitmap.recycle()
+            images.delete(names)
+            throw e
+        }
+    }
+
+    fun removeVideo(v: ChatVideo) {
+        _state.update { it.copy(videos = it.videos - v) }
+        viewModelScope.launch(Dispatchers.IO) {
+            images.delete(v.frames)
+            v.audio?.let { clips.delete(listOf(it)) }
+        }
+    }
+
+    /** A clip's length in seconds (its file's). */
+    fun clipSeconds(name: String): Float = clips.seconds(name)
+
+    /** Plays a clip, or stops it when it is the one playing. */
+    fun togglePlay(name: String) {
+        if (_state.value.playing == name) return stopPlaying()
+        viewModelScope.launch {
+            val pcm = withContext(Dispatchers.IO) { runCatching { AudioStore.read(clips.file(name)) }.getOrNull() } ?: return@launch
+            _state.update { it.copy(playing = name) }
+            val playing = player.play(pcm) { _state.update { if (it.playing == name) it.copy(playing = null) else it } }
+            if (!playing) {
+                _state.update { if (it.playing == name) it.copy(playing = null) else it }
+                _notices.tryEmit(app.getString(R.string.chat_clip_unplayable))
+            }
+        }
+    }
+
+    private fun stopPlaying() {
+        player.stop()
+        _state.update { it.copy(playing = null) }
+    }
+
     /**
      * Reports an answer to the developer (Reports): the reason, the note and, with [include], the answer and the
      * question it answered. [done] gets true when it went, false when it waits for the next start.
@@ -360,11 +526,17 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         val question = text.trim()
         val st = _state.value
         val attached = if (st.model?.vision == true) st.attachments else emptyList()
-        if ((question.isEmpty() && attached.isEmpty()) || st.generating || st.model == null || st.answeringElsewhere) return
+        val heard = if (st.model?.audio == true) st.clips else emptyList()
+        val watched = if (st.model?.video == true) st.videos else emptyList()
+        if ((question.isEmpty() && attached.isEmpty() && heard.isEmpty() && watched.isEmpty()) || st.generating ||
+            st.model == null || st.answeringElsewhere || st.recording != null || st.preparingVideo) return
         val before = st.messages
-        val user = ChatMessage(nextId++, user = true, text = question, images = attached)
+        val user = ChatMessage(nextId++, user = true, text = question, images = attached, audio = heard, videos = watched)
         val answer = ChatMessage(nextId++, user = false, text = "", streaming = true)
-        _state.update { it.copy(messages = it.messages + user + answer, generating = true, attachments = emptyList()) }
+        _state.update {
+            it.copy(messages = it.messages + user + answer, generating = true, attachments = emptyList(),
+                clips = emptyList(), videos = emptyList())
+        }
         persist()
         answerJob = viewModelScope.launch { agentAnswer(before, user, answer.id) }
     }
@@ -421,7 +593,14 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
             if (agentSession == null) agentSession = withContext(Dispatchers.IO) { chatStore.load(chatId)?.agentSession }
             val task = (if (agentSession == null) AgentTurns.earlier(before) else "") + user.text
             val files = withContext(Dispatchers.IO) { user.images.map { images.file(it) }.filter { it.isFile } }
-            val stop = app.agent.prompt(chatId, agentSession, task, files) { e -> onAgent(id, e) }
+            val sounds = withContext(Dispatchers.IO) { user.audio.map { clips.file(it) }.filter { it.isFile } }
+            val films = withContext(Dispatchers.IO) {
+                user.videos.map { v ->
+                    xyz.tifu.geode.agent.VideoInput(v.frames.map { images.file(it) }.zip(v.seconds),
+                        v.audio?.let { clips.file(it) }?.takeIf { it.isFile }, v.ms)
+                }.filter { v -> v.frames.isNotEmpty() && v.frames.all { it.first.isFile } }
+            }
+            val stop = app.agent.prompt(chatId, agentSession, task, files, sounds, films) { e -> onAgent(id, e) }
             if (stop == "max_tokens") edit(id) { it.copy(error = app.getString(R.string.agent_max_tokens)) }
         } catch (e: CancellationException) {
             withContext(NonCancellable) { edit(id) { it.copy(error = app.getString(R.string.chat_stopped)) } }
@@ -524,6 +703,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
 
     /** The chat is gone (its activity finished): nothing keeps the app alive for it any more. */
     override fun onCleared() {
+        player.stop()
         AnswerService.stop(app)
         app.agent.stop()
     }
@@ -531,6 +711,8 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     companion object {
         /** The engine's KV chunk on the Adreno 7xx+ path (Model::kv_chunk_); the engine's figures replace it. */
         private const val KV_CHUNK = 4096
+        /** A voice message shorter than this (samples: a quarter of a second) was a tap, not a message. */
+        private const val MIN_CLIP = AudioStore.RATE / 4
         /** The agent's command that compacts the conversation (geode-agent's /compact). */
         private const val COMPACT = "/compact"
     }

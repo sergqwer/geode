@@ -116,6 +116,26 @@ int geode_image_size(geode_model *model, int32_t w, int32_t h, int32_t max_pixel
 int geode_add_image(geode_model *model, const uint8_t *rgb, int32_t w, int32_t h, const char *cache_path,
                     int32_t *n_tokens, char *err, size_t err_len);
 
+/* Video (Gemma 4): a video is its frames, each one through the vision encoder like an image but at a smaller size
+ * (geode_image_size with max_pixels = 70 x 48 x 48: at most 70 tokens a frame) and with its own token. The app samples
+ * the frames (about one a second, at most 32) and writes the prompt: per frame "MM:SS <|image>", n_tokens times
+ * <|video|>, "<image|>", the frames joined by spaces (Gemma4Processor's layout); the soundtrack, if wanted, as a clip
+ * (geode_add_audio) after them. geode_add_video_frame encodes one frame now, as geode_add_image does; frames,
+ * images and clips go in in the order they were added. GEODE_E_NOT_IMPLEMENTED: the pack takes no video. */
+int geode_add_video_frame(geode_model *model, const uint8_t *rgb, int32_t w, int32_t h, const char *cache_path,
+                          int32_t *n_tokens, char *err, size_t err_len);
+
+/* Audio (a Gemma 4 pack with an audio encoder: tools/pack_gemma4_audio.py). geode_audio_tokens: the <|audio|>
+ * tokens a clip of n_samples at 16 kHz takes - one per 40 ms, at most 30 s of it (750) - or 0 when the pack has no
+ * audio encoder. */
+int32_t geode_audio_tokens(geode_model *model, int64_t n_samples);
+/* Encodes a clip now, for the conversation's next audio (the encoder is read from flash a layer at a time and let
+ * go after): pcm is n_samples floats, 16 kHz mono in [-1, 1] (the first 30 s of a longer clip). A following prompt
+ * holds it as <|audio>, n_tokens times <|audio|>, <audio|>; images and clips go in in the order they were added.
+ * geode_reset forgets them. GEODE_E_NOT_IMPLEMENTED: no audio encoder; GEODE_E_ARG: too short a clip. */
+int geode_add_audio(geode_model *model, const float *pcm, int64_t n_samples, int32_t *n_tokens, char *err,
+                    size_t err_len);
+
 /* Encodes an image into its feature file (geode_add_image's cache_path) and nothing more - no prompt takes it: an
  * app does it while the question is being typed, and geode_add_image then reads the file instead of encoding. Does
  * nothing when the file holds this image already. */

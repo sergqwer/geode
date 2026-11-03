@@ -124,7 +124,7 @@ pub fn compact(
         let mut probe: Vec<Message> = sess.messages[..start].to_vec();
         probe.extend(sess.messages[start..=end].iter().cloned());
         probe.push(Message::user_text(compaction_instruction(), Source::User));
-        if completion_budget(rt.cfg.context_window, SUMMARY_MAX_TOKENS.min(rt.cfg.max_tokens), &probe, tools)
+        if completion_budget(rt.cfg.context_window, SUMMARY_MAX_TOKENS.min(rt.cfg.max_tokens), &probe, tools, rt.cfg.input())
             >= MIN_SUMMARY_TOKENS
             || end <= start + 1
         {
@@ -148,8 +148,8 @@ pub fn compact(
     }
     input.extend(region.iter().cloned());
     input.push(Message::user_text(compaction_instruction(), Source::User));
-    let budget = completion_budget(rt.cfg.context_window, SUMMARY_MAX_TOKENS.min(rt.cfg.max_tokens), &input, tools);
-    let body = request_body(&rt.cfg.model, &input, tools, budget, rt.cfg.image_input);
+    let budget = completion_budget(rt.cfg.context_window, SUMMARY_MAX_TOKENS.min(rt.cfg.max_tokens), &input, tools, rt.cfg.input());
+    let body = request_body(&rt.cfg.model, &input, tools, budget, rt.cfg.input());
     let answer = rt.model.stream(&body, cancel, &mut |_| {}).map_err(|e| format!("compaction failed: {e}"))?;
     if answer.finish_reason == "length" {
         return Err("summarization truncated at the token cap (incomplete checkpoint)".into());
@@ -188,7 +188,7 @@ pub fn auto(rt: &Runtime, sess: &mut crate::session::Session, tools: &[ToolSpec]
     }
     let threshold = (ctx as f64 * THRESHOLD_RATIO) as usize;
     let crowded = occupancy(&sess.messages, tools) >= threshold;
-    let no_room = completion_budget(ctx, rt.cfg.max_tokens, &sess.messages, tools) < min_answer_tokens(ctx);
+    let no_room = completion_budget(ctx, rt.cfg.max_tokens, &sess.messages, tools, rt.cfg.input()) < min_answer_tokens(ctx);
     if !crowded && !no_room {
         return;
     }

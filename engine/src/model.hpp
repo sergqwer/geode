@@ -17,6 +17,7 @@
 #include "gpu.hpp"
 #include "gpu8.hpp"
 #include "threads.hpp"
+#include "audio.hpp"
 #include "vision.hpp"
 
 namespace geode {
@@ -175,10 +176,10 @@ public:
     // the other (the same routed experts: tail_skip decides by the cache, which differs). The position moves on by n,
     // hidden(0) .. hidden(n - 1) are theirs; verify_keep(kept) takes the last n - kept back (the states as after token
     // kept - 1: the backups the batch left; their KV rows are written over), verify_reject() = keep the first only.
-    bool can_verify() const { return verify8_ || cpu_spec_; }
+    bool can_verify() const { return gd_.on || verify8_ || cpu_spec_; }
     // the most tokens a verified batch takes: GEODE_SPEC_K (2 .. Gpu8::kMaxTokens; 2, pairs, by default - more only
     // on the GPU, whose programs and state backups open() makes for that many)
-    int spec_tokens() const { return verify8_ && dec8_ ? spec_t_ : 2; }
+    int spec_tokens() const { return gd_.on ? gd_.k : verify8_ && dec8_ ? spec_t_ : 2; }
     // the threads a product runs on (the pool's workers and the caller)
     int compute_threads() const { return pool_ ? pool_->size() : 1; }
     // testing: one token at a time on the CPU (false) or the GPU again (true, when it could)
@@ -193,8 +194,15 @@ public:
     // softmax probability among the draft head's rows (its confidence; nullptr: not wanted). Fills the MTP layer's
     // KV there. (on the CPU too, cpu_spec_: n <= 2, the MTP layer drafts there and the pair goes through one CPU
     // batch - the dense weights read once for both tokens; GEODE_CPU_SPEC=0: not)
-    bool can_draft() const { return (mtp8_ && verify8_) || cpu_spec_ || npu_spec_; }
-    bool speculates_on_cpu() const { return cpu_spec_ && !dec8_; }
+    bool can_draft() const { return gd_.on || (mtp8_ && verify8_) || cpu_spec_ || npu_spec_; }
+    bool speculates_on_cpu() const { return gd_.on || (cpu_spec_ && !dec8_); }
+    // Gemma 4's MTP drafter (drafter.cpp; a pack with drafter.bin, tools/pack_gemma4_mtp.py): draft() / draft_next()
+    // through it, verify_n() / verify_keep() through the main model's own batches (no state to take back but the
+    // position: no recurrence, and rejected KV rows are written over)
+    bool has_drafter() const { return gd_.on; }
+    const std::string &drafter_status() const { return drafter_status_; }
+    // whether the passes keep their hidden rows (hidden(), last_hidden()): an MTP layer or a drafter drafts from them
+    bool keeps_hidden() const { return mtp_ || gd_.on; }
     bool draft(const int *toks, int n, int pos, const float *hidden, int &draft, std::string &err, float *prob = nullptr);
     // A chained draft (the GPU): the MTP layer at position pos again, from the token drafted last (tok) and the MTP
     // layer's own normed output there - vLLM's / sglang's multi-step MTP. After draft() or draft_next().
@@ -242,6 +250,22 @@ public:
     const std::string &vision_status() const { return vision_status_; }
     // cache: a feature file to read instead of encoding when it holds this image (written after an encode); "" none
     bool add_image(const uint8_t *rgb, int w, int h, const std::string &cache, int &tokens, std::string &err);
+    // an image of w x h pixels by its features ([tokens][the text's hidden], as the encoder gives them): the encode
+    // add_image does left out (geode-parity: the reference's features)
+    bool add_image_features(std::vector<float> feats, int w, int h, int &tokens, std::string &err);
+    // a video's frame (Gemma 4): add_image's, its tokens <|video|> - the vision encoder's video_pad (fitted with
+    // vision().fit to at most video_soft_tokens, 70); frames, images and clips share the queue
+    bool add_video_frame(const uint8_t *rgb, int w, int h, const std::string &cache, int &tokens, std::string &err);
+    bool add_frame_features(std::vector<float> feats, int w, int h, int &tokens, std::string &err);
+    // Audio clips (audio.hpp), when the pack has an audio encoder: add_audio encodes one (pcm: n samples at 16 kHz in
+    // [-1, 1]) for the <|audio|> tokens to come. Images and clips share one queue: a prompt's media tokens take them
+    // in the order they were added, each its own kind of token. Kept until reset().
+    bool has_audio() const { return audio_.available(); }
+    const Audio &audio() const { return audio_; }
+    const std::string &audio_status() const { return audio_status_; }
+    bool add_audio(const float *pcm, int64_t n, int &tokens, std::string &err);
+    // a clip by its features ([tokens][the text's hidden]; geode-parity: the reference's)
+    bool add_audio_features(std::vector<float> feats, int &tokens, std::string &err);
     // an image's features into its cache file only (none queued): encoded unless the file holds them already
     bool cache_image(const uint8_t *rgb, int w, int h, const std::string &cache, std::string &err);
     // the image_pad tokens the images added and not yet met take (a prompt must hold exactly these)
@@ -319,6 +343,71 @@ private:
 
     bool bind(std::string &err);
     bool bind_layer(Layer &L, const std::string &prefix, bool attn, int index, std::string &err);
+
+    // Gemma 4 (gemma.cpp; arch "gemma4", tools/gemma4.py has the forward pass): its own layers and passes, the rest
+    // of the class (threads, the int8 products, the KV cache and its growth, the conversation's state) shared
+    struct GLayer {
+        bool full = false, own_kv = false;
+        int slot = 0;                  // its K / V in the KV cache: its own, or the shared layer's it reads
+        int hd = 0, ffn = 0, pairs = 0;
+        float scalar = 1.0f;
+        const float *in_norm = nullptr, *post_attn = nullptr, *pre_ff = nullptr, *post_ff = nullptr,
+                    *ple_norm = nullptr, *q_norm = nullptr, *k_norm = nullptr;
+        QView q, k, v, o, gate, up, down, ple_gate, ple_proj;
+        std::vector<float> inv_freq;   // the rotary pairs' frequencies
+    };
+    std::vector<GLayer> glayers_;
+    QView ple_model_;                   // per_layer_model_projection [layers * ple_dim, hidden]
+    const float *ple_proj_norm_ = nullptr;
+    const Tensor *ple_table_ = nullptr; // embed_tokens_per_layer (a row per token, read from flash)
+    std::vector<float> ple_, pgate_;    // a chunk's per-layer inputs [n][layers * ple_dim], gate [n][ple_dim]
+    std::vector<uint8_t> media_;        // which of a chunk's tokens are an image's (their PLE row: the pad token's)
+    // Tokens a pass of the Gemma path takes at most (a prompt goes in chunks of this, each through every layer)
+    static constexpr int kGemmaChunk = 256;
+    bool bind_gemma(std::string &err);
+    bool open_gemma(const ModelOptions &opt, std::string &err);
+    bool forward_gemma(const int *tokens, int n, float *logits, bool all_logits, std::string &err);
+    // hid_row: where the chunk's final-normed hidden rows go (keeps_hidden(): hid_ or hid_long_ from that row on)
+    bool gemma_chunk(const int *tokens, int n, float *logits, bool all_logits, std::string &err, int hid_row = 0);
+    // the drafter (drafter.cpp; tools/gemma4_mtp.py is its spec): 4 layers of hidden 256 with no K / V of their own,
+    // each attending over the main model's KV of one layer (slot) of its type; a draft round stays at one position
+    struct GDraftLayer {
+        bool full = false;
+        int hd = 0, pairs = 0, slot = 0;
+        float scalar = 1.0f;
+        const float *in_norm = nullptr, *q_norm = nullptr, *attn_norm = nullptr, *ff_norm = nullptr,
+                    *ff_post_norm = nullptr;
+        QView q, o, gate, up, down;
+        std::vector<float> inv_freq;
+    };
+    struct GDraft {
+        bool on = false;
+        int hidden = 0, heads = 0, ff = 0, window = 0, centroids = 0, top_k = 0, per = 0;   // per: a centroid's tokens
+        int k = 4;          // the most tokens a verified batch takes (GEODE_SPEC_K: 2 .. Gpu8::kMaxTokens); 4 is
+                            // kSpreadTokens, still a token's threads: the best measured on the Redmi
+        float eps = 1e-6f;
+        AlignedBuffer data; // drafter.bin, whole
+        uint64_t bytes = 0;
+        QView pre, post, cent, head;
+        const float *norm = nullptr;
+        std::vector<int32_t> order;       // head row r: token order[r] (each centroid's tokens in a row)
+        std::vector<GDraftLayer> layers;
+        int pos = -1;                     // the round's position
+        std::vector<float> in, x, h, a, q, f, g, u, n, hp, lg, cl;   // scratch; hp: the last step's h'
+        std::vector<int> top;             // the centroids by their logits
+    };
+    GDraft gd_;
+    std::string drafter_status_ = "none";
+    bool open_drafter(std::string &err);   // after the KV cache exists (open_gemma): its slots
+    // one draft step at gd_.pos: the main model's embedding of tok and a hidden row (1536) in -> the draft (the
+    // likeliest of the top clusters' tokens, media pads left out) and its probability among them; gd_.hp its h'
+    bool gemma_draft(int tok, const float *hidden, int &draft, float *prob, std::string &err);
+    void draft_attend(const GDraftLayer &L);   // gd_.q -> gd_.a over the main KV below gd_.pos
+    void gemma_attention(const GLayer &L, int n);
+    template <typename T>
+    void gemma_attend(const GLayer &L, int n);
+    template <typename T, int G>
+    void gemma_heads(const GLayer &L, int kh, int h0, int t, int b, int nb);
     // ys[t] = W . xs[t] for t < n: each weight row is read once and used for every token
     // pre: the int8 path's activations of xs, already quantized (quantize_h), or nullptr to quantize them here
     void matmul(const QView &m, int n, const float *const *xs, float *const *ys, const QAct *const *pre = nullptr);
@@ -430,11 +519,14 @@ private:
     // gh x gw its tokens' grid, feats [gh * gw][hidden]
     struct Image {
         int kv0 = -1, s = 0, gh = 0, gw = 0;
+        int pad = -1;   // the token its features take the place of: the image pad, or (a clip: 1 x tokens) the audio's
         std::vector<float> feats;
         int n() const { return gh * gw; }
     };
     Vision vision_;
     std::string vision_status_ = "none";
+    Audio audio_;
+    std::string audio_status_ = "none";
     std::vector<Image> images_;
     size_t image_next_ = 0;   // the first image not wholly in
     int image_fed_ = 0;       // of its pads, the ones in

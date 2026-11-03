@@ -1,27 +1,37 @@
 package xyz.tifu.geode.tokenizer
 
 import xyz.tifu.geode.util.Json
+import xyz.tifu.geode.util.JsonNumber
+import xyz.tifu.geode.util.list
+import xyz.tifu.geode.util.obj
+import xyz.tifu.geode.util.str
 
-/** A part of a message: its text, or an image in its place among the text ([key] tells two images apart). */
+/** A part of a message: its text, or a medium in its place among the text ([key] tells two apart). */
 sealed interface Part {
     data class Text(val text: String) : Part
     data class Image(val image: TurnImage, val key: String) : Part
+    /** A sound clip (Gemma 4 hears it). */
+    data class Audio(val audio: TurnAudio, val key: String) : Part
+    /** A video: its frames in order (TurnImage.frame, each at its second) and its sound, if any (Gemma 4). */
+    data class Video(val frames: List<TurnImage>, val audio: TurnAudio?, val key: String) : Part
 }
 
 /** An assistant's call of a function: its name and its arguments (a JSON object, its keys in their order). */
 data class ToolCall(val id: String, val name: String, val arguments: Map<String, Any?>)
 
 /**
- * A message as Qwen3.6's chat template takes it (an API request's): system, user, assistant - its reasoning and its
- * tool calls apart from the content - or tool (a function's output).
+ * A message as the chat templates take it (an API request's): system, user, assistant - its reasoning and its tool
+ * calls apart from the content - or tool (a function's output; [toolCallId]: the call it answers, when the client
+ * says).
  */
 data class TemplateMessage(
     val role: String,
     val parts: List<Part>,
     val reasoning: String? = null,
     val toolCalls: List<ToolCall> = emptyList(),
+    val toolCallId: String? = null,
 ) {
-    /** The text with the images left out. */
+    /** The text with the media left out. */
     val text: String get() = parts.filterIsInstance<Part.Text>().joinToString("") { it.text }
 
     /** The same message to the conversation the engine holds: the content as the template trims it, the images, the
@@ -35,6 +45,8 @@ data class TemplateMessage(
         when (it) {
             is Part.Text -> it.text
             is Part.Image -> "\u0000${it.key}\u0000"
+            is Part.Audio -> "\u0000a:${it.key}\u0000"
+            is Part.Video -> "\u0000v:${it.key}\u0000"
         }
     }.trim()
 }
@@ -52,12 +64,14 @@ class TemplateException(message: String) : IllegalArgumentException(message)
  * The text between two special tokens is encoded in one go, as Hugging Face's tokenizer splits the rendered string
  * at its added tokens; image pads are put in by the image's size (the engine puts the image's features there).
  */
-class ChatTemplate(private val tok: Tokenizer) {
+class ChatTemplate(private val tok: Tokenizer) : ApiTemplate {
     private val imStart = tok.special("<|im_start|>")
     private val imEnd = tok.special("<|im_end|>")
-    private val think = tok.special("<think>")
-    private val thinkEnd = tok.special("</think>")
-    private val callStart = tok.special("<tool_call>")
+    override val thinkStart: Int = tok.special("<think>")
+    override val thinkEnd: Int = tok.special("</think>")
+    override val callStart: Int = tok.special("<tool_call>")
+    override val modelOpensReasoning: Boolean get() = false
+    override val stopTokens: IntArray = intArrayOf(imEnd, tok.special("<|endoftext|>"))
     private val callEnd = tok.special("</tool_call>")
     private val responseStart = tok.special("<tool_response>")
     private val responseEnd = tok.special("</tool_response>")
@@ -72,7 +86,7 @@ class ChatTemplate(private val tok: Tokenizer) {
      * The conversation from the start: the tools' system message, the messages, the assistant's generation prompt -
      * or with [prefill] the last message (the assistant's) left open, the model going on from it.
      */
-    fun render(messages: List<TemplateMessage>, tools: List<Any?>, thinking: Boolean, prefill: Boolean = false): Prompt {
+    override fun render(messages: List<TemplateMessage>, tools: List<Any?>, thinking: Boolean, prefill: Boolean): Prompt {
         if (messages.isEmpty()) throw TemplateException("No messages provided.")
         val b = Builder()
         val system = messages[0].takeIf { it.role == "system" }
@@ -100,7 +114,7 @@ class ChatTemplate(private val tok: Tokenizer) {
         if (prefill) {
             b.sp(imStart)
             b.t("assistant\n")
-            b.sp(think)
+            b.sp(thinkStart)
             b.t("\n\n")
             b.sp(thinkEnd)
             b.t("\n\n" + messages.last().text.trim())
@@ -116,7 +130,7 @@ class ChatTemplate(private val tok: Tokenizer) {
      * it, then the generation prompt. The answers the engine holds keep their reasoning (the template would drop it
      * from the earlier ones): that is what lets a conversation grow without being read again.
      */
-    fun continuation(messages: List<TemplateMessage>, held: Int, thinking: Boolean): Prompt {
+    override fun continuation(messages: List<TemplateMessage>, held: Int, thinking: Boolean): Prompt {
         require(held in 1 until messages.size)
         val b = Builder()
         b.sp(imEnd)
@@ -180,7 +194,7 @@ class ChatTemplate(private val tok: Tokenizer) {
         b.sp(imStart)
         if (afterQuery) {
             b.t("assistant\n")
-            b.sp(think)
+            b.sp(thinkStart)
             b.t("\n" + (reasoning ?: "").trim() + "\n")
             b.sp(thinkEnd)
             b.t("\n\n" + content)
@@ -210,7 +224,8 @@ class ChatTemplate(private val tok: Tokenizer) {
     private fun generationPrompt(b: Builder, thinking: Boolean) {
         b.sp(imStart)
         b.t("assistant\n")
-        b.sp(think)
+        b.sp(thinkStart)
+        b.reasoning = thinking
         if (thinking) {
             b.t("\n")
         } else {
@@ -256,6 +271,7 @@ class ChatTemplate(private val tok: Tokenizer) {
                 b.sp(ve)
                 b.images += p.image
             }
+            is Part.Audio, is Part.Video -> throw TemplateException("This model takes no audio or video.")
         }
     }
 
@@ -264,11 +280,12 @@ class ChatTemplate(private val tok: Tokenizer) {
         when (it) {
             is Part.Text -> it.text
             is Part.Image -> "<|vision_start|><|image_pad|><|vision_end|>"
+            is Part.Audio, is Part.Video -> "\u0000"
         }
     }
 
     private fun textOnly(m: TemplateMessage, role: String): String {
-        if (m.parts.any { it is Part.Image }) throw TemplateException("$role message cannot contain images.")
+        if (m.parts.any { it !is Part.Text }) throw TemplateException("$role message cannot contain images.")
         return m.text
     }
 
@@ -276,6 +293,7 @@ class ChatTemplate(private val tok: Tokenizer) {
     private inner class Builder {
         val ids = ArrayList<Int>()
         val images = ArrayList<TurnImage>()
+        var reasoning = false
         private val text = StringBuilder()
 
         fun t(s: String) {
@@ -295,11 +313,77 @@ class ChatTemplate(private val tok: Tokenizer) {
 
         fun prompt(): Prompt {
             flush()
-            return Prompt(ids.toIntArray(), images)
+            return Prompt(ids.toIntArray(), images, reasoning)
+        }
+    }
+
+    /** The reasoning budget is spent: Qwen's way to end it (the model card's sentence, then </think>). */
+    override fun closeThinking(): IntArray {
+        val out = ArrayList<Int>()
+        out += tok.encode("\n\nConsidering the limited time by the user, I have to give the solution based on the " +
+            "thinking directly now.\n").toList()
+        out += thinkEnd
+        out += tok.encode("\n\n").toList()
+        return out.toIntArray()
+    }
+
+    override fun systemTurn(p: Prompt): Int {
+        if (p.ids.isEmpty() || p.ids[0] != imStart) return 0
+        val i = p.ids.indexOf(imEnd)
+        val nl = tok.encode("\n")
+        if (i < 0 || nl.size != 1 || i + 1 >= p.size || p.ids[i + 1] != nl[0]) return 0
+        // a system turn holds no image (an image's tokens are read with its features: not a plain prefix)
+        val pad = imagePad
+        if (pad != null && (0..i).any { p.ids[it] == pad }) return 0
+        return i + 2
+    }
+
+    /**
+     * The tool calls in the model's text: <tool_call><function=NAME><parameter=P>value</parameter>...</function>
+     * </tool_call>, each parameter's raw text turned into the type the tool's schema gives it (the way vLLM's
+     * Qwen3-Coder parser does).
+     */
+    override fun parseCalls(text: String, tools: List<Map<String, Any?>>): List<Pair<String, Map<String, Any?>>> {
+        val out = ArrayList<Pair<String, Map<String, Any?>>>()
+        for (m in CALL.findAll(text)) {
+            val name = m.groupValues[1].trim()
+            val schema = tools.firstOrNull { it.obj("function")?.str("name") == name }?.obj("function")
+                ?.obj("parameters")?.obj("properties")
+            val args = LinkedHashMap<String, Any?>()
+            for (p in PARAM.findAll(m.groupValues[2])) {
+                var v = p.groupValues[2]
+                if (v.startsWith("\n")) v = v.substring(1)
+                if (v.endsWith("\n")) v = v.substring(0, v.length - 1)
+                val key = p.groupValues[1].trim()
+                args[key] = typed(v, schema?.obj(key))
+            }
+            out += name to args
+        }
+        return out
+    }
+
+    private fun typed(v: String, schema: Map<String, Any?>?): Any? {
+        if (v.trim().equals("null", ignoreCase = true)) return null
+        val type = (schema?.get("type") as? String ?: (schema?.list("type")?.firstOrNull { it != "null" } as? String))
+            ?.lowercase() ?: return v
+        return when (type) {
+            "string", "str", "text" -> v
+            "integer", "int" -> v.trim().toLongOrNull() ?: v
+            "number", "float" -> v.trim().let { t -> t.toDoubleOrNull()?.let { JsonNumber(t) } } ?: v
+            "boolean", "bool" -> when (v.trim().lowercase()) {
+                "true" -> true
+                "false" -> false
+                else -> v
+            }
+            else -> runCatching { Json.parse(v.trim()) }.getOrElse { v }
         }
     }
 
     companion object {
+        private val CALL = Regex("<tool_call>\\s*<function=([^>\\n]+)>(.*?)</function>\\s*</tool_call>",
+            RegexOption.DOT_MATCHES_ALL)
+        private val PARAM = Regex("<parameter=([^>\\n]+)>(.*?)</parameter>", RegexOption.DOT_MATCHES_ALL)
+
         /** The template's instructions after the tools (its <tool_call> tags become the special tokens). */
         private const val TOOLS_NOTE = "\n\nIf you choose to call a function ONLY reply in the following format " +
             "with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\n" +

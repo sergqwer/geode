@@ -85,6 +85,16 @@ fn acp_content(b: &Block) -> Value {
     match b {
         Block::Text { text } => json!({"type": "text", "text": text}),
         Block::Image { mime, data, .. } => json!({"type": "image", "data": data, "mimeType": mime}),
+        Block::Audio { mime, data, .. } => json!({"type": "audio", "data": data, "mimeType": mime}),
+        Block::Video { frames, audio, ms, .. } => {
+            let frames: Vec<Value> =
+                frames.iter().map(|f| json!({"data": f.data, "mimeType": f.mime, "second": f.second})).collect();
+            let mut v = json!({"type": "video", "frames": frames, "durationMs": ms});
+            if !audio.is_empty() {
+                v["audio"] = json!({"data": audio, "mimeType": "audio/wav"});
+            }
+            v
+        }
     }
 }
 
@@ -113,6 +123,46 @@ pub fn prompt_blocks(prompt: &Value) -> Vec<Block> {
                 let name = path.rsplit('/').next().unwrap_or("").to_string();
                 out.push(Block::Image { mime, data, width: w, height: h, name, path: path.to_string(), id });
             }
+            Some("audio") => {
+                let data = b.get("data").and_then(Value::as_str).unwrap_or("").to_string();
+                let mime = b.get("mimeType").and_then(Value::as_str).unwrap_or("audio/wav").to_string();
+                let decoded =
+                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &data).unwrap_or_default();
+                let id = format!(
+                    "sha256:{}",
+                    crate::util::hex(&sha2::Digest::finalize(<sha2::Sha256 as sha2::Digest>::new_with_prefix(
+                        &decoded
+                    )))
+                );
+                let path = b.get("uri").and_then(Value::as_str).and_then(|u| u.strip_prefix("file://")).unwrap_or("");
+                let name = path.rsplit('/').next().unwrap_or("").to_string();
+                out.push(Block::Audio { mime, data, ms: wav_ms(&decoded), name, path: path.to_string(), id });
+            }
+            // Geode's own block (no ACP type carries a video): the app's frames of it, its sound, its length
+            Some("video") => {
+                let mut digest = <sha2::Sha256 as sha2::Digest>::new();
+                let mut frames = Vec::new();
+                for fr in b.get("frames").and_then(Value::as_array).into_iter().flatten() {
+                    let data = fr.get("data").and_then(Value::as_str).unwrap_or("").to_string();
+                    if data.is_empty() {
+                        continue;
+                    }
+                    sha2::Digest::update(&mut digest, data.as_bytes());
+                    let mime = fr.get("mimeType").and_then(Value::as_str).unwrap_or("image/jpeg").to_string();
+                    let second = fr.get("second").and_then(Value::as_u64).unwrap_or(0).min(u32::MAX as u64) as u32;
+                    frames.push(crate::msg::VideoFrame { mime, data, second });
+                }
+                if frames.is_empty() {
+                    continue;
+                }
+                let audio = b.get("audio").and_then(|a| a.get("data")).and_then(Value::as_str).unwrap_or("").to_string();
+                sha2::Digest::update(&mut digest, audio.as_bytes());
+                let ms = b.get("durationMs").and_then(Value::as_u64).unwrap_or(0).min(u32::MAX as u64) as u32;
+                let id = format!("sha256:{}", crate::util::hex(&sha2::Digest::finalize(digest)));
+                let path = b.get("uri").and_then(Value::as_str).and_then(|u| u.strip_prefix("file://")).unwrap_or("");
+                let name = path.rsplit('/').next().unwrap_or("").to_string();
+                out.push(Block::Video { frames, audio, ms, name, path: path.to_string(), id });
+            }
             Some("resource_link") => {
                 let name = b.get("name").and_then(Value::as_str).unwrap_or("");
                 let uri = b.get("uri").and_then(Value::as_str).unwrap_or("");
@@ -127,6 +177,38 @@ pub fn prompt_blocks(prompt: &Value) -> Vec<Block> {
         }
     }
     out
+}
+
+/// A WAV's length in milliseconds from its fmt and data chunks (0: not a WAV, or not known).
+fn wav_ms(b: &[u8]) -> u32 {
+    if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
+        return 0;
+    }
+    let (mut at, mut bytes_per_s, mut data) = (12usize, 0u64, 0u64);
+    while at + 8 <= b.len() {
+        let len = u32::from_le_bytes([b[at + 4], b[at + 5], b[at + 6], b[at + 7]]) as usize;
+        let body = at + 8;
+        match &b[at..at + 4] {
+            b"fmt " if body + 12 <= b.len() => {
+                bytes_per_s = u32::from_le_bytes([b[body + 8], b[body + 9], b[body + 10], b[body + 11]]) as u64
+            }
+            b"data" => {
+                // a streamed WAV says 0 (or more than there is): the rest of the file, and no chunk after it
+                let rest = b.len().saturating_sub(body);
+                let streamed = len == 0 || len > rest;
+                data = (if streamed { rest } else { len }) as u64;
+                if streamed {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        if data > 0 && bytes_per_s > 0 {
+            break;
+        }
+        at = body.saturating_add(len).saturating_add(len & 1);
+    }
+    if bytes_per_s == 0 { 0 } else { (data * 1000 / bytes_per_s).min(u32::MAX as u64) as u32 }
 }
 
 pub fn prompt_text(blocks: &[Block]) -> String {
@@ -173,8 +255,8 @@ pub fn run_turn(
         let env = rt.env(&skills, mcp, cancel);
         let specs = tools::specs(&env);
         compact::auto(rt, sess, &specs, cancel);
-        let budget = completion_budget(rt.cfg.context_window, rt.cfg.max_tokens, &sess.messages, &specs);
-        let body = request_body(&rt.cfg.model, &sess.messages, &specs, budget, rt.cfg.image_input);
+        let budget = completion_budget(rt.cfg.context_window, rt.cfg.max_tokens, &sess.messages, &specs, rt.cfg.input());
+        let body = request_body(&rt.cfg.model, &sess.messages, &specs, budget, rt.cfg.input());
         let message_id = uuid();
         let sid = sess.id.clone();
         let mut on_delta = |d: Delta| {
@@ -291,5 +373,88 @@ mod tests {
             Block::Image { path, name, .. } => assert!(path.is_empty() && name.is_empty()),
             _ => panic!("not an image"),
         }
+    }
+
+    #[test]
+    fn prompt_audio_knows_its_length() {
+        // a WAV of 1.5 s, 16 kHz mono PCM16 (the samples left out: the length is the data chunk's)
+        let mut wav = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
+        wav.extend(16u32.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(1u16.to_le_bytes());
+        wav.extend(16000u32.to_le_bytes());
+        wav.extend(32000u32.to_le_bytes());
+        wav.extend(2u16.to_le_bytes());
+        wav.extend(16u16.to_le_bytes());
+        wav.extend(b"data");
+        wav.extend(48000u32.to_le_bytes());
+        wav.extend(vec![0u8; 48000]);
+        let data = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &wav);
+        let v = json!([
+            {"type": "audio", "mimeType": "audio/wav", "data": data, "uri": "file:///workspace/.geode/audio/v.wav"},
+            {"type": "text", "text": "hi"}
+        ]);
+        let b = prompt_blocks(&v);
+        match &b[0] {
+            Block::Audio { ms, name, path, mime, .. } => {
+                assert_eq!(*ms, 1500);
+                assert_eq!(name, "v.wav");
+                assert_eq!(path, "/workspace/.geode/audio/v.wav");
+                assert_eq!(mime, "audio/wav");
+            }
+            _ => panic!("not a clip"),
+        }
+        let user = crate::msg::Message::User { blocks: b, source: crate::msg::Source::User };
+        let req = crate::msg::openai_messages(&[user], true);
+        let parts = req[0]["content"].as_array().unwrap();
+        assert!(parts[0]["text"].as_str().unwrap().contains("1.5 s"), "{}", parts[0]);
+        assert_eq!(parts[1]["type"], "input_audio");
+        assert_eq!(parts[1]["input_audio"]["format"], "wav");
+        assert_eq!(parts[1]["input_audio"]["data"].as_str().unwrap(), data);
+        assert_eq!(wav_ms(b"not a wav"), 0);
+        // a streamed WAV (its data's length 0): the rest of the file
+        let mut streamed = wav.clone();
+        streamed[40..44].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(wav_ms(&streamed), 1500);
+    }
+
+    #[test]
+    fn prompt_video_is_its_frames_and_sound() {
+        let v = json!([
+            {"type": "video", "durationMs": 6000, "frames": [
+                {"data": "AAAA", "mimeType": "image/jpeg", "second": 0},
+                {"data": "BBBB", "mimeType": "image/jpeg", "second": 1}],
+             "audio": {"data": "CCCC", "mimeType": "audio/wav"}},
+            {"type": "video", "frames": []},
+            {"type": "text", "text": "what happens?"}
+        ]);
+        let b = prompt_blocks(&v);
+        // the empty one left out
+        assert_eq!(b.len(), 2);
+        match &b[0] {
+            Block::Video { frames, audio, ms, .. } => {
+                assert_eq!(frames.len(), 2);
+                assert_eq!(frames[1].second, 1);
+                assert_eq!(audio, "CCCC");
+                assert_eq!(*ms, 6000);
+            }
+            _ => panic!("not a video"),
+        }
+        let user = crate::msg::Message::User { blocks: b.clone(), source: crate::msg::Source::User };
+        let req = crate::msg::openai_messages(&[user], true);
+        let parts = req[0]["content"].as_array().unwrap();
+        let handle = parts[0]["text"].as_str().unwrap();
+        assert!(handle.contains("2 frames over 6.0 s, with its sound"), "{handle}");
+        assert_eq!(parts[1]["type"], "input_video");
+        assert_eq!(parts[1]["input_video"]["frames"][1]["data"], "BBBB");
+        assert_eq!(parts[1]["input_video"]["frames"][1]["second"], 1);
+        assert_eq!(parts[1]["input_video"]["audio"]["format"], "wav");
+        // a model that does not watch (the user switched to it): the handle alone, said so
+        let user = crate::msg::Message::User { blocks: b, source: crate::msg::Source::User };
+        let req = crate::msg::openai_messages(&[user], crate::msg::Input { image: true, audio: true, video: false });
+        let content = &req[0]["content"];
+        let text = content.as_str().map(str::to_string).unwrap_or_else(|| content.to_string());
+        assert!(text.contains("cannot take it"), "{text}");
+        assert!(!text.contains("input_video"), "{text}");
     }
 }

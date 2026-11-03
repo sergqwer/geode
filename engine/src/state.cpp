@@ -272,7 +272,7 @@ bool Model::save_state(const std::string &path, bool append, int32_t extra, std:
     h.kv_heads = static_cast<uint32_t>(kv_heads_);
     h.kv_row = static_cast<uint32_t>(kv_row_);
     h.hidden = static_cast<uint32_t>(cfg_.hidden);
-    h.has_hidden = mtp_ && pos_ > 0 && last_hid_.size() == static_cast<size_t>(cfg_.hidden) ? 1 : 0;
+    h.has_hidden = keeps_hidden() && pos_ > 0 && last_hid_.size() == static_cast<size_t>(cfg_.hidden) ? 1 : 0;
     h.block = kStateBlock;
     h.conv_n = conv_n_;
     h.gdn_n = gdn_n_;
@@ -419,7 +419,7 @@ bool Model::load_state(const std::string &path, int32_t &extra, std::string &err
     }
     image_next_ = images_.size();
     image_fed_ = 0;
-    if (h.has_hidden && mtp_) {
+    if (h.has_hidden && keeps_hidden()) {
         last_hid_.resize(static_cast<size_t>(cfg_.hidden));
         if (!f.read(L.hidden, last_hid_.data(), last_hid_.size() * sizeof(float))) return fail("cannot read the last state");
     } else {

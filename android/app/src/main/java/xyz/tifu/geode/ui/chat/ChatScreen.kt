@@ -38,8 +38,16 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.AudioFile
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.AddComment
 import androidx.compose.material.icons.outlined.Compress
 import androidx.compose.material.icons.outlined.Delete
@@ -55,6 +63,8 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Button
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.OutlinedButton
@@ -85,12 +95,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -126,6 +145,19 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let(vm::attach)
     }
+    // a video (the photo picker's videos)
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let(vm::attachVideo)
+    }
+    // a sound file (the system's document picker: no storage permission either)
+    val soundPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let(vm::attachAudio)
+    }
+    // the microphone's permission, asked on the first press of the record button (that press records nothing)
+    val microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        Toast.makeText(context, if (granted) R.string.chat_record_hold else R.string.chat_mic_denied, Toast.LENGTH_SHORT).show()
+    }
+    LaunchedEffect(Unit) { vm.notices.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } }
 
     if (showHistory) {
         History(chats, st.chatId, enabled = !st.generating,
@@ -212,7 +244,8 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
                 !st.modelChecked -> Unit
                 st.model == null -> NoModel(openModels)
                 st.messages.isEmpty() -> Hint(stringResource(R.string.chat_empty))
-                else -> Messages(st, vm::thumbnail, onReport = { reporting = it }, onOpenFile = { openFile = it })
+                else -> Messages(st, vm::thumbnail, vm::clipSeconds, vm::togglePlay, onReport = { reporting = it },
+                    onOpenFile = { openFile = it })
             }
         }
         if (st.loadingModel) {
@@ -241,6 +274,34 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
             thumb = vm::thumbnail,
             onAttach = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
             onRemove = vm::removeAttachment,
+            sound = Sound(
+                hears = st.model?.audio == true,
+                clips = st.clips,
+                recording = st.recording,
+                playing = st.playing,
+                seconds = vm::clipSeconds,
+                onAttach = { soundPicker.launch("audio/*") },
+                onRecord = {
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) ==
+                        android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        vm.startRecording()
+                        true
+                    } else {
+                        microphone.launch(android.Manifest.permission.RECORD_AUDIO)
+                        false
+                    }
+                },
+                onRecorded = vm::stopRecording,
+                onPlay = vm::togglePlay,
+                onRemove = vm::removeClip,
+            ),
+            films = Films(
+                watches = st.model?.video == true,
+                videos = st.videos,
+                preparing = st.preparingVideo,
+                onAttach = { videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                onRemove = vm::removeVideo,
+            ),
             onSend = vm::send,
             onStop = vm::stop,
         )
@@ -366,8 +427,8 @@ private fun Stat(label: String, value: String) {
 }
 
 @Composable
-private fun Messages(st: ChatUiState, thumb: (String, Int) -> Bitmap?, onReport: (ChatMessage) -> Unit,
-                     onOpenFile: (String) -> Unit) {
+private fun Messages(st: ChatUiState, thumb: (String, Int) -> Bitmap?, seconds: (String) -> Float,
+                     onPlay: (String) -> Unit, onReport: (ChatMessage) -> Unit, onOpenFile: (String) -> Unit) {
     val list = rememberLazyListState()
     // follow the answer as it grows
     val last = st.messages.lastOrNull()
@@ -383,7 +444,7 @@ private fun Messages(st: ChatUiState, thumb: (String, Int) -> Bitmap?, onReport:
         items(st.messages, key = { it.id }) { m ->
             when {
                 m.summary -> SummaryBubble(m)
-                m.user -> UserBubble(m, thumb)
+                m.user -> UserBubble(m, thumb, st.playing, seconds, onPlay)
                 else -> AnswerBubble(m, encoding = st.encodingImage && m.streaming, onReport = onReport, onOpenFile = onOpenFile)
             }
         }
@@ -392,13 +453,28 @@ private fun Messages(st: ChatUiState, thumb: (String, Int) -> Bitmap?, onReport:
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun UserBubble(m: ChatMessage, thumb: (String, Int) -> Bitmap?) {
+private fun UserBubble(m: ChatMessage, thumb: (String, Int) -> Bitmap?, playing: String?, seconds: (String) -> Float,
+                       onPlay: (String) -> Unit) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
         if (m.images.isNotEmpty()) {
             FlowRow(Modifier.widthIn(max = 320.dp).padding(bottom = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
                 verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (n in m.images) Thumb(n, 140.dp, thumb)
+            }
+        }
+        if (m.videos.isNotEmpty()) {
+            FlowRow(Modifier.widthIn(max = 320.dp).padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (v in m.videos) Poster(v, 140.dp, thumb)
+            }
+        }
+        if (m.audio.isNotEmpty()) {
+            FlowRow(Modifier.widthIn(max = 320.dp).padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (n in m.audio) Clip(n, playing == n, seconds, onPlay, onRemove = null)
             }
         }
         if (m.text.isNotEmpty()) {
@@ -410,6 +486,74 @@ private fun UserBubble(m: ChatMessage, thumb: (String, Int) -> Bitmap?) {
                 SelectionContainer {
                     Text(m.text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
                 }
+            }
+        }
+    }
+}
+
+/** What the input does with sound, for a model that hears (Gemma 4): its clips, the recording, the player. */
+private class Sound(
+    val hears: Boolean,
+    val clips: List<String>,
+    val recording: Float?,
+    val playing: String?,
+    val seconds: (String) -> Float,
+    val onAttach: () -> Unit,
+    /** The record button pressed: true when it records (false: the permission is asked for first). */
+    val onRecord: () -> Boolean,
+    val onRecorded: () -> Unit,
+    val onPlay: (String) -> Unit,
+    val onRemove: (String) -> Unit,
+)
+
+private fun clock(seconds: Float): String {
+    val s = seconds.toInt()
+    return "%d:%02d".format(s / 60, s % 60)
+}
+
+/** A sound clip: a tap plays it (or stops it), its length beside; [onRemove] puts a button that takes it off. */
+@Composable
+private fun Clip(name: String, playing: Boolean, seconds: (String) -> Float, onPlay: (String) -> Unit,
+                 onRemove: (() -> Unit)?, enabled: Boolean = true) {
+    val length = remember(name) { seconds(name) }
+    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, end = 8.dp)) {
+            IconButton(onClick = { onPlay(name) }, modifier = Modifier.size(36.dp)) {
+                Icon(if (playing) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(if (playing) R.string.chat_clip_stop else R.string.chat_clip_play))
+            }
+            Icon(Icons.Outlined.Mic, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            Text(clock(length), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 4.dp))
+            if (onRemove != null) {
+                IconButton(onClick = onRemove, enabled = enabled, modifier = Modifier.padding(start = 2.dp).size(28.dp)) {
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.chat_remove_clip),
+                        modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+    }
+}
+
+/** What the input does with videos, for a model that watches them (Gemma 4 with vision). */
+private class Films(
+    val watches: Boolean,
+    val videos: List<ChatVideo>,
+    val preparing: Boolean,
+    val onAttach: () -> Unit,
+    val onRemove: (ChatVideo) -> Unit,
+)
+
+/** A video as its first frame, a camera and its length over it. */
+@Composable
+private fun Poster(v: ChatVideo, size: Dp, thumb: (String, Int) -> Bitmap?) {
+    Box {
+        v.frames.firstOrNull()?.let { Thumb(it, size, thumb) }
+        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f),
+            modifier = Modifier.align(Alignment.BottomStart).padding(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
+                Icon(Icons.Filled.Videocam, null, Modifier.size(14.dp), tint = androidx.compose.ui.graphics.Color.White)
+                Text(clock(v.ms / 1000f), style = MaterialTheme.typography.labelSmall,
+                    color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.padding(start = 4.dp))
             }
         }
     }
@@ -663,7 +807,7 @@ private fun Thinking(m: ChatMessage) {
 private fun Input(agent: Boolean, commands: List<xyz.tifu.geode.agent.AgentCommand>, enabled: Boolean,
                   generating: Boolean, vision: Boolean, attachments: List<String>,
                   thumb: (String, Int) -> Bitmap?, onAttach: () -> Unit, onRemove: (String) -> Unit,
-                  onSend: (String) -> Unit, onStop: () -> Unit) {
+                  sound: Sound, films: Films, onSend: (String) -> Unit, onStop: () -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
     // a "/" typed to the agent: the commands it takes that begin so, a tap puts one in
     val typed = text.takeIf { it.startsWith("/") && ' ' !in it }?.removePrefix("/")
@@ -703,25 +847,139 @@ private fun Input(agent: Boolean, commands: List<xyz.tifu.geode.agent.AgentComma
             }
         }
     }
+    // the videos for the next question (and one being prepared), each with a button that takes it off
+    if (films.watches && (films.videos.isNotEmpty() || films.preparing)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            for (v in films.videos) {
+                Box {
+                    Poster(v, 72.dp, thumb)
+                    Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(24.dp)
+                            .clickable(enabled = !generating) { films.onRemove(v) }) {
+                        Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.chat_remove_video),
+                            modifier = Modifier.padding(4.dp))
+                    }
+                }
+            }
+            if (films.preparing) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text(stringResource(R.string.chat_video_preparing), style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
+    }
+    // the clips for the next question: each plays, each comes off
+    if (sound.hears && sound.clips.isNotEmpty()) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (n in sound.clips) Clip(n, sound.playing == n, sound.seconds, sound.onPlay,
+                onRemove = { sound.onRemove(n) }, enabled = !generating)
+        }
+    }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (vision) {
-            IconButton(onClick = onAttach, enabled = enabled && !generating, modifier = Modifier.padding(bottom = 4.dp)) {
-                Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = stringResource(R.string.chat_attach_image))
+        if (vision && sound.hears) {
+            // an image or a sound file: a menu of the two
+            var menu by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { menu = true }, enabled = enabled && !generating && sound.recording == null,
+                    modifier = Modifier.padding(bottom = 4.dp)) {
+                    Icon(Icons.Outlined.AttachFile, contentDescription = stringResource(R.string.chat_attach))
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.chat_attach_image)) },
+                        leadingIcon = { Icon(Icons.Outlined.Image, null) },
+                        onClick = {
+                            menu = false
+                            onAttach()
+                        })
+                    if (films.watches) DropdownMenuItem(text = { Text(stringResource(R.string.chat_attach_video)) },
+                        leadingIcon = { Icon(Icons.Outlined.Videocam, null) },
+                        enabled = !films.preparing,
+                        onClick = {
+                            menu = false
+                            films.onAttach()
+                        })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.chat_attach_audio)) },
+                        leadingIcon = { Icon(Icons.Outlined.AudioFile, null) },
+                        onClick = {
+                            menu = false
+                            sound.onAttach()
+                        })
+                }
+            }
+        } else if (vision || sound.hears) {
+            IconButton(onClick = if (vision) onAttach else sound.onAttach, enabled = enabled && !generating,
+                modifier = Modifier.padding(bottom = 4.dp)) {
+                Icon(if (vision) Icons.Outlined.AddPhotoAlternate else Icons.Outlined.AudioFile,
+                    contentDescription = stringResource(if (vision) R.string.chat_attach_image else R.string.chat_attach_audio))
             }
         }
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            enabled = enabled,
-            placeholder = { Text(stringResource(if (agent) R.string.agent_input_hint else R.string.chat_input_hint)) },
-            maxLines = 6,
-            shape = RoundedCornerShape(24.dp),
-            modifier = Modifier.weight(1f),
-        )
+        val recording = sound.recording
+        Box(Modifier.weight(1f)) {
+            // the words stay (hidden while a voice message records): their focus and the keyboard with them, so the
+            // row does not move under the finger that holds the button
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                enabled = enabled,
+                placeholder = { Text(stringResource(if (agent) R.string.agent_input_hint else R.string.chat_input_hint)) },
+                maxLines = 6,
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxWidth().alpha(if (recording != null) 0f else 1f),
+            )
+            if (recording != null) {
+                // the recording over them: its length, the limit, what letting go does
+                Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier.matchParentSize()) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error))
+                        Text(stringResource(R.string.chat_recording, clock(recording), clock(30f)),
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer,
+                            maxLines = 2, modifier = Modifier.padding(start = 10.dp))
+                    }
+                }
+            }
+        }
         Spacer(Modifier.size(8.dp))
+        if (sound.hears && !generating) {
+            // held: it records; let go: the clip is attached
+            val on = recording != null
+            val desc = stringResource(R.string.chat_record)
+            val canRecord by rememberUpdatedState(enabled)
+            val record by rememberUpdatedState(sound.onRecord)
+            val recorded by rememberUpdatedState(sound.onRecorded)
+            Surface(shape = CircleShape,
+                color = if (on) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.padding(bottom = 4.dp, end = 8.dp).size(48.dp)
+                    .semantics { contentDescription = desc; role = Role.Button }
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown()
+                            if (canRecord && record()) {
+                                try {
+                                    // until every finger is up, wherever it went
+                                    do {
+                                        val e = awaitPointerEvent()
+                                    } while (e.changes.any { it.pressed })
+                                } finally {
+                                    // let go - or the gesture cut short (the button gone): the recording ends either way
+                                    recorded()
+                                }
+                            }
+                        }
+                    }) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Mic, contentDescription = null,
+                        tint = if (on) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+            }
+        }
         if (generating) {
             FilledIconButton(onClick = onStop, modifier = Modifier.padding(bottom = 4.dp)) {
                 Icon(Icons.Filled.Stop, contentDescription = stringResource(R.string.chat_stop))
@@ -732,7 +990,9 @@ private fun Input(agent: Boolean, commands: List<xyz.tifu.geode.agent.AgentComma
                     onSend(text)
                     text = ""
                 },
-                enabled = enabled && (text.isNotBlank() || (vision && attachments.isNotEmpty())),
+                enabled = enabled && sound.recording == null && !films.preparing &&
+                    (text.isNotBlank() || (vision && attachments.isNotEmpty()) || (sound.hears && sound.clips.isNotEmpty()) ||
+                        (films.watches && films.videos.isNotEmpty())),
                 modifier = Modifier.padding(bottom = 4.dp),
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.chat_send))

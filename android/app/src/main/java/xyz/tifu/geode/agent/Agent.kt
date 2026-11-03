@@ -227,7 +227,8 @@ class Agent(private val app: GeodeApp) {
     }
 
     /**
-     * [task] to the agent of [chatId], with [images] (the chat's stored JPEGs) before it; [onEvent] gets what it does
+     * [task] to the agent of [chatId], with [images] (the chat's stored JPEGs) and [audio] (its clips) before it;
+     * [onEvent] gets what it does
      * as it does it. Returns how the turn ended (end_turn, max_tokens, cancelled...). Cancelled, the turn is cancelled
      * in the harness (and the harness stopped when it does not end the turn soon). A read ahead of the shared start
      * that runs is gone on with, not thrown away: the turn begins with the same start, so it waits for the rest of it
@@ -235,6 +236,7 @@ class Agent(private val app: GeodeApp) {
      * ([AgentEvent.Waiting]).
      */
     suspend fun prompt(chatId: String, sessionId: String?, task: String, images: List<File> = emptyList(),
+                       audio: List<File> = emptyList(), videos: List<VideoInput> = emptyList(),
                        onEvent: suspend (AgentEvent) -> Unit): String {
         awaitWarm(onEvent)
         installJob?.let { if (it.isActive) onEvent(AgentEvent.Installing) }
@@ -243,7 +245,7 @@ class Agent(private val app: GeodeApp) {
         return turnLock.withLock {
             _turn.value = chatId
             try {
-                turn(chatId, sessionId, task, images, onEvent)
+                turn(chatId, sessionId, task, images, audio, videos, onEvent)
             } finally {
                 _turn.value = null
                 lastTurn = SystemClock.elapsedRealtime()
@@ -253,8 +255,8 @@ class Agent(private val app: GeodeApp) {
         }
     }
 
-    private suspend fun turn(chatId: String, sessionId: String?, task: String, images: List<File>,
-                             onEvent: suspend (AgentEvent) -> Unit): String {
+    private suspend fun turn(chatId: String, sessionId: String?, task: String, images: List<File>, audio: List<File>,
+                             videos: List<VideoInput>, onEvent: suspend (AgentEvent) -> Unit): String {
         idle?.cancel()
         busy = true
         val h = try {
@@ -274,7 +276,7 @@ class Agent(private val app: GeodeApp) {
                     }
                 }
                 try {
-                    h.prompt(task, images, onEvent)
+                    h.prompt(task, images, audio, videos, onEvent)
                 } finally {
                     reading.cancel()
                 }
@@ -419,7 +421,7 @@ class Agent(private val app: GeodeApp) {
                     }
                 }
                 val turn = launch {
-                    runCatching { h.prompt("Reply with one word: ready.", emptyList()) {} }
+                    runCatching { h.prompt("Reply with one word: ready.", emptyList(), emptyList(), emptyList()) {} }
                     // its request ended (at the shared start, or failed before it)
                     held.complete(app.apiEngine.readAheadHeld)
                 }
@@ -480,8 +482,13 @@ class Agent(private val app: GeodeApp) {
     }
 
     private suspend fun harness(chatId: String, sessionId: String?, background: Job? = null): Harness {
-        // the same chat's, unless the user's servers or skills changed since it started
-        live?.let { if (it.chatId == chatId && it.alive && it.config == app.agentConfig.version && background == null) return it }
+        // the same chat's, unless the user's servers or skills changed since it started, or the model (another one
+        // selected: the harness is told the model and what it takes at its start)
+        val model = runCatching { modelKey(app.apiEngine.model()) }.getOrNull()
+        live?.let {
+            if (it.chatId == chatId && it.alive && it.config == app.agentConfig.version && it.model == model &&
+                background == null) return it
+        }
         stop()
         _commands.value = emptyList()
         val h = Harness(app, linux, chatId, chatDir(chatId), workspace(chatId), background) { _commands.value = it }
@@ -517,6 +524,17 @@ class Agent(private val app: GeodeApp) {
 }
 
 /** One harness process, its loopback API server and its JSON-RPC exchange. */
+/** A video for the agent: its frames (the chat's JPEGs) with their seconds, its sound (a clip's file), its length. */
+data class VideoInput(val frames: List<Pair<File, Int>>, val audio: File?, val ms: Long)
+
+/** What a model takes besides text, as the harness is told it (GEODE_INPUT). */
+private fun input(model: xyz.tifu.geode.models.InstalledModel): String =
+    (listOf("text") + listOfNotNull("image".takeIf { model.vision }, "audio".takeIf { model.audio },
+        "video".takeIf { model.video })).joinToString(",")
+
+/** A model as a harness started for it knows it: its pack and what it takes. */
+private fun modelKey(model: xyz.tifu.geode.models.InstalledModel): String = model.dir.path + "|" + input(model)
+
 private class Harness(
     private val app: GeodeApp,
     private val linux: Linux,
@@ -546,6 +564,10 @@ private class Harness(
     val alive: Boolean get() = ::process.isInitialized && process.isAlive
     /** The user's MCP servers and skills as they were at its start (AgentConfig.version). */
     val config = app.agentConfig.version
+    /** The model it was told at its start (modelKey). */
+    @Volatile
+    var model: String? = null
+        private set
 
     /**
      * A chat whose Linux last ran another image (the app updated it) runs the new image's /etc/geode/migrate with the
@@ -603,10 +625,12 @@ private class Harness(
             "GEODE_BASE_URL" to "http://127.0.0.1:${server.boundPort}/v1",
             "GEODE_KEY" to key,
             "GEODE_MODEL" to model.id,
-            // the model as it is: its context (the harness compacts before it is full), images if its pack reads them
+            // the model as it is: its context (the harness compacts before it is full), images if its pack reads them,
+            // sound if it hears
             "GEODE_CONTEXT" to s.contextLength.toString(),
-            "GEODE_INPUT" to if (model.vision) "text,image" else "text",
+            "GEODE_INPUT" to input(model),
         )
+        this@Harness.model = modelKey(model)
         val native = File(app.applicationInfo.nativeLibraryDir, NATIVE)
         process = if (native.isFile) {
             // geode-agent (geode/agent: the harness in Rust) runs here, outside the Linux, which it starts only for
@@ -654,12 +678,14 @@ private class Harness(
         } ?: (request("session/new", args)["sessionId"] as? String ?: throw AgentException("no session"))
     }
 
-    suspend fun prompt(task: String, images: List<File>, onEvent: suspend (AgentEvent) -> Unit): String {
+    suspend fun prompt(task: String, images: List<File>, audio: List<File>, videos: List<VideoInput>,
+                       onEvent: suspend (AgentEvent) -> Unit): String {
         onUpdate = { u -> event(u)?.let { onEvent(it) } }
         try {
             // the images first (ACP image blocks: the chat's stored JPEGs), each with a copy in the chat's folder that the
-            // model is told the path of (its tools read it; without one it guessed a path), then the words
-            val blocks = images.mapNotNull { f ->
+            // model is told the path of (its tools read it; without one it guessed a path), then the clips (ACP audio
+            // blocks: WAV, a copy in the folder too), then the words
+            val pictures = images.mapNotNull { f ->
                 runCatching {
                     val bytes = f.readBytes()
                     val copy = File(workspace, "$IMAGES/${f.name}")
@@ -668,7 +694,35 @@ private class Harness(
                     mapOf("type" to "image", "mimeType" to "image/jpeg", "uri" to "file:///workspace/$IMAGES/${f.name}",
                         "data" to android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
                 }.getOrNull()
-            } + mapOf("type" to "text", "text" to task)
+            }
+            val sounds = audio.mapNotNull { f ->
+                runCatching {
+                    val wav = xyz.tifu.geode.media.Wav.encode(xyz.tifu.geode.media.AudioStore.read(f))
+                    val name = f.nameWithoutExtension + ".wav"
+                    val copy = File(workspace, "$AUDIO/$name")
+                    copy.parentFile?.mkdirs()
+                    if (!copy.isFile) copy.writeBytes(wav)
+                    mapOf("type" to "audio", "mimeType" to "audio/wav", "uri" to "file:///workspace/$AUDIO/$name",
+                        "data" to android.util.Base64.encodeToString(wav, android.util.Base64.NO_WRAP))
+                }.getOrNull()
+            }
+            // the videos (Geode's video block: their frames, each at its second, and their sound as WAV)
+            val films = videos.mapNotNull { v ->
+                runCatching {
+                    val frames = v.frames.map { (file, second) ->
+                        mapOf("data" to android.util.Base64.encodeToString(file.readBytes(), android.util.Base64.NO_WRAP),
+                            "mimeType" to "image/jpeg", "second" to second)
+                    }
+                    val block = linkedMapOf<String, Any?>("type" to "video", "frames" to frames, "durationMs" to v.ms)
+                    v.audio?.let { a ->
+                        val wav = xyz.tifu.geode.media.Wav.encode(xyz.tifu.geode.media.AudioStore.read(a))
+                        block["audio"] = mapOf("data" to android.util.Base64.encodeToString(wav, android.util.Base64.NO_WRAP),
+                            "mimeType" to "audio/wav")
+                    }
+                    block
+                }.getOrNull()
+            }
+            val blocks = pictures + films + sounds + mapOf("type" to "text", "text" to task)
             val r = request("session/prompt", mapOf("sessionId" to sessionId, "prompt" to blocks))
             return r["stopReason"] as? String ?: "end_turn"
         } catch (e: CancellationException) {
@@ -813,6 +867,7 @@ private class Harness(
         private const val NATIVE = "libgeodeagent.so"
         /** Where the user's images go in the chat's folder (a dot folder: not among the files the agent made). */
         private const val IMAGES = ".geode/images"
+        private const val AUDIO = ".geode/audio"
         private const val MIGRATE_S = 600L
 
         /**

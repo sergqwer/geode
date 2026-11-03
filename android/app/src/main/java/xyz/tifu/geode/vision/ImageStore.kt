@@ -19,8 +19,8 @@ import kotlin.math.sqrt
 /**
  * The chats' images. An attached image is kept once, as the model is to see it: its EXIF orientation applied, a
  * transparent background made white, at most [STORE_SIDE] pixels a side, JPEG (files/chats/img/<id>.jpg). The engine
- * gets it at the size the model reads it at ([fit]: Qwen's smart_resize) as raw RGB in the cache (cache/vision/),
- * written by the UI process and read by the :engine one.
+ * gets it at the size the model reads it at ([fit]: Qwen's smart_resize; [fitGemma]: Gemma 4's) as raw RGB in the
+ * cache (cache/vision/), written by the UI process and read by the :engine one.
  */
 class ImageStore(context: Context) {
     private val resolver = context.contentResolver
@@ -42,8 +42,7 @@ class ImageStore(context: Context) {
      * encoded once). Its name. The server's images older than a day go at its start ([dropServerImages]).
      */
     fun importBytes(bytes: ByteArray): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
-        val name = SERVER_PREFIX + digest.take(16).joinToString("") { "%02x".format(it) } + ".jpg"
+        val name = serverName(bytes)
         if (file(name).isFile) file(name).setLastModified(System.currentTimeMillis())
         else store(ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes)), name)
         return name
@@ -54,6 +53,33 @@ class ImageStore(context: Context) {
         val name = UUID.randomUUID().toString() + ".jpg"
         store(ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes)), name)
         return name
+    }
+
+    /** The name [importBytes] gives these image bytes: their content's. */
+    private fun serverName(bytes: ByteArray): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+        return SERVER_PREFIX + digest.take(16).joinToString("") { "%02x".format(it) } + ".jpg"
+    }
+
+    /**
+     * The local server's copies of these chat images - the agent sends a chat image's bytes, which the server stores
+     * under their content's name - gone with their chat. A forked chat's copy has the same bytes: its next request
+     * stores it again.
+     */
+    fun deleteServerCopies(names: Collection<String>) {
+        for (n in names) runCatching { file(serverName(file(n).readBytes())).delete() }
+    }
+
+    /**
+     * The chat images no chat holds ([held]: every saved chat's) - picked and never sent, a video's frames whose
+     * reading was cut off - older than [ageMs] (one being attached now is newer). The server's copies have their own
+     * rule ([dropServerImages]).
+     */
+    fun dropUnheld(held: Set<String>, ageMs: Long) {
+        val old = System.currentTimeMillis() - ageMs
+        (dir.listFiles() ?: emptyArray())
+            .filter { it.isFile && !it.name.startsWith(SERVER_PREFIX) && it.name !in held && it.lastModified() < old }
+            .forEach { it.delete() }
     }
 
     /** The local server's images not used for a day. */
@@ -116,10 +142,17 @@ class ImageStore(context: Context) {
         val tmp = File(cache, f.name + ".tmp")
         FileOutputStream(tmp).use { it.write(rgb) }
         tmp.renameTo(f)
-        // the cache keeps the newest few (and the engine's feature files beside them: <name>_<w>x<h>.feat)
-        for (ext in listOf(".rgb", ".feat"))
-            (cache.listFiles() ?: emptyArray()).filter { it.name.endsWith(ext) }.sortedByDescending { it.lastModified() }
-                .drop(CACHE_KEEP).forEach { it.delete() }
+        // the cache keeps the newest (and the engine's feature files beside them: <name>_<w>x<h>.feat) within a
+        // budget of bytes - a video's 32 frames as well as a few large photos - never the last minute's, which a
+        // prompt being prepared may still need
+        val recent = System.currentTimeMillis() - 60_000L
+        var kept = 0L
+        (cache.listFiles() ?: emptyArray()).filter { it.name.endsWith(".rgb") || it.name.endsWith(".feat") }
+            .sortedByDescending { it.lastModified() }
+            .forEach { f ->
+                kept += f.length()
+                if (kept > CACHE_BYTES && f.lastModified() < recent) f.delete()
+            }
         return f
     }
 
@@ -138,7 +171,8 @@ class ImageStore(context: Context) {
     companion object {
         /** The longest side an attached image is kept at. */
         const val STORE_SIDE = 2048
-        private const val CACHE_KEEP = 16
+        /** The engine's inputs and features kept in the cache, at most (bytes). */
+        private const val CACHE_BYTES = 128L shl 20
         private const val SERVER_PREFIX = "srv_"
         /** A model token covers 2 x 2 patches of 16 pixels (Qwen3.6's vision encoder). */
         const val FACTOR = 32
@@ -170,5 +204,45 @@ class ImageStore(context: Context) {
 
         /** The image detail setting's pixel limits: fast, detailed, most. */
         val DETAIL_PIXELS = longArrayOf(512L * 512, 768L * 768, 1024L * 1024)
+
+        /** Gemma 4's vision encoder: 16-pixel patches pooled 3 x 3, one soft token each 48 x 48 pixels. */
+        const val GEMMA_PATCH = 16
+        const val GEMMA_POOL = 3
+        const val GEMMA_FACTOR = GEMMA_PATCH * GEMMA_POOL
+
+        /** The image detail setting's soft token budgets for Gemma 4 (its own budgets; 280 its default). */
+        val GEMMA_DETAIL_TOKENS = intArrayOf(140, 280, 560)
+
+        /** A video frame's budget (Gemma4Processor's for video). */
+        const val GEMMA_FRAME_TOKENS = 70
+
+        /**
+         * Gemma 4's resize (transformers' get_aspect_ratio_preserving_size, as the engine's Vision::fit): the largest
+         * size of at most [budget] soft tokens with both sides multiples of [GEMMA_FACTOR], the aspect kept - a small
+         * image is made larger. Width, height.
+         */
+        fun fitGemma(w0: Int, h0: Int, budget: Int): Pair<Int, Int> {
+            val f = GEMMA_FACTOR
+            val w = max(w0, 1)
+            val h = max(h0, 1)
+            val factor = sqrt(budget.toDouble() * f * f / (h.toDouble() * w))
+            var th = floor(factor * h / f).toInt() * f
+            var tw = floor(factor * w / f).toInt() * f
+            val longest = budget * f
+            if (th == 0 && tw == 0) {
+                th = f
+                tw = f
+            } else if (th == 0) {
+                th = f
+                tw = minOf(floor(w.toDouble() / h).toInt() * f, longest)
+            } else if (tw == 0) {
+                tw = f
+                th = minOf(floor(h.toDouble() / w).toInt() * f, longest)
+            }
+            return tw to th
+        }
+
+        /** Gemma 4's soft tokens of an image read at w x h (a [fitGemma]). */
+        fun gemmaTokens(w: Int, h: Int): Int = (w / GEMMA_FACTOR) * (h / GEMMA_FACTOR)
     }
 }

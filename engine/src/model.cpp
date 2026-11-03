@@ -116,6 +116,7 @@ bool Model::bind_layer(Layer &L, const std::string &p, bool attn, int index, std
 }
 
 bool Model::bind(std::string &err) {
+    if (cfg_.gemma) return bind_gemma(err);   // Gemma 4: gemma.cpp
     const auto &c = cfg_;
     int n_attn = 0, n_gdn = 0;
     layers_.resize(static_cast<size_t>(c.n_layers));
@@ -191,6 +192,19 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
             vision_status_ = ve;   // the model works without it
         }
     }
+    {
+        std::string ae;
+        if (audio_.open(pack_, opt.direct_io, ae)) {
+            audio_status_ = "ok";
+            if (audio_.shape().text_hidden != pack_.config().hidden) {
+                audio_.disable();
+                audio_status_ = "the audio encoder's output is not the model's width";
+            }
+        } else if (!ae.empty()) {
+            audio_.disable();
+            audio_status_ = ae;   // the model works without it
+        }
+    }
     open_clock.mark("vision");
     cfg_ = pack_.config();
     new_conversation();
@@ -231,6 +245,7 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
     routed_rows_ = !(std::getenv("GEODE_ROUTED_ROWS") && std::atoi(std::getenv("GEODE_ROUTED_ROWS")) == 0);
     little_dense_ = !(std::getenv("GEODE_LITTLE_DENSE") && std::atoi(std::getenv("GEODE_LITTLE_DENSE")) == 0);
     open_clock.mark("threads");
+    if (c.gemma) return open_gemma(opt, err);   // Gemma 4: its own KV layout and scratch (gemma.cpp)
     // the NPU first: it takes the pack's layout, before anything is laid out anew
     const bool npu_on = std::getenv("GEODE_NPU") ? std::atoi(std::getenv("GEODE_NPU")) != 0 : opt.npu > 0;
     if (exact_ || check_) npu_.status = "off (exact / checked arithmetic)";
@@ -1166,6 +1181,21 @@ float softmax_at(const float *lg, int rows, int best) {
 
 bool Model::draft(const int *toks, int n, int pos, const float *hidden, int &draft, std::string &err, float *prob) {
     const auto &c = cfg_;
+    if (gd_.on) {
+        // Gemma's drafter: no state of its own - only the last pair counts (the hidden row of the position before
+        // the token, the token), the round at the token's position, which is the model's next
+        if (n < 1 || pos < 0 || pos + n != pos_) {
+            err = "bad draft";
+            return false;
+        }
+        const double t0 = now_seconds();
+        gd_.pos = pos + n;
+        const float *h = hidden ? hidden + static_cast<size_t>(n - 1) * c.hidden : this->hidden(n - 1);
+        if (!gemma_draft(toks[n - 1], h, draft, prob, err)) return false;
+        ++prof_.drafts;
+        prof_.d_draft += now_seconds() - t0;
+        return true;
+    }
     if (npu_spec_ && npu_.dec) {
         // the MTP layer on the DSP: the next tokens' embeddings and the hidden rows go over
         if (n < 1 || n > DEC_T || pos < 0) {
@@ -1269,6 +1299,14 @@ bool Model::draft(const int *toks, int n, int pos, const float *hidden, int &dra
 
 bool Model::draft_next(int tok, int pos, int &draft, float *prob, std::string &err) {
     const auto &c = cfg_;
+    if (gd_.on) {
+        // the same round's position (pos is the MTP layer's, not this drafter's), from the last step's h'
+        const double t0 = now_seconds();
+        if (!gemma_draft(tok, gd_.hp.data(), draft, prob, err)) return false;
+        ++prof_.drafts;
+        prof_.d_draft += now_seconds() - t0;
+        return true;
+    }
     if (!mtp8_ || !dec8_ || pos < 0) {
         err = "no chained drafts here (the GPU's MTP layer)";
         return false;
@@ -1310,6 +1348,19 @@ bool Model::save_cache_profile() { return store_.save_profile(pack_.dir() + "/ca
 
 bool Model::verify_n(const int *toks, int n, float *logits, std::string &err) {
     const auto &c = cfg_;
+    if (gd_.on) {
+        // Gemma: one batch of the main model, each token's arithmetic its single pass's (gemma.cpp)
+        if (n < 2 || n > gd_.k) {
+            err = "a verified batch of " + std::to_string(n) + " tokens (2 .. " + std::to_string(gd_.k) + ")";
+            return false;
+        }
+        const double t0 = now_seconds();
+        if (!forward_batch(toks, n, logits, true, err)) return false;
+        last_batch_ = n;
+        ++prof_.verified;
+        prof_.d_verify += now_seconds() - t0;
+        return true;
+    }
     if (npu_spec_ && npu_.dec) {
         // the pair on the DSP: every weight read once for both, the first token's states into the other set
         if (n != 2) {
@@ -1411,6 +1462,14 @@ bool Model::verify_keep(int kept, std::string &err) {
         err = "keeping " + std::to_string(kept) + " of a batch of " + std::to_string(last_batch_);
         return false;
     }
+    if (gd_.on) {
+        // no recurrence: the position alone goes back (the rejected tokens' KV rows are written over, unseen till then)
+        pos_ -= last_batch_ - kept;
+        last_hid_.assign(hidden(kept - 1), hidden(kept - 1) + cfg_.hidden);
+        last_batch_ = 0;
+        ++prof_.rejected;
+        return true;
+    }
     if ((npu_spec_ && npu_.dec) || (cpu_spec_ && !dec8_)) {
         // the states as after the first token are the backups: swapped in (the second token's KV row is written over)
         std::swap(conv_st_, conv_bk_);
@@ -1442,7 +1501,7 @@ bool Model::verify_keep(int kept, std::string &err) {
 
 uint64_t Model::memory_bytes() const {
     const auto vec = [](const std::vector<float> &v) { return static_cast<uint64_t>(v.size()) * sizeof(float); };
-    return pack_.dense_bytes() + store_.bytes() + static_cast<uint64_t>(conv_n_ + gdn_n_) * sizeof(float) + spec_bytes() +
+    return pack_.dense_bytes() + store_.bytes() + static_cast<uint64_t>(conv_n_ + gdn_n_) * sizeof(float) + spec_bytes() + gd_.bytes +
            static_cast<uint64_t>(kv_ptrs_.size()) * kv_chunk_bytes_ + vec(eout_) + vec(proj_) +
            vec(qg_) + vec(router_);
 }
@@ -1574,22 +1633,112 @@ const float *Model::image_row(int idx) const {
     return nullptr;
 }
 
+namespace {
+// An image's encode on the little cores too (the wide products' helpers), which a prompt's products leave out: on the
+// 720G they take a share of the attention's tasks (Gemma 4, 2394 patches: 9.3 -> 5.6 s) and cost the products
+// nothing. GEODE_VISION_HELPERS=0: the prompt's threads only.
+struct EncodeThreads {
+    ThreadPool &pool;
+    int was;
+    explicit EncodeThreads(ThreadPool &p) : pool(p), was(p.wide_helpers()) {
+        static const bool on = !(std::getenv("GEODE_VISION_HELPERS") && std::atoi(std::getenv("GEODE_VISION_HELPERS")) == 0);
+        if (on) pool.set_wide_helpers(pool.helpers());
+    }
+    ~EncodeThreads() { pool.set_wide_helpers(was); }
+};
+}  // namespace
+
 bool Model::add_image(const uint8_t *rgb, int w, int h, const std::string &cache, int &tokens, std::string &err) {
     if (!vision_.available()) {
         err = "the model has no vision encoder (" + vision_status_ + ")";
         return false;
     }
-    Image im;
-    if (!vision_.load_features(cache, w, h, im.feats)) {
+    std::vector<float> feats;
+    if (!vision_.load_features(cache, w, h, feats)) {
         pin_current_thread(big_);
         pool_->set_width(pool_->size());
         pool_->set_little(0);
-        if (!vision_.encode(rgb, w, h, *pool_, im.feats, err, gpu8_.get())) return false;
-        vision_.save_features(cache, w, h, im.feats);   // a cache: failing to write it costs the next encode only
+        EncodeThreads all(*pool_);
+        if (!vision_.encode(rgb, w, h, *pool_, feats, err, gpu8_.get())) return false;
+        vision_.save_features(cache, w, h, feats);   // a cache: failing to write it costs the next encode only
     }
+    return add_image_features(std::move(feats), w, h, tokens, err);
+}
+
+bool Model::add_video_frame(const uint8_t *rgb, int w, int h, const std::string &cache, int &tokens, std::string &err) {
+    if (!vision_.available() || vision_.shape().video_pad < 0) {
+        err = vision_.available() ? "this model's vision encoder takes no video" : "the model has no vision encoder (" + vision_status_ + ")";
+        return false;
+    }
+    int n = 0;
+    if (!add_image(rgb, w, h, cache, n, err)) return false;
+    images_.back().pad = vision_.shape().video_pad;   // the same features, the frame's own tokens
+    tokens = n;
+    return true;
+}
+
+bool Model::add_frame_features(std::vector<float> feats, int w, int h, int &tokens, std::string &err) {
+    if (!vision_.available() || vision_.shape().video_pad < 0) {
+        err = "the model's vision encoder takes no video";
+        return false;
+    }
+    if (!add_image_features(std::move(feats), w, h, tokens, err)) return false;
+    images_.back().pad = vision_.shape().video_pad;
+    return true;
+}
+
+bool Model::add_image_features(std::vector<float> feats, int w, int h, int &tokens, std::string &err) {
+    if (!vision_.available()) {
+        err = "the model has no vision encoder (" + vision_status_ + ")";
+        return false;
+    }
+    Image im;
     const int f = vision_.shape().patch * vision_.shape().merge;
     im.gh = h / f;
     im.gw = w / f;
+    if (im.gh <= 0 || im.gw <= 0 || feats.size() != static_cast<size_t>(im.n()) * static_cast<size_t>(cfg_.hidden)) {
+        err = "image features: " + std::to_string(feats.size()) + " values for a " + std::to_string(w) + " x " +
+              std::to_string(h) + " image";
+        return false;
+    }
+    im.feats = std::move(feats);
+    im.pad = vision_.shape().pad_token;
+    tokens = im.n();
+    images_.push_back(std::move(im));
+    return true;
+}
+
+bool Model::add_audio(const float *pcm, int64_t n, int &tokens, std::string &err) {
+    if (!audio_.available()) {
+        err = "the model has no audio encoder (" + audio_status_ + ")";
+        return false;
+    }
+    pin_current_thread(big_);
+    pool_->set_width(pool_->size());
+    pool_->set_little(0);
+    std::vector<float> feats;
+    {
+        EncodeThreads all(*pool_);
+        if (!audio_.encode(pcm, n, *pool_, feats, err)) return false;
+    }
+    return add_audio_features(std::move(feats), tokens, err);
+}
+
+bool Model::add_audio_features(std::vector<float> feats, int &tokens, std::string &err) {
+    if (!audio_.available()) {
+        err = "the model has no audio encoder (" + audio_status_ + ")";
+        return false;
+    }
+    const auto H = static_cast<size_t>(cfg_.hidden);
+    if (feats.empty() || feats.size() % H) {
+        err = "audio features: " + std::to_string(feats.size()) + " values, not rows of " + std::to_string(H);
+        return false;
+    }
+    Image im;
+    im.gh = 1;
+    im.gw = static_cast<int>(feats.size() / H);
+    im.pad = audio_.shape().pad_token;
+    im.feats = std::move(feats);
     tokens = im.n();
     images_.push_back(std::move(im));
     return true;
@@ -1605,6 +1754,7 @@ bool Model::cache_image(const uint8_t *rgb, int w, int h, const std::string &cac
     pool_->set_width(pool_->size());
     pool_->set_little(0);
     std::vector<float> feats;
+    EncodeThreads all(*pool_);
     if (!vision_.encode(rgb, w, h, *pool_, feats, err, gpu8_.get())) return false;
     if (!vision_.save_features(cache, w, h, feats)) {
         err = "cannot write " + cache;
@@ -2516,6 +2666,9 @@ void Model::quad_dense() {
             views.push_back(m);
     };
     for (Layer &L : layers_) add(L);
+    for (GLayer &L : glayers_)   // Gemma 4 (gemma.cpp)
+        for (QView *m : {&L.q, &L.k, &L.v, &L.o, &L.gate, &L.up, &L.down, &L.ple_gate, &L.ple_proj}) views.push_back(m);
+    if (cfg_.gemma) views.push_back(&ple_model_);
     if (mtp_) {
         add(mtp_layer_);
         views.push_back(&mtp_fc_);
@@ -4252,6 +4405,7 @@ void Model::prefetch_layer(int l) {
 
 bool Model::forward_mtp(const int *next_tokens, const float *const *hidden, int n, int pos, float *logits,
                         std::string &err, const QView *head) {
+    if (gd_.on) return true;   // Gemma's drafter keeps nothing over a prompt (it reads the main model's KV)
     if (!mtp_) {
         err = "the pack has no MTP layer";
         return false;
@@ -4534,6 +4688,7 @@ bool Model::forward_batch(const int *tokens, int n, float *logits, bool all_logi
         return false;
     }
     if (!reserve_context(pos_ + n, err)) return false;
+    if (c.gemma) return forward_gemma(tokens, n, logits, all_logits, err);
     const int pad = vision_.available() ? vision_.shape().pad_token : -1;
     if (n == 1 && dec8_ && !trace && tokens[0] != pad) return decode_gpu8(tokens[0], logits, err);   // one token: the GPU's
     if (n == 1 && npu_.dec && !trace && tokens[0] != pad) return decode_npu(tokens, 1, logits, err);   // or the DSP's

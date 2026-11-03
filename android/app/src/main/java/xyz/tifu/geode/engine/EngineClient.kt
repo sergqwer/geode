@@ -208,15 +208,15 @@ class EngineClient(private val context: Context) : ServiceConnection {
         return error
     }
 
-    /** [images]: the prompt's images in order, raw RGB files (ImageStore.prepare) with their width and height. */
-    fun generate(prompt: IntArray, sampling: Sampling, stopTokens: IntArray,
-                 images: List<Triple<String, Int, Int>> = emptyList()) {
+    /** [media]: the prompt's images, video frames and clips in order (the files the engine reads). */
+    fun generate(prompt: IntArray, sampling: Sampling, stopTokens: IntArray, media: List<EngineMedia> = emptyList()) {
         if (service != null) _running.value = true
         send(P.GENERATE, Bundle().apply {
-            if (images.isNotEmpty()) {
-                putStringArray(P.K_IMAGES, images.map { it.first }.toTypedArray())
-                putIntArray(P.K_IMAGE_W, images.map { it.second }.toIntArray())
-                putIntArray(P.K_IMAGE_H, images.map { it.third }.toIntArray())
+            if (media.isNotEmpty()) {
+                putStringArray(P.K_IMAGES, media.map { it.path }.toTypedArray())
+                putIntArray(P.K_IMAGE_W, media.map { it.w }.toIntArray())
+                putIntArray(P.K_IMAGE_H, media.map { it.h }.toIntArray())
+                putIntArray(P.K_MEDIA_KIND, media.map { it.kind }.toIntArray())
             }
             putIntArray(P.K_PROMPT, prompt)
             putFloat(P.K_TEMPERATURE, sampling.temperature)

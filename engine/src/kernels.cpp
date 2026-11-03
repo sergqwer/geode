@@ -27,6 +27,8 @@ constexpr int8_t kQ3[8] = {1, 3, 5, 7, -1, -3, -5, -7};
 constexpr int8_t kNvfp4x2[16] = {0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12};
 // q4: nvfp4's nibbles with 16 evenly spaced odd levels (the GPU decodes them as 2c - 15 after a code remap)
 constexpr int8_t kQ4[16] = {1, 3, 5, 7, 9, 11, 13, 15, -1, -3, -5, -7, -9, -11, -13, -15};
+// q4i: Q4_0's integer levels, code - 8 (its block scales signed)
+alignas(16) constexpr int8_t kQ4I[16] = {-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7};
 // the GPU layout's affine codes: level = 2c - 3 (q2), 2c - 15 (q4)
 constexpr int8_t kQ2Affine[4] = {-3, -1, 1, 3};
 constexpr int8_t kQ4Affine[16] = {-15, -13, -11, -9, -7, -5, -3, -1, 1, 3, 5, 7, 9, 11, 13, 15};
@@ -76,8 +78,9 @@ inline void block_ints(DType t, const uint8_t *codes, int b, int8_t *v) {
         break;
     }
     case DType::NVFP4:
+    case DType::Q4I:
     case DType::Q4: {
-        const int8_t *lv = t == DType::Q4 ? kQ4 : kNvfp4x2;
+        const int8_t *lv = t == DType::Q4 ? kQ4 : t == DType::Q4I ? kQ4I : kNvfp4x2;
         const uint8_t *c = codes + b * 8;
         for (int j = 0; j < 8; ++j) {
             v[2 * j] = lv[c[j] & 15];
@@ -230,6 +233,11 @@ struct Group<DType::Q4> : NibbleGroup {
 };
 
 template <>
+struct Group<DType::Q4I> : NibbleGroup {
+    Group() : NibbleGroup(kQ4I) {}
+};
+
+template <>
 struct Group<DType::Q8> {
     void load(const uint8_t *row, int64_t g, int8x16_t w[4]) const {
         for (int k = 0; k < 4; ++k) w[k] = vld1q_s8(reinterpret_cast<const int8_t *>(row) + 64 * g + 16 * k);
@@ -257,6 +265,21 @@ inline void block_scales_div256_x2(const uint8_t *sb, float32x4_t &a, float32x4_
     a = vcvt_f32_f16(vget_low_f16(vreinterpretq_f16_u16(h)));
     b = vcvt_high_f32_f16(vreinterpretq_f16_u16(h));
 }
+// signed scales (q4i): the E4M3 sign bit (7) to FP16's (15), the rest shifted as above
+inline uint16x8_t signed_e4m3_as_f16(uint16x8_t w) {
+    return vorrq_u16(vshlq_n_u16(vandq_u16(w, vdupq_n_u16(0x7F)), 7), vshlq_n_u16(vandq_u16(w, vdupq_n_u16(0x80)), 8));
+}
+inline float32x4_t block_scales_div256_signed(const uint8_t *sb) {
+    uint32_t b4;
+    std::memcpy(&b4, sb, 4);
+    const uint16x8_t h = signed_e4m3_as_f16(vmovl_u8(vcreate_u8(b4)));
+    return vcvt_f32_f16(vget_low_f16(vreinterpretq_f16_u16(h)));
+}
+inline void block_scales_div256_signed_x2(const uint8_t *sb, float32x4_t &a, float32x4_t &b) {
+    const uint16x8_t h = signed_e4m3_as_f16(vmovl_u8(vld1_u8(sb)));
+    a = vcvt_f32_f16(vget_low_f16(vreinterpretq_f16_u16(h)));
+    b = vcvt_high_f32_f16(vreinterpretq_f16_u16(h));
+}
 
 // One row against NT tokens' activations: out[j] = row . x_j / 256, before the matrix's global scale.
 template <DType T, int NT>
@@ -279,13 +302,15 @@ inline void row_dots(const Group<T> &G, const uint8_t *row, size_t code_bytes, i
         }
     };
     int64_t g = 0;
+    constexpr bool sgn = T == DType::Q4I;   // signed block scales
     for (; g + 1 < groups; g += 2) {
         float32x4_t s0, s1;
-        block_scales_div256_x2(sb + 4 * g, s0, s1);
+        if constexpr (sgn) block_scales_div256_signed_x2(sb + 4 * g, s0, s1);
+        else block_scales_div256_x2(sb + 4 * g, s0, s1);
         step(g, s0);
         step(g + 1, s1);
     }
-    if (g < groups) step(g, block_scales_div256(sb + 4 * g));
+    if (g < groups) step(g, sgn ? block_scales_div256_signed(sb + 4 * g) : block_scales_div256(sb + 4 * g));
     for (int j = 0; j < NT; ++j) out[j] = vaddvq_f32(acc[j]);
 }
 
@@ -392,7 +417,12 @@ inline void quad_lanes(const int8x16_t lut, const QuadAt &qa, const uint8_t *nex
             __builtin_prefetch(next + 64 * l);
         // the scale bytes [block][row]: block b's four rows' scales / 256 as one vector (rows in lanes)
         const uint8x16_t sb = vld1q_u8(sc + qa.ss * static_cast<size_t>(g));
-        const uint16x8_t h01 = vshlq_n_u16(vmovl_u8(vget_low_u8(sb)), 7), h23 = vshlq_n_u16(vmovl_high_u8(sb), 7);
+        uint16x8_t h01 = vshlq_n_u16(vmovl_u8(vget_low_u8(sb)), 7), h23 = vshlq_n_u16(vmovl_high_u8(sb), 7);
+        if constexpr (T == DType::Q4I) {   // signed E4M3: the sign bit (7, at 14 now) to FP16's (15)
+            const uint16x8_t mag = vdupq_n_u16(0x3F80), sgn = vdupq_n_u16(0x4000);
+            h01 = vorrq_u16(vandq_u16(h01, mag), vshlq_n_u16(vandq_u16(h01, sgn), 1));
+            h23 = vorrq_u16(vandq_u16(h23, mag), vshlq_n_u16(vandq_u16(h23, sgn), 1));
+        }
         int8x16_t x[NT][4];   // the token's 64 activation bytes of the chunk, in the format's plane order
         for (int t = 0; t < NT; ++t)
             for (int k = 0; k < 4; ++k) x[t][k] = vld1q_s8(xb[t] + 64 * g + 16 * k);
@@ -412,7 +442,8 @@ template <DType T>
 void rows_quad_neon(const QView &m, const QAct *const *acts, int n, float *const *ys, int64_t r0, int64_t r1) {
     const int8x16_t lut = [] {
         alignas(16) int8_t l[16] = {};
-        std::memcpy(l, T == DType::Q2 ? kQ2Affine : T == DType::Q4 ? kQ4Affine : kNvfp4x2, T == DType::Q2 ? 4 : 16);
+        std::memcpy(l, T == DType::Q2 ? kQ2Affine : T == DType::Q4 ? kQ4Affine : T == DType::Q4I ? kQ4I : kNvfp4x2,
+                    T == DType::Q2 ? 4 : 16);
         return vld1q_s8(l);
     }();
     constexpr size_t W = T == DType::Q2 ? 4 : 8;   // code words a row and chunk
@@ -605,6 +636,7 @@ DType dtype_from_name(const std::string &n) {
     if (n == "nvfp4") return DType::NVFP4;
     if (n == "q4") return DType::Q4;
     if (n == "q8") return DType::Q8;
+    if (n == "q4i") return DType::Q4I;
     return DType::Unknown;
 }
 
@@ -617,12 +649,13 @@ const char *dtype_name(DType t) {
     case DType::NVFP4: return "nvfp4";
     case DType::Q4: return "q4";
     case DType::Q8: return "q8";
+    case DType::Q4I: return "q4i";
     default: return "?";
     }
 }
 
 bool is_quantized(DType t) {
-    return t == DType::Q2 || t == DType::Q3 || t == DType::NVFP4 || t == DType::Q4 || t == DType::Q8;
+    return t == DType::Q2 || t == DType::Q3 || t == DType::NVFP4 || t == DType::Q4 || t == DType::Q8 || t == DType::Q4I;
 }
 
 int block_code_bytes(DType t) {
@@ -631,6 +664,7 @@ int block_code_bytes(DType t) {
     case DType::Q3: return 6;
     case DType::NVFP4: return 8;
     case DType::Q4: return 8;
+    case DType::Q4I: return 8;
     case DType::Q8: return 16;
     default: return 0;
     }
@@ -650,7 +684,7 @@ const AffineBytes &affine_bytes(DType t) {
         AffineBytes a;
         for (int b = 0; b < 256; ++b) {
             int to = 0, from = 0;
-            if (type == DType::NVFP4) {   // no GPU kernel reads it: the codes stay
+            if (type == DType::NVFP4 || type == DType::Q4I) {   // nvfp4: no GPU kernel reads it; q4i: affine already
                 to = from = b;
             } else if (type == DType::Q2) {
                 static constexpr int f[4] = {2, 3, 1, 0}, g[4] = {3, 2, 0, 1};
@@ -670,16 +704,16 @@ const AffineBytes &affine_bytes(DType t) {
         }
         return a;
     };
-    static const AffineBytes q2 = make(DType::Q2), q4 = make(DType::Q4), nv = make(DType::NVFP4);
-    return t == DType::Q2 ? q2 : t == DType::Q4 ? q4 : nv;
+    static const AffineBytes q2 = make(DType::Q2), q4 = make(DType::Q4), nv = make(DType::NVFP4), q4i = make(DType::Q4I);
+    return t == DType::Q2 ? q2 : t == DType::Q4 ? q4 : t == DType::Q4I ? q4i : nv;
 }
 }  // namespace
 
 bool quad_capable(DType t, int64_t rows, int64_t cols) {
     // not q3: its decode in the lanes (a high-bit shuffle and test per plane) runs slower than the pack's kernel,
     // one token on par, 4 to 16 tokens -12..-38% (measured 2026-10-27)
-    return (t == DType::Q2 || t == DType::Q4 || t == DType::NVFP4) && rows > 0 && rows % 4 == 0 && cols > 0 &&
-           cols % 64 == 0;
+    return (t == DType::Q2 || t == DType::Q4 || t == DType::NVFP4 || t == DType::Q4I) && rows > 0 && rows % 4 == 0 &&
+           cols > 0 && cols % 64 == 0;
 }
 
 void to_quad(DType t, int64_t rows, int64_t cols, const uint8_t *src, uint8_t *dst) {
@@ -1093,12 +1127,14 @@ void matvec_rows_q_multi(const QView &m, const QAct *const *acts, int n, float *
         if (m.type == DType::Q2) return rows_quad_neon<DType::Q2>(m, acts, n, ys, r0, r1);
         if (m.type == DType::Q4) return rows_quad_neon<DType::Q4>(m, acts, n, ys, r0, r1);
         if (m.type == DType::NVFP4) return rows_quad_neon<DType::NVFP4>(m, acts, n, ys, r0, r1);
+        if (m.type == DType::Q4I) return rows_quad_neon<DType::Q4I>(m, acts, n, ys, r0, r1);
     } else if (m.cols % 64 == 0) {
         switch (m.type) {
         case DType::Q2: rows_q_neon<DType::Q2>(m, acts, n, ys, r0, r1); return;
         case DType::Q3: rows_q_neon<DType::Q3>(m, acts, n, ys, r0, r1); return;
         case DType::NVFP4: rows_q_neon<DType::NVFP4>(m, acts, n, ys, r0, r1); return;
         case DType::Q4: rows_q_neon<DType::Q4>(m, acts, n, ys, r0, r1); return;
+        case DType::Q4I: rows_q_neon<DType::Q4I>(m, acts, n, ys, r0, r1); return;
         case DType::Q8: rows_q_neon<DType::Q8>(m, acts, n, ys, r0, r1); return;
         default: break;
         }
@@ -1209,6 +1245,10 @@ void rmsnorm(const float *x, const float *w, float *out, int n, float eps, bool 
     double ss = 0.0;
     for (int i = 0; i < n; ++i) ss += static_cast<double>(x[i]) * x[i];
     const float inv = 1.0f / std::sqrt(static_cast<float>(ss / n) + eps);
+    if (!w) {
+        for (int i = 0; i < n; ++i) out[i] = x[i] * inv;
+        return;
+    }
     for (int i = 0; i < n; ++i) out[i] = x[i] * inv * (zero_centered ? 1.0f + w[i] : w[i]);
 }
 

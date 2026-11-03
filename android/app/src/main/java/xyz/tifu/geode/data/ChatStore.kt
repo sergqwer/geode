@@ -5,6 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import xyz.tifu.geode.ui.chat.AgentStep
 import xyz.tifu.geode.ui.chat.ChatMessage
+import xyz.tifu.geode.ui.chat.ChatVideo
 import xyz.tifu.geode.vision.ImageStore
 import java.io.File
 import java.io.FileOutputStream
@@ -38,6 +39,7 @@ data class SavedChat(
 class ChatStore(context: Context) {
     private val dir = File(context.filesDir, "chats").apply { mkdirs() }
     private val images = ImageStore(context)
+    private val clips = xyz.tifu.geode.media.AudioStore(context)
     private val agents = File(context.filesDir, "agents")
 
     private fun file(id: String) = File(dir, "$id.json")
@@ -72,6 +74,18 @@ class ChatStore(context: Context) {
                 summary = m.optBoolean("summary"),
                 images = m.optJSONArray("images")?.let { a -> (0 until a.length()).map { a.getString(it) } }
                     ?: emptyList(),
+                audio = m.optJSONArray("audio")?.let { a -> (0 until a.length()).map { a.getString(it) } }
+                    ?: emptyList(),
+                videos = m.optJSONArray("videos")?.let { a ->
+                    (0 until a.length()).map { i ->
+                        val v = a.getJSONObject(i)
+                        val fr = v.optJSONArray("frames")
+                        val sec = v.optJSONArray("seconds")
+                        ChatVideo((0 until (fr?.length() ?: 0)).map { fr!!.getString(it) },
+                            (0 until (sec?.length() ?: 0)).map { sec!!.getInt(it) },
+                            v.optString("audio").takeIf { it.isNotEmpty() }, v.optLong("ms"))
+                    }
+                } ?: emptyList(),
                 steps = m.optJSONArray("steps")?.let { a ->
                     (0 until a.length()).map { i ->
                         val s = a.getJSONObject(i)
@@ -102,6 +116,15 @@ class ChatStore(context: Context) {
                 if (m.endedThinking) put("ended", true)
                 if (m.summary) put("summary", true)
                 if (m.images.isNotEmpty()) put("images", JSONArray(m.images))
+                if (m.audio.isNotEmpty()) put("audio", JSONArray(m.audio))
+                if (m.videos.isNotEmpty()) put("videos", JSONArray().apply {
+                    for (v in m.videos) put(JSONObject().apply {
+                        put("frames", JSONArray(v.frames))
+                        put("seconds", JSONArray(v.seconds))
+                        v.audio?.let { put("audio", it) }
+                        put("ms", v.ms)
+                    })
+                })
                 if (m.steps.isNotEmpty()) put("steps", JSONArray().apply {
                     for (s in m.steps) put(JSONObject().apply {
                         put("tool", s.tool)
@@ -137,11 +160,67 @@ class ChatStore(context: Context) {
         tmp.renameTo(target)
     }
 
-    /** The chat, the images its questions had, and its agent's Linux (files/agents/<id>). */
+    /**
+     * The chat, the images and clips its questions had (and the local server's copies of them the agent's requests
+     * made), and its agent's Linux (files/agents/<id>).
+     */
     fun delete(id: String) {
-        load(id)?.messages?.let { msgs -> images.delete(msgs.flatMap { it.images }) }
+        load(id)?.messages?.let { msgs ->
+            val pictures = msgs.flatMap { it.images } + msgs.flatMap { m -> m.videos.flatMap { it.frames } }
+            val sounds = msgs.flatMap { it.audio } + msgs.flatMap { m -> m.videos.mapNotNull { it.audio } }
+            // the copies first: their names come from these files' bytes. A copy another chat shares (a fork's, the
+            // same file attached there too) stays - that chat's request may be reading it right now - and goes with
+            // that chat, or unused for a day; all stay when a chat cannot be read
+            heldMedia(except = id)?.let { others ->
+                images.deleteServerCopies(pictures - sameBytes(pictures, others, images::file))
+                clips.deleteServerCopies(sounds - sameBytes(sounds, others, clips::file))
+            }
+            images.delete(pictures)
+            clips.delete(sounds)
+        }
         file(id).delete()
         File(agents, id).deleteRecursively()
+    }
+
+    /**
+     * The chat images and clips no saved chat holds, an hour old or more: attached and never sent (the app closed
+     * with them, a video's reading cut off). Nothing goes when a chat cannot be read - what it holds would look free.
+     */
+    fun dropUnheldMedia() {
+        val held = heldMedia() ?: return
+        images.dropUnheld(held, UNHELD_AGE_MS)
+        clips.dropUnheld(held, UNHELD_AGE_MS)
+    }
+
+    /** The media files every saved chat but [except] holds (images, clips, videos' frames and sound); null when one cannot be read. */
+    private fun heldMedia(except: String? = null): Set<String>? {
+        val held = HashSet<String>()
+        for (f in dir.listFiles() ?: return null) {
+            if (!f.isFile || !f.name.endsWith(".json")) continue
+            val id = f.name.removeSuffix(".json")
+            if (id == except) continue
+            val chat = load(id) ?: return null
+            for (m in chat.messages) {
+                held += m.images
+                held += m.audio
+                for (v in m.videos) {
+                    held += v.frames
+                    v.audio?.let { held += it }
+                }
+            }
+        }
+        return held
+    }
+
+    /** Those of [mine] whose bytes one of [others] has too ([file]: where a name's file is). */
+    private fun sameBytes(mine: List<String>, others: Set<String>, file: (String) -> File): Set<String> {
+        val bySize = others.map(file).filter { it.isFile }.groupBy { it.length() }
+        return mine.filterTo(HashSet()) { n ->
+            val f = file(n)
+            val candidates = bySize[f.length()] ?: return@filterTo false
+            val bytes = runCatching { f.readBytes() }.getOrNull() ?: return@filterTo false
+            candidates.any { o -> runCatching { o.readBytes().contentEquals(bytes) }.getOrDefault(false) }
+        }
     }
 
     /**
@@ -151,7 +230,12 @@ class ChatStore(context: Context) {
     fun fork(id: String, suffix: String): String? {
         val c = load(id) ?: return null
         val copy = System.currentTimeMillis().toString()
-        val msgs = c.messages.map { m -> m.copy(images = m.images.map { images.copy(it) ?: it }) }
+        val msgs = c.messages.map { m ->
+            m.copy(images = m.images.map { images.copy(it) ?: it }, audio = m.audio.map { clips.copy(it) ?: it },
+                videos = m.videos.map { v ->
+                    v.copy(frames = v.frames.map { images.copy(it) ?: it }, audio = v.audio?.let { clips.copy(it) ?: it })
+                })
+        }
         save(copy, (c.title + suffix).take(80), copy.toLong(), msgs, c.stats, c.agent, c.agentSession)
         val from = File(agents, id)
         if (from.isDirectory) copyTree(from, File(agents, copy), from.path, File(agents, copy).path)
@@ -180,5 +264,10 @@ class ChatStore(context: Context) {
                 }
             }
         }
+    }
+
+    private companion object {
+        /** How old a chat image or clip no chat holds is before it goes ([dropUnheldMedia]): one being attached is newer. */
+        const val UNHELD_AGE_MS = 3600_000L
     }
 }

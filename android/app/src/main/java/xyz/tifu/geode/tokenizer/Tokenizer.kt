@@ -8,9 +8,13 @@ import java.text.Normalizer
 import java.util.regex.Pattern
 
 /**
- * Qwen's byte-level BPE, read from a pack's tokenizer.bin (tools/tokbin.py documents the format): NFC, the
- * Unicode-class pre-tokenizer regex, then BPE merges on the UTF-8 bytes of each piece. Special tokens are never
- * parsed out of text; the chat template inserts them by id ([ChatFormat]).
+ * A pack's tokenizer.bin (tools/tokbin.py documents the format), of one of two kinds:
+ * - Qwen's byte-level BPE: NFC, the Unicode-class pre-tokenizer regex, then BPE merges on the UTF-8 bytes of each
+ *   piece;
+ * - SentencePiece-style (Gemma 4): spaces as "\u2581", no pre-split, BPE over the text's characters (those without a
+ *   token of their own as their UTF-8 bytes' <0xXX> tokens), merged lowest rank first with a heap (the whole text is
+ *   one piece).
+ * Special tokens are never parsed out of text by [encode]; the chat template inserts them by id ([ChatFormat]).
  */
 class Tokenizer private constructor(
     private val vocabBytes: ByteArray,
@@ -19,19 +23,30 @@ class Tokenizer private constructor(
     private val merges: MergeTable,
     private val specialIds: Map<String, Int>,
     private val specialText: Map<Int, ByteArray>,
-    private val pattern: Pattern,
+    private val pattern: Pattern?,
     private val nfc: Boolean,
+    // SentencePiece-style: the code points with a token of their own (sorted) and those tokens
+    private val charPoints: IntArray?,
+    private val charIds: IntArray?,
 ) {
-    val vocabSize: Int get() = vocabOffsets.size - 1 + specialText.size
+    /** Whether this is the SentencePiece-style kind (Gemma's). */
+    val sentencePiece: Boolean get() = charPoints != null
+
+    val vocabSize: Int
+        get() = maxOf(vocabOffsets.size - 1, (specialText.keys.maxOrNull() ?: -1) + 1)
 
     fun special(text: String): Int = specialIds[text] ?: error("the tokenizer has no $text")
+
+    /** Whether the tokenizer has this special token. */
+    fun hasSpecial(text: String): Boolean = text in specialIds
 
     /** Text -> token ids (the way Hugging Face's tokenizer.encode(text, add_special_tokens=False) does it). */
     fun encode(text: String): IntArray {
         if (text.isEmpty()) return IntArray(0)
+        if (charPoints != null) return encodeSentencePiece(text)
         val s = if (nfc) Normalizer.normalize(text, Normalizer.Form.NFC) else text
         val out = IntList()
-        val m = pattern.matcher(s)
+        val m = pattern!!.matcher(s)
         var last = 0
         while (m.find()) {
             if (m.start() > last) bpe(s.substring(last, m.start()), out)
@@ -107,6 +122,95 @@ class Tokenizer private constructor(
             n--
         }
         for (i in 0 until n) out.add(ids[i])
+    }
+
+    /**
+     * The SentencePiece-style encode: the symbols (a character's token, or its bytes' fallback tokens), then the
+     * adjacent pair of the lowest rank merged until none is left - the leftmost of equal ranks first, as Hugging
+     * Face's BPE does. A heap of (rank, position) over a linked list: a text of any length in n log n.
+     */
+    private fun encodeSentencePiece(text: String): IntArray {
+        val points = charPoints!!
+        val ids = charIds!!
+        val sym = IntList()
+        var i = 0
+        while (i < text.length) {
+            val cp = text.codePointAt(i)
+            val c = if (cp == ' '.code) 0x2581 else cp
+            val at = points.binarySearch(c)
+            if (at >= 0) sym.add(ids[at])
+            else for (b in String(Character.toChars(c)).toByteArray(Charsets.UTF_8)) sym.add(byteToId[b.toInt() and 0xff])
+            i += Character.charCount(cp)
+        }
+        val n = sym.size
+        val s = sym.toArray()
+        if (n < 2) return s
+        val next = IntArray(n) { it + 1 }
+        val prev = IntArray(n) { it - 1 }
+        val alive = BooleanArray(n) { true }
+        val heap = LongHeap(n)
+        fun push(at: Int) {
+            val j = next[at]
+            if (j >= n) return
+            val r = merges.rank(s[at], s[j])
+            if (r != Int.MAX_VALUE) heap.push((r.toLong() shl 32) or at.toLong())
+        }
+        for (k in 0 until n - 1) push(k)
+        while (heap.size > 0) {
+            val e = heap.pop()
+            val r = (e ushr 32).toInt()
+            val at = (e and 0xffffffffL).toInt()
+            val j = next[at]
+            // stale: a side was merged away or changed since (a pair's rank is unique: the same rank, the same pair)
+            if (!alive[at] || j >= n || merges.rank(s[at], s[j]) != r) continue
+            s[at] = merges.merged(s[at], s[j])
+            alive[j] = false
+            next[at] = next[j]
+            if (next[j] < n) prev[next[j]] = at
+            if (prev[at] >= 0) push(prev[at])
+            push(at)
+        }
+        val out = IntList()
+        var k = 0
+        while (k < n) {
+            out.add(s[k])
+            k = next[k]
+        }
+        return out.toArray()
+    }
+
+    /** A min-heap of longs (rank << 32 | position). */
+    private class LongHeap(capacity: Int) {
+        private var a = LongArray(maxOf(16, capacity))
+        var size = 0
+            private set
+
+        fun push(v: Long) {
+            if (size == a.size) a = a.copyOf(size * 2)
+            var i = size++
+            a[i] = v
+            while (i > 0) {
+                val p = (i - 1) / 2
+                if (a[p] <= a[i]) break
+                val t = a[p]; a[p] = a[i]; a[i] = t
+                i = p
+            }
+        }
+
+        fun pop(): Long {
+            val top = a[0]
+            a[0] = a[--size]
+            var i = 0
+            while (true) {
+                val l = 2 * i + 1
+                if (l >= size) break
+                val c = if (l + 1 < size && a[l + 1] < a[l]) l + 1 else l
+                if (a[i] <= a[c]) break
+                val t = a[c]; a[c] = a[i]; a[i] = t
+                i = c
+            }
+            return top
+        }
     }
 
     /** Turns a stream of tokens into text, holding back the bytes of a character that is not complete yet. */
@@ -202,6 +306,7 @@ class Tokenizer private constructor(
     private class IntList {
         private var a = IntArray(64)
         private var n = 0
+        val size: Int get() = n
         fun add(v: Int) {
             if (n == a.size) a = a.copyOf(n * 2)
             a[n++] = v
@@ -220,8 +325,10 @@ class Tokenizer private constructor(
             val magic = ByteArray(4).also { b.get(it) }
             require(String(magic, Charsets.US_ASCII) == "GTOK") { "not a tokenizer.bin" }
             val version = b.int
-            require(version == 1) { "tokenizer.bin version $version is not supported" }
+            require(version == 1 || version == 2) { "tokenizer.bin version $version is not supported" }
             val flags = b.int
+            val sp = flags and 2 != 0
+            require(!sp || version == 2) { "tokenizer.bin: a SentencePiece-style table needs version 2" }
 
             val nVocab = b.int
             val offsets = IntArray(nVocab + 1)
@@ -244,10 +351,13 @@ class Tokenizer private constructor(
                 at += len
             }
 
+            // (a SentencePiece-style table names its byte-fallback tokens at its end: read below)
             val byteToId = IntArray(256) { -1 }
-            for (i in 0 until nVocab)
-                if (offsets[i + 1] - offsets[i] == 1) byteToId[vocab[offsets[i]].toInt() and 0xff] = i
-            require(byteToId.all { it >= 0 }) { "tokenizer.bin: a byte has no token" }
+            if (!sp) {
+                for (i in 0 until nVocab)
+                    if (offsets[i + 1] - offsets[i] == 1) byteToId[vocab[offsets[i]].toInt() and 0xff] = i
+                require(byteToId.all { it >= 0 }) { "tokenizer.bin: a byte has no token" }
+            }
 
             val nMerges = b.int
             val merges = MergeTable(nMerges)
@@ -271,8 +381,20 @@ class Tokenizer private constructor(
 
             val plen = b.int
             val p = ByteArray(plen).also { b.get(it) }
-            return Tokenizer(vocab, offsets, byteToId, merges, ids, texts,
-                Pattern.compile(String(p, Charsets.UTF_8)), flags and 1 != 0)
+            if (!sp)
+                return Tokenizer(vocab, offsets, byteToId, merges, ids, texts,
+                    Pattern.compile(String(p, Charsets.UTF_8)), flags and 1 != 0, null, null)
+            val nChars = b.int
+            val points = IntArray(nChars)
+            val charIds = IntArray(nChars)
+            for (i in 0 until nChars) {
+                points[i] = b.int
+                charIds[i] = b.int
+                require(i == 0 || points[i] > points[i - 1]) { "tokenizer.bin: the characters are not sorted" }
+            }
+            for (i in 0 until 256) byteToId[i] = b.int
+            require(byteToId.all { it in 0 until nVocab }) { "tokenizer.bin: a byte has no fallback token" }
+            return Tokenizer(vocab, offsets, byteToId, merges, ids, texts, null, false, points, charIds)
         }
     }
 }

@@ -13,15 +13,20 @@ data class PackManifest(
     val files: List<PackFile>,
     /** The pack has a vision encoder (geode.json's "vision"; its vision.bin may still be missing). */
     val vision: Boolean = false,
+    /** The pack has an audio encoder (geode.json's "audio": Gemma 4's; its audio.bin may still be missing). */
+    val audio: Boolean = false,
 ) {
     val bytes: Long get() = files.sumOf { it.size }
     /** The engine runs this architecture. */
     val runnable: Boolean get() = arch in ARCHS
+    /** Gemma 4 (its chat template, image sizes, video and audio), not Qwen. */
+    val gemma: Boolean get() = arch == GEMMA4
 
     companion object {
         const val FILE = "geode.json"
-        /** The engine's architectures: the 35B-A3B MoE and the dense Qwen3.5 (the 2B light model). */
-        val ARCHS = setOf("qwen35moe", "qwen35")
+        const val GEMMA4 = "gemma4"
+        /** The engine's architectures: the 35B-A3B MoE, the dense Qwen3.5 (the 2B light model) and Gemma 4 (E2B). */
+        val ARCHS = setOf("qwen35moe", "qwen35", GEMMA4)
 
         /** Null when the text is not a geode-pack v1 this app can run. */
         fun parse(text: String): PackManifest? = runCatching {
@@ -34,20 +39,26 @@ data class PackManifest(
                 arch = o.optString("arch"),
                 files = (0 until arr.length()).map { i ->
                     val f = arr.getJSONObject(i)
-                    PackFile(f.getString("name"), f.getLong("size"), f.optString("sha256"))
+                    PackFile(f.getString("name"), f.getLong("size"), f.optString("sha256"), f.optBoolean("optional"))
                 },
                 vision = o.has("vision"),
+                audio = o.has("audio"),
             )
         }.getOrNull()
     }
 }
 
-data class PackFile(val name: String, val size: Long, val sha256: String)
+/** A pack's file; [optional]: the model runs without it (an encoder, the drafter), only that part of it missing. */
+data class PackFile(val name: String, val size: Long, val sha256: String, val optional: Boolean = false)
 
 data class InstalledModel(val id: String, val dir: File, val manifest: PackManifest) {
     val title: String get() = manifest.name.ifEmpty { id }
     /** The model reads images: its pack has the vision encoder, installed. */
     val vision: Boolean get() = manifest.vision && File(dir, "vision.bin").isFile
+    /** The model hears audio: its pack has the audio encoder, installed. */
+    val audio: Boolean get() = manifest.audio && File(dir, "audio.bin").isFile
+    /** The model watches video: Gemma 4's vision encoder reads its frames (and the audio encoder its sound). */
+    val video: Boolean get() = manifest.gemma && vision
 
     /**
      * What a saved conversation state (StateCache) is of: the pack's folder and its weights - every file's sha256 from

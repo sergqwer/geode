@@ -245,7 +245,7 @@ impl Server {
                 &id,
                 json!({"protocolVersion": 1, "agentInfo": {"name": "geode-agent", "version": env!("CARGO_PKG_VERSION")},
                     "agentCapabilities": {"mcpCapabilities": {"http": cfg!(feature = "mcp-http")},
-                        "promptCapabilities": {"image": self.cfg.image_input, "audio": false, "embeddedContext": false},
+                        "promptCapabilities": {"image": self.cfg.image_input, "audio": self.cfg.audio_input, "embeddedContext": false},
                         "sessionCapabilities": {"close": {}, "list": {}, "resume": {}}},
                     "authMethods": []}),
             )),

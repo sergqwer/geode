@@ -1,5 +1,8 @@
-// vision.cpp - Qwen3.6's vision encoder (vision.hpp; tools/vision_ref.py is the reference it is checked against).
+// vision.cpp - Qwen3.6's vision encoder (vision.hpp; tools/vision_ref.py is the reference it is checked against), and
+// Gemma 4's (open_gemma, encode_gemma; tools/pack_gemma4_vision.py --ref).
 #include "vision.hpp"
+
+#include "media.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -20,144 +23,13 @@ namespace geode {
 
 namespace {
 
-// ---- The products on SMMLA (FEAT_I8MM: a 2 x 8 by 8 x 2 int8 matrix multiply an instruction) where the CPU has it
-// (the 8 Elite; not the 720G's A76, which keeps the int8 row kernels). A q8 matrix repacked for it: its rows in pairs,
-// each pair's 8-value chunks side by side (16 bytes: row 2p's 8 codes, then row 2p + 1's) and its block scales
-// (E4M3 x global) as two floats. The activations likewise in pairs of tokens, int8 a 16-value block (amax / 127, as
-// quantize_activation) with two floats a block. A block of 2 x 2 is then two SMMLAs, a convert and one multiply-add
-// with its four scale products: 3.5x the int8 row kernels' arithmetic a cycle here.
-struct Packed {
-    int64_t rows = 0, cols = 0;
-    std::vector<int8_t> codes;   // [rows / 2][cols / 8][16]
-    std::vector<float> scales;   // [rows / 2][cols / 16][2]
-};
-
-bool have_i8mm() {
-#if defined(__aarch64__) && defined(__linux__)
-    static const bool yes = (getauxval(AT_HWCAP2) & (1UL << 13)) != 0 &&   // HWCAP2_I8MM
-                            !std::getenv("GEODE_VISION_NO_I8MM");
-    return yes;
-#else
-    return false;
-#endif
-}
-
-// a q8 matrix (rows even) into the pairs layout
-void pack_q8(const QView &m, Packed &o) {
-    const int64_t R = m.rows, C = m.cols, nb = C / kBlock;
-    o.rows = R;
-    o.cols = C;
-    o.codes.resize(static_cast<size_t>(R * C));
-    o.scales.resize(static_cast<size_t>(R / 2 * nb * 2));
-    for (int64_t p = 0; p < R / 2; ++p) {
-        const uint8_t *r0 = m.data + static_cast<size_t>(2 * p) * m.row_bytes, *r1 = r0 + m.row_bytes;
-        int8_t *c = o.codes.data() + static_cast<size_t>(p * 2 * C);
-        for (int64_t k = 0; k < C / 8; ++k) {
-            std::memcpy(c + 16 * k, r0 + 8 * k, 8);
-            std::memcpy(c + 16 * k + 8, r1 + 8 * k, 8);
-        }
-        float *sc = o.scales.data() + static_cast<size_t>(p * nb * 2);
-        for (int64_t b = 0; b < nb; ++b) {   // the scale bytes follow the C code bytes
-            sc[2 * b] = e4m3_value(r0[C + b]) * m.global;
-            sc[2 * b + 1] = e4m3_value(r1[C + b]) * m.global;
-        }
-    }
-}
-
-// tokens x0 and x1 (nullptr: past the last, zeros) into one pair: q [C / 8][16], s [C / 16][2]
-void quant_pair(const float *x0, const float *x1, int64_t C, int8_t *q, float *s) {
-    for (int64_t b = 0; b < C / kBlock; ++b)
-        for (int t = 0; t < 2; ++t) {
-            const float *xb = t ? x1 : x0;
-            int8_t *q0 = q + 32 * b + 8 * t;   // values 0-7 of the block, then 8-15 one chunk on
-            if (!xb) {
-                std::memset(q0, 0, 8);
-                std::memset(q0 + 16, 0, 8);
-                s[2 * b + t] = 0.0f;
-                continue;
-            }
-            xb += kBlock * b;
-            float amax = 0.0f;
-            for (int i = 0; i < kBlock; ++i) amax = std::max(amax, std::fabs(xb[i]));
-            const float inv = amax > 0.0f ? 127.0f / amax : 0.0f;
-            for (int i = 0; i < kBlock; ++i)
-                q0[(i / 8) * 16 + i % 8] = static_cast<int8_t>(std::clamp(std::lrint(xb[i] * inv), -127L, 127L));
-            s[2 * b + t] = amax / 127.0f;
-        }
-}
-
-#if defined(__aarch64__)
-// rows 2 p0 .. 2 p0 + 7 (four pairs) x token pairs q0 .. q0 + TP - 1: y[token][row] (ystride apart), tokens >= n
-// dropped
-template <int TP>
-__attribute__((target("arch=armv8.2-a+dotprod+fp16+i8mm")))
-void mmla_tile(const Packed &w, int64_t p0, const int8_t *aq, const float *as, int64_t q0, int n, float *y,
-               size_t ystride) {
-    const int64_t C = w.cols, nb = C / kBlock;
-    const int8_t *wc = w.codes.data() + static_cast<size_t>(p0 * 2 * C);
-    const float *ws = w.scales.data() + static_cast<size_t>(p0 * nb * 2);
-    const int8_t *ac = aq + static_cast<size_t>(q0 * 2 * C);
-    const float *asc = as + static_cast<size_t>(q0 * nb * 2);
-    float32x4_t acc[4][TP];
-    for (int p = 0; p < 4; ++p)
-        for (int q = 0; q < TP; ++q) acc[p][q] = vdupq_n_f32(0.0f);
-    for (int64_t b = 0; b < nb; ++b) {
-        int8x16_t xa[TP][2];
-        float32x4_t ad[TP];
-        for (int q = 0; q < TP; ++q) {
-            xa[q][0] = vld1q_s8(ac + q * 2 * C + 32 * b);
-            xa[q][1] = vld1q_s8(ac + q * 2 * C + 32 * b + 16);
-            const float32x2_t a2 = vld1_f32(asc + q * nb * 2 + 2 * b);
-            ad[q] = vcombine_f32(a2, a2);                                   // [a0 a1 a0 a1]
-        }
-        for (int p = 0; p < 4; ++p) {
-            const int8x16_t w0 = vld1q_s8(wc + p * 2 * C + 32 * b), w1 = vld1q_s8(wc + p * 2 * C + 32 * b + 16);
-            const float32x2_t w2 = vld1_f32(ws + p * nb * 2 + 2 * b);
-            const float32x4_t wd = vcombine_f32(vdup_lane_f32(w2, 0), vdup_lane_f32(w2, 1));   // [w0 w0 w1 w1]
-            for (int q = 0; q < TP; ++q) {
-                const int32x4_t d = vmmlaq_s32(vmmlaq_s32(vdupq_n_s32(0), w0, xa[q][0]), w1, xa[q][1]);
-                acc[p][q] = vfmaq_f32(acc[p][q], vcvtq_f32_s32(d), vmulq_f32(wd, ad[q]));
-            }
-        }
-    }
-    // lane 2i + j: row 2 (p0 + p) + i, token 2 (q0 + q) + j
-    for (int p = 0; p < 4; ++p)
-        for (int q = 0; q < TP; ++q) {
-            float v[4];
-            vst1q_f32(v, acc[p][q]);
-            for (int i = 0; i < 2; ++i)
-                for (int j = 0; j < 2; ++j) {
-                    const int64_t t = 2 * (q0 + q) + j;
-                    if (t < n) y[static_cast<size_t>(t) * ystride + static_cast<size_t>(2 * (p0 + p) + i)] = v[2 * i + j];
-                }
-        }
-}
-#endif
-
-// row tiles [a, b) (8 rows each) against every token: the tokens in blocks that stay in the cache while the tiles
-// pass over them
-void mmla_rows(const Packed &w, int64_t a, int64_t b, const int8_t *aq, const float *as, int n, float *y,
-               size_t ystride) {
-#if defined(__aarch64__)
-    const int64_t np = (n + 1) / 2;
-    constexpr int64_t kPairs = 64;
-    for (int64_t q0 = 0; q0 < np; q0 += kPairs) {
-        const int64_t q1 = std::min(np, q0 + kPairs);
-        for (int64_t r = a; r < b; ++r) {
-            int64_t q = q0;
-            for (; q + 2 <= q1; q += 2) mmla_tile<2>(w, 4 * r, aq, as, q, n, y, ystride);
-            if (q < q1) mmla_tile<1>(w, 4 * r, aq, as, q, n, y, ystride);
-        }
-    }
-#else
-    (void)w, (void)a, (void)b, (void)aq, (void)as, (void)n, (void)y, (void)ystride;
-#endif
-}
-
-uint64_t tensor_bytes(const Tensor &t) {
-    return is_quantized(t.type) ? static_cast<uint64_t>(t.rows) * row_bytes(t.type, t.cols)
-                                : static_cast<uint64_t>(t.rows * t.cols) * (t.type == DType::F32 ? 4 : 2);
-}
+// the products' SMMLA layout and kernels, tensor_bytes: media.hpp (shared with the audio encoder)
+using media::have_i8mm;
+using media::mmla_rows;
+using media::pack_q8;
+using media::Packed;
+using media::quant_pair;
+using media::tensor_bytes;
 
 // torch.nn.LayerNorm in f32 (the sums in double)
 void layer_norm(const float *x, const float *w, const float *b, float *y, int n, float eps) {
@@ -183,59 +55,117 @@ float linspace(int i, int n, float end) {
     return i < n / 2 ? static_cast<float>(i) * step : end - static_cast<float>(n - 1 - i) * step;
 }
 
-constexpr int kQB = 4;    // queries a task
-constexpr int kKB = 16;   // keys a step of the scores (kQB x kKB sums in registers)
+constexpr int kKB = 16;   // K^T's rows padded to a multiple of this (npad)
 
-// one head's softmax(q K^T) V for nq (<= kQB) queries: q [kQB][hd] (scaled), kt [hd][npad] (the keys' transpose),
-// v [n][hd]; sc: kQB rows of npad scratch; out row r at out + r * ostride
+// queries a task (flash order): 16 tiles of 4 sharing each block of keys. Gemma 4's 2394 patches on the 720G:
+// 16 a task 8.3 s of attention, 32 6.1, 64 5.6, 128 5.2 (the previous kernel, 4 queries a task each streaming
+// the whole of K and V: 21.3 s); 64 keeps a small image's tasks many enough for the little cores
+constexpr int kFQ = 64;
+constexpr int kFK = 64;   // keys a block: K^T's and V's rows for them (2 x 64 x hd floats) stay in L1
+
+// the largest and the sum of x[0..n) with eight running values (the loops vectorize; one would be a serial chain)
+inline float max_of(const float *x, int n) {
+    float m8[8];
+    for (int i = 0; i < 8; ++i) m8[i] = x[0];
+    int j = 0;
+    for (; j + 8 <= n; j += 8)
+        for (int i = 0; i < 8; ++i) m8[i] = std::max(m8[i], x[j + i]);
+    float m = m8[0];
+    for (int i = 1; i < 8; ++i) m = std::max(m, m8[i]);
+    for (; j < n; ++j) m = std::max(m, x[j]);
+    return m;
+}
+inline float sum_of(const float *x, int n) {
+    float s8[8] = {};
+    int j = 0;
+    for (; j + 8 <= n; j += 8)
+        for (int i = 0; i < 8; ++i) s8[i] += x[j + i];
+    float s = 0.0f;
+    for (int i = 0; i < 8; ++i) s += s8[i];
+    for (; j < n; ++j) s += x[j];
+    return s;
+}
+
+// one head's softmax(q K^T) V for nq (<= kFQ) queries, kFK keys at a time with the softmax kept running (flash
+// attention's order): a block of K^T and V comes from memory once for all the task's queries, then from L1. q [kFQ][hd] (scaled; rows past nq zero), kt [hd][npad] (the
+// keys' transpose, npad a multiple of 16), v [n][hd]; scratch s [kFQ][kFK], o [kFQ][hd]; out row r at out + r * ostride
 template <int DC>
-void attend_block(const float *q, int hd, const float *kt, const float *v, int n, int npad, int nq, float *sc,
+void attend_flash(const float *q, int hd, const float *kt, const float *v, int n, int npad, int nq, float *s, float *o,
                   float *out, size_t ostride) {
-    for (int j0 = 0; j0 < npad; j0 += kKB) {
-        float acc[kQB][kKB] = {};
-        for (int d = 0; d < hd; ++d) {
-            const float *kr = kt + static_cast<size_t>(d) * npad + j0;
-            for (int r = 0; r < kQB; ++r) {
-                const float qd = q[r * hd + d];
-                for (int jj = 0; jj < kKB; ++jj) acc[r][jj] += qd * kr[jj];
+    const int rows = (nq + 3) / 4 * 4;
+    float m[kFQ], l[kFQ];
+    std::fill(o, o + static_cast<size_t>(rows) * hd, 0.0f);
+    for (int k0 = 0; k0 < n; k0 += kFK) {
+        const int kn = std::min(kFK, n - k0), kc = (kn + 15) / 16 * 16;
+        for (int r0 = 0; r0 < rows; r0 += 4)
+            for (int j0 = 0; j0 < kc; j0 += 16) {
+                float acc[4][16] = {};
+                for (int d = 0; d < hd; ++d) {
+                    const float *kr = kt + static_cast<size_t>(d) * npad + k0 + j0;
+                    for (int r = 0; r < 4; ++r) {
+                        const float qd = q[(r0 + r) * hd + d];
+                        for (int jj = 0; jj < 16; ++jj) acc[r][jj] += qd * kr[jj];
+                    }
+                }
+                for (int r = 0; r < 4; ++r)
+                    for (int jj = 0; jj < 16; ++jj) s[(r0 + r) * kFK + j0 + jj] = acc[r][jj];
             }
+        for (int r = 0; r < rows; ++r) {
+            float *sr = s + r * kFK;
+            const float mb = max_of(sr, kn), mx = k0 > 0 ? std::max(m[r], mb) : mb;
+            for (int j = 0; j < kn; ++j) sr[j] = fast_exp(sr[j] - mx);
+            const float sum = sum_of(sr, kn);
+            if (k0 > 0) {
+                const float corr = fast_exp(m[r] - mx);
+                l[r] = l[r] * corr + sum;
+                if (corr != 1.0f)
+                    for (int d = 0; d < hd; ++d) o[r * hd + d] *= corr;
+            } else {
+                l[r] = sum;
+            }
+            m[r] = mx;
         }
-        for (int r = 0; r < kQB; ++r)
-            for (int jj = 0; jj < kKB; ++jj) sc[static_cast<size_t>(r) * npad + j0 + jj] = acc[r][jj];
+        for (int r0 = 0; r0 < rows; r0 += 4)
+            for (int dc = 0; dc < hd; dc += DC) {
+                float acc[4][DC];
+                for (int r = 0; r < 4; ++r)
+                    for (int i = 0; i < DC; ++i) acc[r][i] = o[(r0 + r) * hd + dc + i];
+                for (int j = 0; j < kn; ++j) {
+                    const float *vr = v + static_cast<size_t>(k0 + j) * hd + dc;
+                    for (int r = 0; r < 4; ++r) {
+                        const float p = s[(r0 + r) * kFK + j];
+                        for (int i = 0; i < DC; ++i) acc[r][i] += p * vr[i];
+                    }
+                }
+                for (int r = 0; r < 4; ++r)
+                    for (int i = 0; i < DC; ++i) o[(r0 + r) * hd + dc + i] = acc[r][i];
+            }
     }
     for (int r = 0; r < nq; ++r) {
-        float *s = sc + static_cast<size_t>(r) * npad;
-        // eight running maxima and sums: the loops vectorize (one running value would be a serial chain)
-        float m8[8], s8[8] = {};
-        for (int i = 0; i < 8; ++i) m8[i] = s[0];
-        int j = 0;
-        for (; j + 8 <= n; j += 8)
-            for (int i = 0; i < 8; ++i) m8[i] = std::max(m8[i], s[j + i]);
-        float mx = m8[0];
-        for (int i = 1; i < 8; ++i) mx = std::max(mx, m8[i]);
-        for (; j < n; ++j) mx = std::max(mx, s[j]);
-        for (j = 0; j < n; ++j) s[j] = fast_exp(s[j] - mx);
-        for (j = 0; j + 8 <= n; j += 8)
-            for (int i = 0; i < 8; ++i) s8[i] += s[j + i];
-        float sum = 0.0f;
-        for (int i = 0; i < 8; ++i) sum += s8[i];
-        for (; j < n; ++j) sum += s[j];
-        const float inv = 1.0f / sum;
-        for (j = 0; j < n; ++j) s[j] *= inv;
+        const float inv = 1.0f / l[r];
+        for (int d = 0; d < hd; ++d) out[static_cast<size_t>(r) * ostride + d] = o[r * hd + d] * inv;
     }
-    for (int r = nq; r < kQB; ++r) std::fill(sc + static_cast<size_t>(r) * npad, sc + static_cast<size_t>(r) * npad + n, 0.0f);
-    for (int dc = 0; dc < hd; dc += DC) {
-        float o[kQB][DC] = {};
-        for (int j = 0; j < n; ++j) {
-            const float *vr = v + static_cast<size_t>(j) * hd + dc;
-            for (int r = 0; r < kQB; ++r) {
-                const float p = sc[static_cast<size_t>(r) * npad + j];
-                for (int i = 0; i < DC; ++i) o[r][i] += p * vr[i];
-            }
+}
+
+// every head's attention over N tokens on the pool: query t of head h at q + t * qstride + h * hd (scaled), kt
+// [heads][hd][npad], v [heads][N][hd]; its output at out + t * ostride + h * hd
+void attend_all(ThreadPool &pool, int heads, int hd, int N, int npad, const float *q, size_t qstride, const float *kt,
+                const float *v, float *out, size_t ostride) {
+    const int nqb = (N + kFQ - 1) / kFQ;
+    pool.parallel_for(static_cast<int64_t>(heads) * nqb, [&](int64_t a, int64_t e) {
+        std::vector<float> ql(static_cast<size_t>(kFQ) * hd), o(static_cast<size_t>(kFQ) * hd), sc(static_cast<size_t>(kFQ) * kFK);
+        for (int64_t task = a; task < e; ++task) {
+            const int hh = static_cast<int>(task / nqb), q0 = static_cast<int>(task % nqb) * kFQ, nq = std::min(kFQ, N - q0);
+            for (int r = 0; r < kFQ; ++r)
+                for (int d = 0; d < hd; ++d)
+                    ql[static_cast<size_t>(r) * hd + d] = r < nq ? q[static_cast<size_t>(q0 + r) * qstride + static_cast<size_t>(hh) * hd + d] : 0.0f;
+            const float *kth = kt + static_cast<size_t>(hh) * hd * npad, *vh = v + static_cast<size_t>(hh) * N * hd;
+            float *oh = out + static_cast<size_t>(q0) * ostride + static_cast<size_t>(hh) * hd;
+            if (hd % 16 == 0) attend_flash<16>(ql.data(), hd, kth, vh, N, npad, nq, sc.data(), o.data(), oh, ostride);
+            else if (hd % 24 == 0) attend_flash<24>(ql.data(), hd, kth, vh, N, npad, nq, sc.data(), o.data(), oh, ostride);
+            else attend_flash<8>(ql.data(), hd, kth, vh, N, npad, nq, sc.data(), o.data(), oh, ostride);
         }
-        for (int r = 0; r < nq; ++r)
-            for (int i = 0; i < DC; ++i) out[static_cast<size_t>(r) * ostride + dc + i] = o[r][i];
-    }
+    }, 1, true);
 }
 
 }  // namespace
@@ -251,6 +181,7 @@ bool Vision::open(const Pack &pack, bool direct, std::string &err) {
     const auto &v = pack.manifest()["vision"];
     if (!v.is_object()) return false;
     pack_ = &pack;
+    if (v["arch"].str() == "gemma4") return open_gemma(pack, direct, err);   // Gemma 4's encoder (below)
     auto &s = s_;
     s.depth = static_cast<int>(v["depth"].i64());
     s.hidden = static_cast<int>(v["hidden"].i64());
@@ -341,6 +272,28 @@ bool Vision::open(const Pack &pack, bool direct, std::string &err) {
 
 void Vision::fit(int w, int h, int64_t max_pixels, int &out_w, int &out_h) const {
     const int f = s_.patch * s_.merge;
+    if (s_.gemma) {
+        // transformers' get_aspect_ratio_preserving_size: the largest size with at most budget x merge^2 patches, both
+        // sides multiples of f, the aspect kept (the budget: max_pixels / f^2 tokens, else the pack's default)
+        const int64_t budget = max_pixels > 0 ? std::max<int64_t>(1, max_pixels / (static_cast<int64_t>(f) * f)) : s_.soft_tokens;
+        w = std::max(w, 1);
+        h = std::max(h, 1);
+        const double factor = std::sqrt(static_cast<double>(budget) * s_.merge * s_.merge * s_.patch * s_.patch /
+                                        (static_cast<double>(h) * w));
+        int th = static_cast<int>(std::floor(factor * h / f)) * f, tw = static_cast<int>(std::floor(factor * w / f)) * f;
+        const int longest = static_cast<int>(budget) * f;
+        if (th == 0 && tw == 0) th = tw = f;
+        else if (th == 0) {
+            th = f;
+            tw = std::min(static_cast<int>(std::floor(static_cast<double>(w) / h)) * f, longest);
+        } else if (tw == 0) {
+            tw = f;
+            th = std::min(static_cast<int>(std::floor(static_cast<double>(h) / w)) * f, longest);
+        }
+        out_w = tw;
+        out_h = th;
+        return;
+    }
     const double maxp = static_cast<double>(max_pixels > 0 ? std::min(max_pixels, s_.max_pixels) : s_.max_pixels);
     const double minp = std::min(static_cast<double>(s_.min_pixels), maxp);
     w = std::max(w, 1);
@@ -395,12 +348,13 @@ bool Vision::encode(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vec
         err = "the pack has no vision encoder";
         return false;
     }
+    if (s.gemma) return encode_gemma(rgb, w, h, pool, out, err);
     if (!rgb || w <= 0 || h <= 0 || w % (P * M) || h % (P * M)) {
         err = "an image's sides must be multiples of " + std::to_string(P * M);
         return false;
     }
     const int gh = h / P, gw = w / P, N = gh * gw, K = 3 * P * P;
-    const int npad = (N + kKB - 1) / kKB * kKB, nqb = (N + kQB - 1) / kQB;
+    const int npad = (N + kKB - 1) / kKB * kKB;
     prof_ = {};
     prof_.patches = N;
     const double t0 = now_seconds();
@@ -723,20 +677,7 @@ bool Vision::encode(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vec
                 }
             }
         }, 8, true);
-        pool.parallel_for(static_cast<int64_t>(NH) * nqb, [&](int64_t a, int64_t e) {
-            std::vector<float> sc(static_cast<size_t>(kQB) * npad);
-            float q[kQB * 256];
-            for (int64_t task = a; task < e; ++task) {
-                const int hh = static_cast<int>(task / nqb), q0 = static_cast<int>(task % nqb) * kQB, nq = std::min(kQB, N - q0);
-                for (int r = 0; r < kQB; ++r)
-                    for (int d = 0; d < HD; ++d)
-                        q[r * HD + d] = r < nq ? qkv[static_cast<size_t>(q0 + r) * 3 * D + hh * HD + d] : 0.0f;
-                const float *kh = kt.data() + static_cast<size_t>(hh) * HD * npad, *vv = vh.data() + static_cast<size_t>(hh) * N * HD;
-                float *o = hn + static_cast<size_t>(q0) * D + hh * HD;
-                if (HD % 24 == 0) attend_block<24>(q, HD, kh, vv, N, npad, nq, sc.data(), o, static_cast<size_t>(D));
-                else attend_block<8>(q, HD, kh, vv, N, npad, nq, sc.data(), o, static_cast<size_t>(D));
-            }
-        }, 1, true);
+        attend_all(pool, NH, HD, N, npad, qkv, static_cast<size_t>(3) * D, kt.data(), vh.data(), hn, static_cast<size_t>(D));
         lap(prof_.attention);
         mm(at(b + "attn.proj.weight", buf, base), pk ? pk + 1 : nullptr, gmat(i, 1), vec(b + "attn.proj.bias", buf, base), hn, static_cast<size_t>(D),
            y, static_cast<size_t>(D), N);
@@ -794,6 +735,381 @@ bool Vision::encode(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vec
        static_cast<size_t>(W4), mo, static_cast<size_t>(s.out_hidden), T);
     out.assign(mo, mo + static_cast<size_t>(T) * s.out_hidden);
     prof_.where = on_gpu && mmla ? "GPU + CPU" : on_gpu ? "GPU" : mmla ? "CPU SMMLA" : "CPU";
+    lap(prof_.matmul);
+    prof_.total = now_seconds() - t0;
+    return true;
+}
+
+// ---- Gemma 4's encoder (tools/gemma4_vision.py writes it out; tools/pack_gemma4_vision.py packs it): patches 16 x 16
+// row-major with their (column, row), the patch embedding plus two position tables, 16 bidirectional layers (RMS norms,
+// q / k normed per head and v without a weight, 2D RoPE, clipped projections, a gated GELU MLP), 3 x 3 average pooling
+// times sqrt(hidden), a weightless RMS norm and the projection into the LLM's width.
+
+bool Vision::open_gemma(const Pack &pack, bool direct, std::string &err) {
+    const auto &v = pack.manifest()["vision"];
+    auto &s = s_;
+    s = Shape{};
+    s.gemma = true;
+    s.depth = static_cast<int>(v["depth"].i64());
+    s.hidden = static_cast<int>(v["hidden"].i64());
+    s.heads = static_cast<int>(v["heads"].i64());
+    s.head_dim = static_cast<int>(v["head_dim"].i64());
+    s.ff = static_cast<int>(v["ff"].i64());
+    s.patch = static_cast<int>(v["patch"].i64());
+    s.merge = static_cast<int>(v["pool"].i64());
+    s.pos_size = static_cast<int>(v["pos_size"].i64());
+    s.out_hidden = static_cast<int>(v["out_hidden"].i64());
+    s.theta = static_cast<float>(v["rope_theta"].f64(100.0));
+    s.eps = static_cast<float>(v["eps"].f64(1e-6));
+    s.soft_tokens = static_cast<int>(v["default_soft_tokens"].i64(280));
+    s.start_token = static_cast<int>(v["image_start"].i64(-1));
+    s.end_token = static_cast<int>(v["image_end"].i64(-1));
+    s.pad_token = static_cast<int>(v["image_pad"].i64(-1));
+    s.video_pad = static_cast<int>(v["video_pad"].i64(-1));
+    s.video_soft_tokens = static_cast<int>(v["video_soft_tokens"].i64(70));
+    s.pos_grid = 1;
+    const int D = s.hidden, HD = s.head_dim, Q = s.heads * HD, K = 3 * s.patch * s.patch;
+    if (s.depth <= 0 || s.heads <= 0 || HD % 8 || HD > 256 || (HD / 2) % 2 || D % 64 || Q % 64 || s.ff % 64 ||
+        K % 64 || s.patch <= 0 || s.merge <= 0 || s.pos_size <= 0 || s.out_hidden <= 0 || s.pad_token < 0 ||
+        s.soft_tokens <= 0 || static_cast<int>(v["layers"].size()) != s.depth) {
+        err = "geode.json: a vision encoder this engine does not take";
+        return false;
+    }
+    if (!pack.find("vision.patch.weight")) {   // vision.bin is optional (pack.cpp): not installed
+        err = "vision.bin is not installed";
+        return false;
+    }
+    const auto range = [](const json::Value &r) {
+        return Range{static_cast<uint64_t>(r["offset"].i64()), static_cast<uint64_t>(r["bytes"].i64())};
+    };
+    head_ = range(v["head"]);
+    merger_ = range(v["embed"]);
+    blocks_.clear();
+    for (int i = 0; i < s.depth; ++i) blocks_.push_back(range(v["layers"].at(static_cast<size_t>(i))));
+    const std::string file = pack.path(pack.find("vision.patch.weight")->file);
+    auto check = [&](const std::string &name, int64_t rows, int64_t cols, bool matrix, const Range &r) {
+        const Tensor *t = tensor(name, err);
+        if (!t) return false;
+        if (t->rows != rows || t->cols != cols || is_quantized(t->type) != matrix || (!matrix && t->type != DType::F32) ||
+            (matrix && t->cols % 64) || pack.path(t->file) != file || t->offset < r.offset ||
+            t->offset + tensor_bytes(*t) > r.offset + r.bytes) {
+            err = "geode.json: " + name + " is not what the vision encoder reads";
+            return false;
+        }
+        return true;
+    };
+    if (!check("vision.patch.weight", D, K, true, head_) || !check("vision.pos_x.weight", s.pos_size, D, true, head_) ||
+        !check("vision.pos_y.weight", s.pos_size, D, true, head_) ||
+        !check("vision.embed.weight", s.out_hidden, D, true, merger_))
+        return false;
+    for (int i = 0; i < s.depth; ++i) {
+        const std::string b = "vision.layers." + std::to_string(i) + ".";
+        const Range &r = blocks_[static_cast<size_t>(i)];
+        for (const char *n : {"input_layernorm", "post_attention_layernorm", "pre_feedforward_layernorm",
+                              "post_feedforward_layernorm"})
+            if (!check(b + n + ".weight", 1, D, false, r)) return false;
+        if (!check(b + "self_attn.q_norm.weight", 1, HD, false, r) || !check(b + "self_attn.k_norm.weight", 1, HD, false, r))
+            return false;
+        const struct {
+            const char *name;
+            int64_t rows, cols;
+        } mats[] = {{"self_attn.q_proj", Q, D}, {"self_attn.k_proj", Q, D}, {"self_attn.v_proj", Q, D},
+                    {"self_attn.o_proj", D, Q}, {"mlp.gate_proj", s.ff, D}, {"mlp.up_proj", s.ff, D},
+                    {"mlp.down_proj", D, s.ff}};
+        for (const auto &m : mats)
+            if (!check(b + m.name + ".weight", m.rows, m.cols, true, r) || !check(b + m.name + ".clip", 1, 4, false, r))
+                return false;
+    }
+    if (!file_.open(file, err, direct)) return false;
+    const auto &files = pack.manifest()["files"];
+    for (size_t i = 0; i < files.size(); ++i)
+        if (files.at(i)["name"].str() == "vision.bin") fingerprint_ = files.at(i)["sha256"].str();
+    ok_ = true;
+    return true;
+}
+
+bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vector<float> &out, std::string &err) {
+    const auto &s = s_;
+    const int P = s.patch, M = s.merge, D = s.hidden, NH = s.heads, HD = s.head_dim, QW = NH * HD, F = s.ff;
+    if (!rgb || w <= 0 || h <= 0 || w % (P * M) || h % (P * M)) {
+        err = "an image's sides must be multiples of " + std::to_string(P * M);
+        return false;
+    }
+    const int gh = h / P, gw = w / P, N = gh * gw, K = 3 * P * P;
+    const int npad = (N + kKB - 1) / kKB * kKB;
+    if (gw > s.pos_size || gh > s.pos_size) {
+        err = "the image is too large for the position tables";
+        return false;
+    }
+    prof_ = {};
+    prof_.patches = N;
+    const double t0 = now_seconds();
+    double tl = t0;
+    const auto lap = [&](double &into) {
+        const double t = now_seconds();
+        into += t - tl;
+        tl = t;
+    };
+    const auto at = [this](const std::string &name, const uint8_t *buf, uint64_t base) {
+        const Tensor &t = *pack_->find(name);
+        QView v = t.view();
+        v.data = buf + (t.offset - base);
+        return v;
+    };
+    const auto vec = [&](const std::string &name, const uint8_t *buf, uint64_t base) {
+        return reinterpret_cast<const float *>(buf + (pack_->find(name)->offset - base));
+    };
+    static const char *const kLinears[] = {"self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj",
+                                           "mlp.gate_proj", "mlp.up_proj", "mlp.down_proj"};
+    // the matrices of layer i (depth: the embedder), in the order they are used
+    const auto mats = [&](int i) {
+        std::vector<std::string> names;
+        if (i == s.depth) names.push_back("vision.embed.weight");
+        else
+            for (const char *n : kLinears) names.push_back("vision.layers." + std::to_string(i) + "." + n + ".weight");
+        return names;
+    };
+    bool mmla = have_i8mm();
+    for (int i = 0; i <= s.depth && mmla; ++i)
+        for (const auto &n : mats(i)) mmla = mmla && pack_->find(n)->type == DType::Q8 && pack_->find(n)->rows % 8 == 0;
+    mmla = mmla && pack_->find("vision.patch.weight")->type == DType::Q8;
+
+    // the layers come in one ahead of the arithmetic, two buffers in turn (repacked for SMMLA there too)
+    AlignedBuffer bb[2];
+    size_t bcap[2] = {0, 0};
+    uint64_t bbase[2] = {0, 0};
+    std::string berr[2];
+    std::vector<Packed> bpk[2];
+    const auto start = [&](int i) {
+        const Range *r = i < s.depth ? &blocks_[static_cast<size_t>(i)] : &merger_;
+        const int k = i & 1;
+        return std::async(std::launch::async, [this, r, &bb, &bcap, &bbase, &berr, &bpk, &at, k, mmla, names = mats(i)] {
+            if (!read(*r, bb[k], bcap[k], bbase[k], berr[k])) return false;
+            if (mmla) {
+                bpk[k].resize(names.size());
+                for (size_t j = 0; j < names.size(); ++j) pack_q8(at(names[j], bb[k].get(), bbase[k]), bpk[k][j]);
+            }
+            return true;
+        });
+    };
+    std::future<bool> next = start(0);
+    AlignedBuffer hbuf;
+    size_t hcap = 0;
+    uint64_t hbase = 0;
+    if (!read(head_, hbuf, hcap, hbase, err)) {
+        next.wait();
+        return false;
+    }
+    Packed pe;
+    if (mmla) pack_q8(at("vision.patch.weight", hbuf.get(), hbase), pe);
+    lap(prof_.wait);
+
+    std::vector<float> x(static_cast<size_t>(N) * D), hn(static_cast<size_t>(N) * std::max({D, K, QW})),
+        y(static_cast<size_t>(N) * D), q(static_cast<size_t>(N) * QW), k(static_cast<size_t>(N) * QW),
+        vv(static_cast<size_t>(N) * QW), g(static_cast<size_t>(N) * F), u(static_cast<size_t>(N) * F),
+        cl(static_cast<size_t>(N) * std::max({D, F, K, QW}));
+    std::vector<float> kt(static_cast<size_t>(NH) * HD * npad, 0.0f), vh(static_cast<size_t>(NH) * N * HD);
+    std::vector<QAct> qa(static_cast<size_t>(N));
+    std::vector<const QAct *> qp(static_cast<size_t>(N));
+    std::vector<float *> ys(static_cast<size_t>(N));
+    std::vector<int8_t> aq;
+    std::vector<float> as;
+    // y rows (ystride apart) = m . x rows (xstride apart), n tokens; pk: m repacked for SMMLA
+    const auto mm = [&](const QView &m, const Packed *pk, const float *xs, size_t xstride, float *yo, size_t ystride,
+                        int n) {
+        if (pk) {
+            const int64_t C = m.cols, nb = C / kBlock, np = (n + 1) / 2;
+            aq.resize(static_cast<size_t>(np * 2 * C));
+            as.resize(static_cast<size_t>(np * nb * 2));
+            pool.parallel_for(np, [&](int64_t a, int64_t b) {
+                for (int64_t t = a; t < b; ++t)
+                    quant_pair(xs + static_cast<size_t>(2 * t) * xstride,
+                               2 * t + 1 < n ? xs + static_cast<size_t>(2 * t + 1) * xstride : nullptr, C,
+                               aq.data() + static_cast<size_t>(t * 2 * C), as.data() + static_cast<size_t>(t * nb * 2));
+            }, 4, true);
+            pool.parallel_for(m.rows / 8, [&](int64_t a, int64_t b) { mmla_rows(*pk, a, b, aq.data(), as.data(), n, yo, ystride); },
+                              1, true);
+            return;
+        }
+        pool.parallel_for(n, [&](int64_t a, int64_t b) {
+            for (int64_t t = a; t < b; ++t) {
+                quantize_activation(xs + static_cast<size_t>(t) * xstride, m.cols, qa[static_cast<size_t>(t)]);
+                qp[static_cast<size_t>(t)] = &qa[static_cast<size_t>(t)];
+                ys[static_cast<size_t>(t)] = yo + static_cast<size_t>(t) * ystride;
+            }
+        }, 8, true);
+        pool.parallel_for(m.rows, [&](int64_t a, int64_t b) { matvec_rows_q_multi(m, qp.data(), n, ys.data(), a, b); },
+                          16, true);
+    };
+    // a clipped linear (Gemma4ClippableLinear): its input clamped to [clip 0, clip 1], the product, its output
+    // clamped to [clip 2, clip 3]; xs rows of m.cols, yo rows of m.rows
+    const auto clipped = [&](const QView &m, const Packed *pk, const float *clip, const float *xs, float *yo, int n) {
+        const int64_t C = m.cols, R = m.rows;
+        pool.parallel_for(static_cast<int64_t>(n) * C, [&](int64_t a, int64_t b) {
+            for (int64_t i = a; i < b; ++i) cl[static_cast<size_t>(i)] = std::clamp(xs[static_cast<size_t>(i)], clip[0], clip[1]);
+        }, 4096, true);
+        mm(m, pk, cl.data(), static_cast<size_t>(C), yo, static_cast<size_t>(R), n);
+        pool.parallel_for(static_cast<int64_t>(n) * R, [&](int64_t a, int64_t b) {
+            for (int64_t i = a; i < b; ++i) yo[static_cast<size_t>(i)] = std::clamp(yo[static_cast<size_t>(i)], clip[2], clip[3]);
+        }, 4096, true);
+    };
+
+    // the patches (row-major; a patch's pixels row by row, R G B) as 2 x - 1, the embedding, plus the position tables'
+    // rows of the patch's column and row
+    pool.parallel_for(N, [&](int64_t a, int64_t b) {
+        for (int64_t n = a; n < b; ++n) {
+            const int r = static_cast<int>(n) / gw, c = static_cast<int>(n) % gw;
+            float *o = hn.data() + static_cast<size_t>(n) * K;
+            for (int py = 0; py < P; ++py) {
+                const uint8_t *src = rgb + (static_cast<size_t>(r * P + py) * w + static_cast<size_t>(c) * P) * 3;
+                for (int i = 0; i < 3 * P; ++i) *o++ = 2.0f * (static_cast<float>(src[i]) / 255.0f) - 1.0f;
+            }
+        }
+    }, 8, true);
+    mm(at("vision.patch.weight", hbuf.get(), hbase), mmla ? &pe : nullptr, hn.data(), static_cast<size_t>(K), x.data(),
+       static_cast<size_t>(D), N);
+    {
+        std::vector<float> px(static_cast<size_t>(gw) * D), py(static_cast<size_t>(gh) * D);
+        const QView tx = at("vision.pos_x.weight", hbuf.get(), hbase), ty = at("vision.pos_y.weight", hbuf.get(), hbase);
+        for (int c = 0; c < gw; ++c) dequant_row(tx, c, px.data() + static_cast<size_t>(c) * D);
+        for (int r = 0; r < gh; ++r) dequant_row(ty, r, py.data() + static_cast<size_t>(r) * D);
+        pool.parallel_for(N, [&](int64_t a, int64_t b) {
+            for (int64_t n = a; n < b; ++n) {
+                const int r = static_cast<int>(n) / gw, c = static_cast<int>(n) % gw;
+                float *o = x.data() + static_cast<size_t>(n) * D;
+                const float *ax = px.data() + static_cast<size_t>(c) * D, *ay = py.data() + static_cast<size_t>(r) * D;
+                for (int i = 0; i < D; ++i) o[i] = (o[i] + ax[i]) + ay[i];
+            }
+        }, 8, true);
+    }
+    hbuf.reset();
+    lap(prof_.embed);
+
+    // 2D RoPE: the head's first half turned by the patch's column, the second by its row; pairs (j, j + HD / 4) of
+    // each half, frequency theta^(-2 j / (HD / 2))
+    const int half = HD / 2, quarter = half / 2;
+    std::vector<float> cosv(static_cast<size_t>(N) * half), sinv(static_cast<size_t>(N) * half);
+    for (int n = 0; n < N; ++n) {
+        const int p2[2] = {n % gw, n / gw};
+        for (int hk = 0; hk < 2; ++hk)
+            for (int j = 0; j < quarter; ++j) {
+                const float inv = 1.0f / std::pow(s.theta, static_cast<float>(2 * j) / static_cast<float>(half));
+                const float f = static_cast<float>(p2[hk]) * inv;
+                cosv[static_cast<size_t>(n) * half + hk * quarter + j] = std::cos(f);
+                sinv[static_cast<size_t>(n) * half + hk * quarter + j] = std::sin(f);
+            }
+    }
+
+    for (int i = 0; i < s.depth; ++i) {
+        if (!next.get()) {
+            err = berr[i & 1];
+            return false;
+        }
+        const uint8_t *buf = bb[i & 1].get();
+        const uint64_t base = bbase[i & 1];
+        next = start(i + 1);   // the next layer, or the embedder
+        lap(prof_.wait);
+        const std::string b = "vision.layers." + std::to_string(i) + ".";
+        const Packed *pk = mmla ? bpk[i & 1].data() : nullptr;
+        const auto lin = [&](int j) { return at(b + kLinears[j] + std::string(".weight"), buf, base); };
+        const auto clip = [&](int j) { return vec(b + kLinears[j] + std::string(".clip"), buf, base); };
+        const auto rms = [&](const char *name, const float *src, float *dst) {
+            const float *wn = vec(b + name + std::string(".weight"), buf, base);
+            pool.parallel_for(N, [&](int64_t a, int64_t e) {
+                for (int64_t n = a; n < e; ++n)
+                    rmsnorm(src + static_cast<size_t>(n) * D, wn, dst + static_cast<size_t>(n) * D, D, s.eps, false);
+            }, 8, true);
+        };
+
+        // attention
+        rms("input_layernorm", x.data(), hn.data());
+        lap(prof_.other);
+        clipped(lin(0), pk ? pk + 0 : nullptr, clip(0), hn.data(), q.data(), N);
+        clipped(lin(1), pk ? pk + 1 : nullptr, clip(1), hn.data(), k.data(), N);
+        clipped(lin(2), pk ? pk + 2 : nullptr, clip(2), hn.data(), vv.data(), N);
+        lap(prof_.matmul);
+        const float *qn = vec(b + "self_attn.q_norm.weight", buf, base), *kn = vec(b + "self_attn.k_norm.weight", buf, base);
+        pool.parallel_for(N, [&](int64_t a, int64_t e) {
+            for (int64_t n = a; n < e; ++n) {
+                const float *cs = cosv.data() + static_cast<size_t>(n) * half, *sn = sinv.data() + static_cast<size_t>(n) * half;
+                for (int hh = 0; hh < NH; ++hh) {
+                    float *qh = q.data() + static_cast<size_t>(n) * QW + hh * HD, *kh = k.data() + static_cast<size_t>(n) * QW + hh * HD;
+                    float *vr = vv.data() + static_cast<size_t>(n) * QW + hh * HD;
+                    rmsnorm(qh, qn, qh, HD, s.eps, false);
+                    rmsnorm(kh, kn, kh, HD, s.eps, false);
+                    rmsnorm(vr, nullptr, vr, HD, s.eps, false);
+                    for (int hk = 0; hk < 2; ++hk)
+                        for (int j = 0; j < quarter; ++j) {
+                            const int d0 = hk * half + j, d1 = d0 + quarter, ci = hk * quarter + j;
+                            const float q1 = qh[d0], q2 = qh[d1], k1 = kh[d0], k2 = kh[d1];
+                            qh[d0] = q1 * cs[ci] - q2 * sn[ci];
+                            qh[d1] = q2 * cs[ci] + q1 * sn[ci];
+                            kh[d0] = k1 * cs[ci] - k2 * sn[ci];
+                            kh[d1] = k2 * cs[ci] + k1 * sn[ci];
+                        }
+                    float *kth = kt.data() + static_cast<size_t>(hh) * HD * npad;
+                    for (int d = 0; d < HD; ++d) kth[static_cast<size_t>(d) * npad + n] = kh[d];
+                    std::copy(vr, vr + HD, vh.data() + (static_cast<size_t>(hh) * N + n) * HD);
+                }
+            }
+        }, 8, true);
+        attend_all(pool, NH, HD, N, npad, q.data(), static_cast<size_t>(QW), kt.data(), vh.data(), hn.data(), static_cast<size_t>(QW));   // scale 1
+        lap(prof_.attention);
+        clipped(lin(3), pk ? pk + 3 : nullptr, clip(3), hn.data(), y.data(), N);
+        lap(prof_.matmul);
+        rms("post_attention_layernorm", y.data(), y.data());
+        pool.parallel_for(static_cast<int64_t>(N) * D, [&](int64_t a, int64_t e) {
+            for (int64_t j = a; j < e; ++j) x[static_cast<size_t>(j)] += y[static_cast<size_t>(j)];
+        }, 4096, true);
+        rms("pre_feedforward_layernorm", x.data(), hn.data());
+        lap(prof_.other);
+
+        // the MLP: down(gelu(gate) * up)
+        clipped(lin(4), pk ? pk + 4 : nullptr, clip(4), hn.data(), g.data(), N);
+        clipped(lin(5), pk ? pk + 5 : nullptr, clip(5), hn.data(), u.data(), N);
+        lap(prof_.matmul);
+        pool.parallel_for(static_cast<int64_t>(N) * F, [&](int64_t a, int64_t e) {
+            for (int64_t j = a; j < e; ++j) g[static_cast<size_t>(j)] = gelu_tanh(g[static_cast<size_t>(j)]) * u[static_cast<size_t>(j)];
+        }, 4096, true);
+        lap(prof_.other);
+        clipped(lin(6), pk ? pk + 6 : nullptr, clip(6), g.data(), y.data(), N);
+        lap(prof_.matmul);
+        rms("post_feedforward_layernorm", y.data(), y.data());
+        pool.parallel_for(static_cast<int64_t>(N) * D, [&](int64_t a, int64_t e) {
+            for (int64_t j = a; j < e; ++j) x[static_cast<size_t>(j)] += y[static_cast<size_t>(j)];
+        }, 4096, true);
+        lap(prof_.other);
+    }
+
+    // each M x M patches averaged into a token (row-major over the pooled grid), times sqrt(hidden); a weightless
+    // RMS norm; the embedder's projection
+    if (!next.get()) {
+        err = berr[s.depth & 1];
+        return false;
+    }
+    const uint8_t *buf = bb[s.depth & 1].get();
+    const uint64_t base = bbase[s.depth & 1];
+    bb[(s.depth + 1) & 1].reset();
+    lap(prof_.wait);
+    const int pw = gw / M, T = (gh / M) * pw;
+    std::vector<float> tok(static_cast<size_t>(T) * D, 0.0f);
+    for (int n = 0; n < N; ++n) {
+        float *o = tok.data() + static_cast<size_t>((n / gw / M) * pw + (n % gw) / M) * D;
+        const float *xr = x.data() + static_cast<size_t>(n) * D;
+        for (int i = 0; i < D; ++i) o[i] += xr[i];
+    }
+    const float scale = std::sqrt(static_cast<float>(D)), inv9 = 1.0f / static_cast<float>(M * M);
+    pool.parallel_for(T, [&](int64_t a, int64_t e) {
+        for (int64_t t = a; t < e; ++t) {
+            float *o = tok.data() + static_cast<size_t>(t) * D;
+            for (int i = 0; i < D; ++i) o[i] = o[i] * inv9 * scale;
+            rmsnorm(o, nullptr, o, D, s.eps, false);
+        }
+    }, 4, true);
+    out.assign(static_cast<size_t>(T) * s.out_hidden, 0.0f);
+    mm(at("vision.embed.weight", buf, base), mmla ? bpk[s.depth & 1].data() : nullptr, tok.data(), static_cast<size_t>(D),
+       out.data(), static_cast<size_t>(s.out_hidden), T);
+    prof_.where = mmla ? "CPU SMMLA" : "CPU";
     lap(prof_.matmul);
     prof_.total = now_seconds() - t0;
     return true;
