@@ -6,7 +6,13 @@ R"CL(
 // Activations in tiles of T tokens: slot s = place s % T of tile s / T. Per tile, per 16-value block k, the T places'
 // 16 bytes side by side: X uint4 (tile * nb + k) * T + t, in the order a q4 word's nibbles come out (values 0 2 .. 14,
 // then 1 3 .. 15); XS the block's scale (amax / 127, as the CPU's quantize_activation), XB -15 x its int8 sum (the
-// q4 level offset: the codes go into the dot products as 2c, the level is 2c - 15).
+// q4 level offset: the codes go into the dot products as 2c, the level is 2c - 15). Built with -D Q4I (Gemma 4's q4i):
+// the codes go in as they are, the level is c - 8 (XB -8 x the sum), and the E4M3 scales are signed.
+#ifdef Q4I
+#define LEVEL_OFFSET 8
+#else
+#define LEVEL_OFFSET 15
+#endif
 
 inline uint pack4(int a, int b, int c, int d) {
     return (uint)(a & 255) | ((uint)(b & 255) << 8) | ((uint)(c & 255) << 16) | ((uint)(d & 255) << 24);
@@ -26,7 +32,7 @@ inline void put_block(const float16 v, const int at, __global uint4 *X, __global
     const int8 s8 = q.lo + q.hi;
     const int4 s4 = s8.lo + s8.hi;
     const int2 s2 = s4.lo + s4.hi;
-    XB[at] = -15 * (s2.x + s2.y);
+    XB[at] = -LEVEL_OFFSET * (s2.x + s2.y);
 }
 
 #ifndef GEODE_PF_ONLY   // (the prompt mixers' program has only them and the helpers above)
@@ -55,9 +61,16 @@ __kernel void swiglu(__global const float *gu, int ff, __global uint4 *X, __glob
 // quad i at uint4 (c * 8 + j) * 8 + i, then chunk c's scales of quad i at 64 nch + c * 8 + i). Token t of the tile
 // goes to row ymap[tile * T + t] of Y (-1: nowhere), rows ystride floats apart, from the job's offset on. An item: quad q x the T tokens; NDRange (jobs, the tallest's rows / 4), work groups of
 // one job's quads (the activations one address for the wave). A block a loop step; mad, never fma (emulated here).
+#ifdef Q4I
+inline uint4 lv_lo(uint4 w) { return w & 0x0F0F0F0Fu; }
+inline uint4 lv_hi(uint4 w) { return (w >> 4) & 0x0F0F0F0Fu; }
+// the sign bit (7) to FP16's (15), the rest as q4's
+inline float e4m3(uint b) { return (float)as_half((ushort)(((b & 0x80u) << 8) | ((b & 0x7Fu) << 7))); }
+#else
 inline uint4 lv_lo(uint4 w) { return (w << 1) & 0x1E1E1E1Eu; }
 inline uint4 lv_hi(uint4 w) { return (w >> 3) & 0x1E1E1E1Eu; }
 inline float e4m3(uint b) { return (float)as_half((ushort)((b & 0xFFu) << 7)); }
+#endif
 
 #define DOT(a, x, acc) qcom_dot8_acc(x, a, acc)
 #define ROW(s) DOT(o1.s, x.s3, DOT(o0.s, x.s2, DOT(e1.s, x.s1, DOT(e0.s, x.s0, bias))))

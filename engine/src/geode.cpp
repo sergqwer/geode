@@ -184,6 +184,8 @@ int geode_open(const geode_config *config, geode_model **out, char *err, size_t 
     // 0: never (or GEODE_TAIL_SKIP, for measuring); 6 / 4: the last 2 / 4 of the 8 when they would be read
     opt.tail_skip = config->tail_skip > 0 ? config->tail_skip : -1;
     opt.npu = config->npu > 0 ? 1 : 0;
+    // GEODE_EXACT=1 (measuring): exact FP32 arithmetic, the reference a shortcut's KL is taken against
+    if (const char *e = std::getenv("GEODE_EXACT")) opt.exact = std::atoi(e) != 0;
 #if defined(__ANDROID__)
     opt.direct_io = true;   // expert blocks straight into the cache slots (O_DIRECT works on the phone's f2fs)
 #endif

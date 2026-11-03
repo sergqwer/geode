@@ -362,8 +362,11 @@ private:
     const Tensor *ple_table_ = nullptr; // embed_tokens_per_layer (a row per token, read from flash)
     std::vector<float> ple_, pgate_;    // a chunk's per-layer inputs [n][layers * ple_dim], gate [n][ple_dim]
     std::vector<uint8_t> media_;        // which of a chunk's tokens are an image's (their PLE row: the pad token's)
-    // Tokens a pass of the Gemma path takes at most (a prompt goes in chunks of this, each through every layer)
+    // Tokens a pass of the Gemma path takes at most (a prompt goes in chunks of this, each through every layer); with
+    // the NPU more (its products expand every weight block once a call, whatever the tokens): GEODE_GEMMA_CHUNK
     static constexpr int kGemmaChunk = 256;
+    static constexpr int kGemmaNpuChunk = 1024;
+    int gemma_chunk_ = kGemmaChunk;
     bool bind_gemma(std::string &err);
     bool open_gemma(const ModelOptions &opt, std::string &err);
     bool forward_gemma(const int *tokens, int n, float *logits, bool all_logits, std::string &err);
@@ -408,6 +411,8 @@ private:
     void gemma_attend(const GLayer &L, int n);
     template <typename T, int G>
     void gemma_heads(const GLayer &L, int kh, int h0, int t, int b, int nb);
+    // a prompt's chunk over the int8 KV cache on i8mm (gemma_attend decides): true if it took the chunk
+    bool gemma_attend_mm(const GLayer &L, int n);
     // ys[t] = W . xs[t] for t < n: each weight row is read once and used for every token
     // pre: the int8 path's activations of xs, already quantized (quantize_h), or nullptr to quantize them here
     void matmul(const QView &m, int n, const float *const *xs, float *const *ys, const QAct *const *pre = nullptr);
@@ -429,6 +434,25 @@ private:
     // a batch's blocks: per token, head and block the values' sum, the scores' maximum and the weights' sum (the
     // tokens from attn_t0_ on: attend takes a long prompt's a few at a time)
     std::vector<float> attn_parts_;
+    // Gemma 4's queries as int8 (a row per token and head, its scale amax / 127) for the int8 KV cache's SDOT scores
+    // (gemma_attend fills them once a layer, gemma_heads reads them); qi8_on_: they are filled for this layer
+    std::vector<int8_t> qi8_;
+    std::vector<float> qi8_s_;
+    bool qi8_on_ = false;
+    // A prompt's chunk on a CPU with i8mm (the 8 Elite's Oryon), gemma_attend_mm's operands: the int8 queries by head
+    // pairs, each token and head's running softmax (its maximum and its sum; the values' sum in core_), and the
+    // attended blocks' keys by position pairs, values transposed (the layouts SMMLA and USMMLA take) and scales in a
+    // row - built by a layer with its own KV, kept for the layers that share it (slot -1: not kept), two at a time
+    struct MmOps {
+        int slot = -1, lo = 0, end = 0, hd = 0, b0 = 0, nb = 0;
+        uint64_t used = 0;
+        std::vector<int8_t> kp, vt;
+        std::vector<float> ks, vs;
+    };
+    std::vector<int8_t> qp_;
+    std::vector<float> run_m_, run_s_;
+    MmOps mm_ops_[2];
+    uint64_t mm_tick_ = 0;
     int attn_t0_ = 0;
     template <typename T>
     T *kv(int pos, int layer, bool value);
@@ -603,6 +627,7 @@ private:
     static constexpr int64_t kGpuMinRows = 2048;
     static constexpr int kGpuMinTokens = 16;
     static constexpr int kNpuMinTokens = 64;   // fewer: the call and the conversions cost more than the CPU's product
+    static constexpr int64_t kNpuPartCols = 4096;   // deeper matrices go to the NPU in parts (Npu::Parts)
     // the NPU's activation and result buffers (rpcmem, grown by a prompt), counted in the memory budget
     static constexpr uint64_t kNpuBufferBytes = 64ull << 20;
     static constexpr float kGpuShare = 0.3f;
@@ -626,8 +651,27 @@ private:
         size_t (*bytes)(const void *) = nullptr;
         double (*dsp)(const void *) = nullptr;
         double (*conv)(const void *) = nullptr;
+        // an MLP's products in one go (gnpu_mlp: act(gate) * up stays on the DSP as down's input); absent from an older
+        // library, off after it failed once (v73 / v75: AEE_EUNSUPPORTED, built for v79 and newer) or with
+        // GEODE_NPU_MLP=0
+        int (*mlp)(void *, int, int, int, const int *, int, int, const float *const *, float *const *) = nullptr;
+        bool mlp_off = false;
+        uint64_t mlp_calls = 0;   // MLPs it took
+        int mlp_err = 0;          // why it went off
         std::unordered_map<const uint8_t *, int> ids;   // an adopted matrix's id, by its data
         std::vector<std::pair<const QView *, int>> adopted;   // which view each id is of (rekey: data may move)
+        // A deep matrix (more than kNpuPartCols inputs: Gemma 4's down projections) adopted in parts of `cols` inputs
+        // each: the DSP's activation tiles of all of its inputs would not fit its VTCM beside the weights, and every
+        // pass over the tokens expanded the whole matrix again (12288 inputs: 16 passes a product). The parts' results
+        // are added on the CPU.
+        struct Parts {
+            std::vector<int> ids;
+            int64_t cols = 0;
+        };
+        std::unordered_map<const uint8_t *, Parts> parts;
+        std::vector<float> part_y;                 // a part's results, before they are added
+        std::vector<const float *> part_x;         // the tokens' activations from a part's first input
+        std::vector<float *> part_rows;
         std::string status = "off";
         double wall = 0;   // the products' time here, conversions included
         uint64_t calls = 0;
@@ -691,6 +735,18 @@ private:
     void npu_rekey();
     // ms[j] . xs's n rows -> ys[j] on the NPU, one input for all (count <= 4); false: not taken there
     bool npu_products(const QView *const *ms, int count, int n, const float *const *xs, float *const *const *ys);
+    // ys = down(act(gate xs) * (up xs)) for n rows on the NPU in one go (act 0: gelu, tanh form); false: not taken
+    // there (the caller computes it as before)
+    bool npu_mlp(const QView &gate, const QView &up, const QView &down, int act, int n, const float *const *xs,
+                 float *const *ys);
+    // the NPU will take m's product for n tokens (the CPU's int8 activations for it are not needed)
+    bool npu_takes(const QView &m, int n) const {
+        return npu_.g && !npu_.products_off && n >= kNpuMinTokens && (npu_.ids.count(m.data) || npu_.parts.count(m.data));
+    }
+    // the same for the GPU (Model::matmul sends it there)
+    bool gpu_takes(const QView &m, int n) const {
+        return gpu8_ && n >= kGpuMinTokens && !check_ && gpu8_->fits_batch(m, n);
+    }
     // ms[j] . xs -> ys[j]: on the NPU together when it takes them, else one matmul each
     void matmul_many(const QView *const *ms, int count, int n, const float *const *xs, float *const *const *ys,
                      const QAct *const *pre = nullptr);
@@ -699,8 +755,15 @@ private:
     // there too (when the pack's experts are tile8), and a batch of kGpuMinTokens tokens and more runs its dense
     // products and its routed experts there whole; one token stays on the CPU.
     std::unique_ptr<Gpu8> gpu8_;
+    // the shared memory matrices moved into when the GPU could not be used after all (a piece or its staging not to
+    // be had): kept for the CPU, which reads them there - never a product on it
+    std::unique_ptr<Gpu8> gpu8_keep_;
     bool gpu8_experts_ = false;   // the expert cache in the GPU's memory
     bool setup_gpu8(std::string &why);
+    // Gemma 4 on the Adreno 7xx+ (gemma.cpp, where the NPU does not take the prompt): its dense q4i matrices into
+    // shared memory in tile8 (the CPU reads them there too), a prompt's chunk of products on the GPU; false and why
+    bool setup_gpu8_gemma(std::string &why);
+    uint64_t gpu_staging_ = 0;   // the GPU's buffers beyond the matrices (they replace the pack's pages)
     // generating on the GPU (gpu8.hpp, dec_*): one token through every layer there, the CPU pinning the routed
     // experts once a layer
     bool dec8_ = false;

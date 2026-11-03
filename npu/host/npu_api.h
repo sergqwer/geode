@@ -32,11 +32,19 @@ void gnpu_close(gnpu *g);
 // level = 2c + 1 for c < 8, -(2(c - 8) + 1) above) into the NPU's hmx4 blocks, in memory mapped into the DSP once.
 // rows and cols multiples of 32. Its id (>= 0), or -1.
 int gnpu_adopt_q4(gnpu *g, const uint8_t *data, int64_t rows, int64_t cols, size_t row_bytes, float global);
+// The same for Gemma 4's q4i (level = code - 8, signed E4M3 scales; kernels.hpp DType::Q4I), in the pack's row layout.
+int gnpu_adopt_q4i(gnpu *g, const uint8_t *data, int64_t rows, int64_t cols, size_t row_bytes, float global);
 // ys[t] = W xs[t] for t < n (fp32 rows of cols / rows values): the activations go over as fp16. 0 when done.
 int gnpu_gemm(gnpu *g, int id, int n, const float *const *xs, float *const *ys);
 // ys[j][t] = W_ids[j] xs[t] for count (<= 4) matrices of the same depth: the input converted once, each matrix's
 // results converted while the DSP multiplies the next. 0 when done.
 int gnpu_gemm_multi(gnpu *g, int count, const int *ids, int n, const float *const *xs, float *const *const *ys);
+// An MLP's products in one go: ys[t] = down(act(gate xs[t]) * (up xs[t])), down adopted in n_down parts of its
+// inputs (downs: each part's id, their results added). The input converted once; act(gate) * up stays on the DSP as
+// down's input (fp16), only down's results come back. act 0: gelu (tanh form), 1: silu. 0 when done; the DSP's error
+// (AEE_EUNSUPPORTED: older than v79) or -1 otherwise, ys then as they were or partly written.
+int gnpu_mlp(gnpu *g, int gate, int up, int n_down, const int *downs, int act, int n, const float *const *xs,
+             float *const *ys);
 // The conversions' threads: par(ctx, items, fn, arg) runs fn(arg, i0, i1) over [0, items) on the caller's threads
 // and returns when all are done (the engine's pool). NULL: the calling thread alone.
 typedef void (*gnpu_par_fn)(void *ctx, int items, void (*fn)(void *arg, int i0, int i1), void *arg);

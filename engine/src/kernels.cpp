@@ -738,7 +738,7 @@ void to_quad(DType t, int64_t rows, int64_t cols, const uint8_t *src, uint8_t *d
 }
 
 bool tile8_capable(DType t, int64_t rows, int64_t cols) {
-    return t == DType::Q4 && rows > 0 && rows % 32 == 0 && cols > 0 && cols % 64 == 0;
+    return (t == DType::Q4 || t == DType::Q4I) && rows > 0 && rows % 32 == 0 && cols > 0 && cols % 64 == 0;
 }
 
 void to_tile8(DType t, int64_t rows, int64_t cols, const uint8_t *src, uint8_t *dst) {

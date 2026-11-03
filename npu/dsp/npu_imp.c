@@ -202,15 +202,18 @@ static void hvx_copy(uint8_t *dst, const uint8_t *src, uint32_t bytes) {   // bo
 }
 
 // ---- q4 weights for HMX ("hmx4") -----------------------------------------------------------------------------
-// One 32-column block of a q4 matrix (the pack's codes: level = 2c - 15; one scale per 16 inputs of a column):
+// One 32-column block of a q4 matrix (the pack's codes: level = 2c - 15 - or, for Gemma 4's q4i, c - 8; one scale
+// per 16 inputs of a column):
 //   codes:  k/2 input pairs x 32 bytes; byte o of pair p = column o, input 2p in the low nibble, 2p+1 in the high
 //   scales: k/16 groups x 32 fp16 (the block's E4M3 scale times the matrix's global scale), group g = inputs 16g..
 // so a source byte's two nibbles land next to each other in HMX's order (index out * 2 + in % 2) as they expand.
 #define HMX4_BYTES(k) ((uint32_t)(k) * 20u)
+// a gemm's out_shift with this bit: the weights' codes are q4i's (level = c - 8; npu_api.c GNPU_SHIFT_Q4I)
+#define HMX4_Q4I 0x100
 
-static void dequant_block(uint8_t *dst, const uint8_t *src, int k) {
+static void dequant_block(uint8_t *dst, const uint8_t *src, int k, int q4i) {
     const HVX_Vector m0f = Q6_Vb_vsplat_R(0x0F);
-    const HVX_Vector k15 = Q6_Vh_vsplat_R(15);
+    const HVX_Vector k15 = Q6_Vh_vsplat_R(q4i ? 8 : 15);
     const HVX_Vector *cv = (const HVX_Vector *)src;                         // 4 input pairs a vector
     const HVX_Vector *sv = (const HVX_Vector *)(src + (uint32_t)k * 16u);  // 2 groups (64 fp16) a vector
     HVX_Vector *out = (HVX_Vector *)dst;
@@ -226,7 +229,7 @@ static void dequant_block(uint8_t *dst, const uint8_t *src, int k) {
                 const HVX_VectorPair hw = Q6_Wuh_vunpack_Vub(half ? Q6_V_hi_W(cb) : Q6_V_lo_W(cb));
                 for (int x = 0; x < 2; ++x) {
                     const HVX_Vector c = x ? Q6_V_hi_W(hw) : Q6_V_lo_W(hw);
-                    const HVX_Vector lv = Q6_Vh_vsub_VhVh(Q6_Vh_vadd_VhVh(c, c), k15);
+                    const HVX_Vector lv = Q6_Vh_vsub_VhVh(q4i ? c : Q6_Vh_vadd_VhVh(c, c), k15);
                     *out++ = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(Q6_Vhf_equals_Vh(lv), sc));
                 }
             }
@@ -258,6 +261,7 @@ typedef struct {
     int no_hmx, workers;             // experiments: expansion alone; fewer workers
     uint8_t *oddr;                   // gemm: every result crouton copied out, [row tile][block] x 2 KB
     int tile0, n_tiles_all;          // gemm: this pass's first row tile, the whole result's row tiles
+    int q4i;                         // the codes are q4i's (dequant_block)
 } pipe_t;
 
 typedef struct {
@@ -277,7 +281,7 @@ static void pipe_worker(void *arg) {
         while (__atomic_load_n(&p->consumed, __ATOMIC_ACQUIRE) < b - PIPE_RING) {
         }
         hvx_copy(p->stage[a->w], p->wddr + (size_t)(b % p->n_blk) * p->q_blk, p->q_blk);
-        dequant_block(p->slots[b % PIPE_RING], p->stage[a->w], p->k);
+        dequant_block(p->slots[b % PIPE_RING], p->stage[a->w], p->k, p->q4i);
         __atomic_store_n(&p->ready[b % PIPE_RING], b, __ATOMIC_RELEASE);
     }
     qurt_hvx_unlock();
@@ -435,7 +439,7 @@ int geode_npu_hmx_gemm(remote_handle64 h, int mode, int m, int k, int n, int rep
                 wb = W + (size_t)(b & 1) * blk_bytes;
                 uint8_t *qv = W + 2 * (size_t)blk_bytes;
                 hvx_copy(qv, wddr + (size_t)b * q_blk, q_blk);
-                dequant_block(wb, qv, k);
+                dequant_block(wb, qv, k, 0);
             } else if (mode == 1) {
                 wb = W + (size_t)(b & 1) * blk_bytes;
                 hvx_copy(wb, wddr + (size_t)b * blk_bytes, blk_bytes);
@@ -495,6 +499,8 @@ int geode_npu_hmx_gemm(remote_handle64 h, int mode, int m, int k, int n, int rep
 int geode_npu_gemm_ptr(remote_handle64 h, const uint8_t *a, const uint8_t *w, uint8_t *o, int m, int k, int n,
                        int out_shift) {
     npu_t *s = (npu_t *)(uintptr_t)h;
+    const int q4i = (out_shift & HMX4_Q4I) != 0;
+    out_shift &= ~HMX4_Q4I;
     if (m <= 0 || k <= 0 || n <= 0 || (m & 31) || (k & 31) || (n & 31) || out_shift < 0 || out_shift > 24 ||
         ((uintptr_t)a & 127) || ((uintptr_t)o & 127) || ((uintptr_t)w & 127))
         return AEE_EBADPARM;
@@ -533,6 +539,7 @@ int geode_npu_gemm_ptr(remote_handle64 h, const uint8_t *a, const uint8_t *w, ui
         p.oddr = o;
         p.tile0 = t0_tile;
         p.n_tiles_all = m / 32;
+        p.q4i = q4i;
         for (int i = 0; i < PIPE_RING; ++i) {
             p.slots[i] = W + (size_t)i * blk_bytes;
             p.ready[i] = -1;
@@ -670,7 +677,7 @@ static void probe_thread(void *arg) {
             }
         }
         if (rc == QURT_EOK && what >= 14) {   // the expansion, VTCM to VTCM
-            dequant_block(g_probe_vtcm + 131072, g_probe_vtcm + 65536, 2048);
+            dequant_block(g_probe_vtcm + 131072, g_probe_vtcm + 65536, 2048, 0);
             g_probe_state = 5;
         }
         if (rc == QURT_EOK) qurt_hvx_unlock();
@@ -1787,7 +1794,338 @@ int geode_npu_moe(remote_handle64 h, const unsigned char *desc, int desc_len, in
     return p.failed ? AEE_ENOTALLOWED : 0;
 }
 
+
+// ---- an MLP's way in (gemm_glu): act(A x G^T) * (A x U^T) ----------------------------------------------------
+// The gate's and the up's blocks in turn through the q4 pipeline's ring (block g: the gate's g / 2, or the up's),
+// each up block's results joined with its gate block's on HVX here, between the blocks - so the fp16 that comes out is
+// the down projection's input as it is (the CPU neither converts the 2 x n results nor applies the activation, and
+// converts no input for down). Worker threads and stacks as pipe_run's; the activation on two helper threads (v79's
+// six HVX contexts: the three workers, this thread and these), block b on helper b % 2 out of buffer b % GLU_BUFS,
+// while this thread goes on with the next blocks' products - on this thread it held HMX up for ~0.6 s of a 2048-token
+// prompt
+#define GLU_HELPERS 2
+#define GLU_BUFS 4   // blocks of gate and up results in flight (a multiple of GLU_HELPERS)
+typedef struct {
+    uint8_t *slots[PIPE_RING], *stage[PIPE_WORKERS];
+    const uint8_t *w[2];   // the gate's hmx4 blocks, the up's
+    uint32_t q_blk;
+    int k, total, nw, q4i;
+    volatile int ready[PIPE_RING];
+    volatile int consumed;
+    volatile int failed;
+    // the activation: block b's gate and up croutons in gs / us[b % GLU_BUFS] once posted; its results into o
+    uint8_t *gs[GLU_BUFS], *us[GLU_BUFS], *o;
+    int n_blk, tiles, t0, pt_all, part_blk, act;
+    volatile int posted;               // the last block both of whose products are in
+    volatile int done[GLU_HELPERS];    // each helper's last block done
+    volatile int inline_act;           // no helpers: this thread applies it
+} glu_t;
+
+typedef struct {
+    glu_t *p;
+    int w;
+} glu_arg_t;
+
+static void glu_worker(void *arg) {
+    glu_arg_t *a = (glu_arg_t *)arg;
+    glu_t *p = a->p;
+    if (qurt_hvx_lock(QURT_HVX_MODE_128B) != QURT_EOK) {
+        __atomic_store_n(&p->failed, 1, __ATOMIC_RELEASE);
+        qurt_thread_exit(0);
+    }
+    for (int g = a->w; g < p->total; g += p->nw) {
+        while (__atomic_load_n(&p->consumed, __ATOMIC_ACQUIRE) < g - PIPE_RING) {
+        }
+        hvx_copy(p->stage[a->w], p->w[g & 1] + (size_t)(g >> 1) * p->q_blk, p->q_blk);
+        dequant_block(p->slots[g % PIPE_RING], p->stage[a->w], p->k, p->q4i);
+        __atomic_store_n(&p->ready[g % PIPE_RING], g, __ATOMIC_RELEASE);
+    }
+    qurt_hvx_unlock();
+    qurt_thread_exit(0);
+}
+
+// act(gate) * up in half precision (qf16 between the steps, so each step is one instruction: the IEEE hf intrinsics
+// compile to a qf op and a conversion each, a product through a qf32 pair - twice the instructions on one chain),
+// 64 lanes an op. gelu in its tanh form as the engine's gelu_fast (g sigmoid(z), z = 2 sqrt(2/pi) (g + 0.044715 g^3)),
+// or silu (z = g). sigmoid(|z|) = 1 / (1 + e^-|z|), sigmoid(-|z|) = e^-|z| sigmoid(|z|): e^-|z| never overflows.
+// e^-|z| = 2^-y (y = |z| log2 e, log2 e folded into z's constants, 24 at most) = 2^-f (a quartic, f in [-0.5, 1)
+// whichever way the conversion rounds) times 2^-n, that in two normal powers of two (down to 2^-13, the rest) applied
+// last, so a negative g's result leaves the normal range only where its value does. 1 / (1 + e) from 24/17 - 8/17 x
+// (6% at most) and two Newton steps, on -(1 + e) (v79 has no hf - qf16). Against the CPU's fp32 rounded once to fp16,
+// in hf arithmetic: rms 5e-4 of a value ~1 (the rounding alone 2e-4, the q4 weights' error ~100 times that)
+static inline uint16_t glu_hb(float f) {
+    union {
+        __fp16 h;
+        uint16_t b;
+    } u;
+    u.h = (__fp16)f;
+    return u.b;
+}
+static inline HVX_Vector glu_h(float f) { return Q6_Vh_vsplat_R(glu_hb(f)); }
+static inline int glu_r(float f) { return (int)((uint32_t)glu_hb(f) * 0x10001u); }   // both halves
+
+typedef struct {
+    HVX_Vector a, c3, c2, c1, c0, r0, two, m1, one, one_q, abs, y_max, n_max, e_one, sign;
+    int b, c4, r1, log2e;
+} glu_k;
+
+static inline void glu_k_init(glu_k *k) {
+    k->a = glu_h(2.3022082f);   // 2 sqrt(2 / pi) log2 e
+    k->b = glu_r(0.10294324f);  // ... times 0.044715
+    k->log2e = glu_r(1.4426950409f);
+    k->c4 = glu_r(0.0079791746f);
+    k->c3 = glu_h(-0.055424855f);
+    k->c2 = glu_h(0.24068041f);
+    k->c1 = glu_h(-0.69320874f);
+    k->c0 = glu_h(0.99998338f);
+    k->r0 = glu_h(24.0f / 17.0f);
+    k->r1 = glu_r(8.0f / 17.0f);
+    k->two = glu_h(2.0f);
+    k->m1 = glu_h(-1.0f);
+    k->one = glu_h(1.0f);
+    k->one_q = Q6_Vqf16_vadd_VhfVhf(k->one, Q6_V_vzero());
+    k->abs = Q6_Vh_vsplat_R(0x7FFF);
+    k->y_max = Q6_Vh_vsplat_R(glu_hb(24.0f));
+    k->n_max = Q6_Vh_vsplat_R(13);
+    k->e_one = Q6_Vh_vsplat_R(15 << 10);
+    k->sign = Q6_Vh_vsplat_R(0x8000);
+}
+
+static inline HVX_Vector glu_qf(const glu_k *k, HVX_Vector g, HVX_Vector u, int act) {
+    HVX_Vector y;
+    if (act) {
+        y = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfRhf(g, k->log2e));
+    } else {
+        const HVX_Vector t = Q6_Vqf16_vmpy_VhfVhf(g, g);
+        const HVX_Vector w = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Rhf(t, k->b), k->a);
+        y = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_Vqf16Vhf(w, g));
+    }
+    y = Q6_Vh_vmin_VhVh(Q6_V_vand_VV(y, k->abs), k->y_max);   // |y| <= 24 (on the bits: both positive)
+    const HVX_Vector n = Q6_Vh_equals_Vhf(y);
+    const HVX_Vector f = Q6_Vqf16_vsub_VhfVhf(y, Q6_Vhf_equals_Vh(n));
+    HVX_Vector q = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Rhf(f, k->c4), k->c3);
+    q = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Vqf16(q, f), k->c2);
+    q = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Vqf16(q, f), k->c1);
+    q = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Vqf16(q, f), k->c0);   // 2^-f
+    const HVX_Vector n1 = Q6_Vh_vmin_VhVh(n, k->n_max), n2 = Q6_Vh_vsub_VhVh(n, n1);
+    const HVX_Vector s1 = Q6_Vh_vsub_VhVh(k->e_one, Q6_Vh_vasl_VhR(n1, 10));   // 2^-n1, 2^-n2 (hf)
+    const HVX_Vector s2 = Q6_Vh_vsub_VhVh(k->e_one, Q6_Vh_vasl_VhR(n2, 10));
+    const HVX_Vector e1 = Q6_Vqf16_vmpy_Vqf16Vhf(q, s1);
+    // -x = -(1 + e^-|z|), in [-2, -1]
+    const HVX_Vector xn = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Vhf(e1, Q6_V_vor_VV(s2, k->sign)), k->m1);
+    HVX_Vector r = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Rhf(xn, k->r1), k->r0);
+    r = Q6_Vqf16_vmpy_Vqf16Vqf16(r, Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Vqf16(xn, r), k->two));
+    r = Q6_Vqf16_vmpy_Vqf16Vqf16(r, Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Vqf16(xn, r), k->two));
+    const HVX_VectorPred neg = Q6_Q_vcmp_gt_VhVh(Q6_V_vzero(), g);   // the sign bit
+    HVX_Vector o = Q6_Vqf16_vmpy_Vqf16Vqf16(Q6_Vqf16_vmpy_VhfVhf(g, u), r);
+    o = Q6_Vqf16_vmpy_Vqf16Vqf16(o, Q6_V_vmux_QVV(neg, e1, k->one_q));
+    return Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_Vqf16Vhf(o, Q6_V_vmux_QVV(neg, s2, k->one)));
+}
+
+// a crouton's 1024 results: act(gate) * up (the layout stays: an elementwise product), two chains in flight
+static void glu_crouton(const glu_k *k, const uint8_t *gs, const uint8_t *us, uint8_t *dst, int act) {
+    const HVX_Vector *gv = (const HVX_Vector *)gs, *uv = (const HVX_Vector *)us;
+    HVX_Vector *ov = (HVX_Vector *)dst;
+    if (act) {
+#pragma clang loop unroll_count(2)
+        for (int i = 0; i < 16; ++i) ov[i] = glu_qf(k, gv[i], uv[i], 1);
+    } else {
+#pragma clang loop unroll_count(2)
+        for (int i = 0; i < 16; ++i) ov[i] = glu_qf(k, gv[i], uv[i], 0);
+    }
+}
+
+// block b's results, parts-major: part b / part_blk, its row tile, its crouton b % part_blk
+static void glu_block(const glu_k *k, const glu_t *p, int b) {
+    const uint8_t *G = p->gs[b % GLU_BUFS], *U = p->us[b % GLU_BUFS];
+    const size_t part = (size_t)(b / p->part_blk), cc = (size_t)(b % p->part_blk);
+    for (int t = 0; t < p->tiles; ++t)
+        glu_crouton(k, G + (size_t)t * 2048u, U + (size_t)t * 2048u,
+                    p->o + ((part * (size_t)p->pt_all + (size_t)(p->t0 + t)) * (size_t)p->part_blk + cc) * 2048u,
+                    p->act);
+}
+
+static void glu_helper(void *arg) {
+    glu_arg_t *a = (glu_arg_t *)arg;
+    glu_t *p = a->p;
+    if (qurt_hvx_lock(QURT_HVX_MODE_128B) != QURT_EOK) {
+        __atomic_store_n(&p->failed, 1, __ATOMIC_RELEASE);
+        qurt_thread_exit(0);
+    }
+    glu_k kk;
+    glu_k_init(&kk);
+    for (int b = a->w; b < p->n_blk; b += GLU_HELPERS) {
+        while (__atomic_load_n(&p->posted, __ATOMIC_ACQUIRE) < b)
+            if (__atomic_load_n(&p->failed, __ATOMIC_ACQUIRE) || __atomic_load_n(&p->inline_act, __ATOMIC_ACQUIRE))
+                goto out;
+        glu_block(&kk, p, b);
+        __atomic_store_n(&p->done[a->w], b, __ATOMIC_RELEASE);
+    }
+out:
+    qurt_hvx_unlock();
+    qurt_thread_exit(0);
+}
+static void *g_glu_stacks[GLU_HELPERS];
+
+static int glu_ptr(npu_t *s, const uint8_t *a, const uint8_t *gw, const uint8_t *uw, uint8_t *o, int m, int k, int n,
+                   int g_shift, int u_shift, int q4i, int part_blk, int act) {
+    int e = acquire(s);
+    if (e) return e;
+    const int croutons = k / 32, n_blk = n / 32, pt_all = m / 32;
+    const uint32_t blk_bytes = (uint32_t)k * 64u, q_blk = HMX4_BYTES(k), tile_bytes = (uint32_t)k * 64u;
+    glu_k kk;
+    glu_k_init(&kk);
+    // VTCM: the two matrices' biases | ring | the workers' staging | per pass: GLU_BUFS blocks' gate and up croutons,
+    // the activation tiles
+    const uint32_t fixed = 4096u + blk_bytes * PIPE_RING + q_blk * PIPE_WORKERS, per_tile = tile_bytes + 4096u * GLU_BUFS;
+    if (fixed + per_tile > s->vtcm_size) return AEE_ENOMEMORY;
+    int pass_tiles = (int)((s->vtcm_size - fixed) / per_tile);
+    if (pass_tiles > pt_all) pass_tiles = pt_all;
+    uint8_t *bias_g = s->vtcm, *bias_u = bias_g + 2048, *W = bias_u + 2048;
+    uint8_t *GU = W + (size_t)blk_bytes * PIPE_RING + (size_t)q_blk * PIPE_WORKERS;
+    uint8_t *A = GU + (size_t)pass_tiles * 4096u * GLU_BUFS;
+    memset(bias_g, 0, 4096);
+    for (int ch = 0; ch < 32; ++ch) {   // output bias 0, scale 2^-shift (gemm's: normal down to 2^-14, then subnormal)
+        ((uint32_t *)bias_g)[ch] = g_shift <= 14 ? (uint32_t)(15 - g_shift) << 10 : 1u << (24 - g_shift);
+        ((uint32_t *)bias_u)[ch] = u_shift <= 14 ? (uint32_t)(15 - u_shift) << 10 : 1u << (24 - u_shift);
+    }
+    int prio = qurt_thread_get_priority(qurt_thread_get_id());
+    if (prio <= 0 || prio >= 255) prio = 127;
+    for (int t0 = 0; t0 < pt_all && !e; t0 += pass_tiles) {
+        const int tiles = pt_all - t0 < pass_tiles ? pt_all - t0 : pass_tiles;
+        hvx_copy(A, a + (size_t)t0 * tile_bytes, (uint32_t)tiles * tile_bytes);
+        glu_t p;
+        memset(&p, 0, sizeof p);
+        p.w[0] = gw;
+        p.w[1] = uw;
+        p.q_blk = q_blk;
+        p.k = k;
+        p.total = 2 * n_blk;
+        p.nw = PIPE_WORKERS;
+        p.q4i = q4i;
+        p.consumed = -1;
+        for (int i = 0; i < PIPE_RING; ++i) {
+            p.slots[i] = W + (size_t)i * blk_bytes;
+            p.ready[i] = -1;
+        }
+        for (int i = 0; i < PIPE_WORKERS; ++i) p.stage[i] = W + (size_t)PIPE_RING * blk_bytes + (size_t)i * q_blk;
+        for (int i = 0; i < GLU_BUFS; ++i) {
+            p.gs[i] = GU + (size_t)i * (size_t)tiles * 4096u;
+            p.us[i] = p.gs[i] + (size_t)tiles * 2048u;
+        }
+        p.o = o;
+        p.n_blk = n_blk;
+        p.tiles = tiles;
+        p.t0 = t0;
+        p.pt_all = pt_all;
+        p.part_blk = part_blk;
+        p.act = act;
+        p.posted = -1;
+        for (int i = 0; i < GLU_HELPERS; ++i) p.done[i] = -1;
+        glu_arg_t args[PIPE_WORKERS], hargs[GLU_HELPERS];
+        qurt_thread_t tid[PIPE_WORKERS], htid[GLU_HELPERS];
+        int started = 0, helpers = 0;
+        for (int w = 0; w < p.nw; ++w) {
+            qurt_thread_attr_t at;
+            qurt_thread_attr_init(&at);
+            if (!g_pipe_stacks[w] && !(g_pipe_stacks[w] = memalign(128, PIPE_STACK))) break;
+            qurt_thread_attr_set_name(&at, (char *)"geode_glu");
+            qurt_thread_attr_set_stack_addr(&at, g_pipe_stacks[w]);
+            qurt_thread_attr_set_stack_size(&at, PIPE_STACK);
+            qurt_thread_attr_set_priority(&at, (unsigned short)prio);
+            args[w].p = &p;
+            args[w].w = w;
+            if (qurt_thread_create(&tid[w], &at, glu_worker, &args[w]) != QURT_EOK) break;
+            ++started;
+        }
+        if (started < p.nw) p.failed = 1;
+        for (int h = 0; h < GLU_HELPERS && !p.failed; ++h) {
+            qurt_thread_attr_t at;
+            qurt_thread_attr_init(&at);
+            if (!g_glu_stacks[h] && !(g_glu_stacks[h] = memalign(128, PIPE_STACK))) break;
+            qurt_thread_attr_set_name(&at, (char *)"geode_glu_act");
+            qurt_thread_attr_set_stack_addr(&at, g_glu_stacks[h]);
+            qurt_thread_attr_set_stack_size(&at, PIPE_STACK);
+            qurt_thread_attr_set_priority(&at, (unsigned short)prio);
+            hargs[h].p = &p;
+            hargs[h].w = h;
+            if (qurt_thread_create(&htid[h], &at, glu_helper, &hargs[h]) != QURT_EOK) break;
+            ++helpers;
+        }
+        if (helpers < GLU_HELPERS) __atomic_store_n(&p.inline_act, 1, __ATOMIC_RELEASE);
+        for (int g = 0; g < p.total && !p.failed; ++g) {
+            while (__atomic_load_n(&p.ready[g % PIPE_RING], __ATOMIC_ACQUIRE) != g)
+                if (__atomic_load_n(&p.failed, __ATOMIC_ACQUIRE)) break;
+            if (p.failed) break;
+            const uint8_t *wb = p.slots[g % PIPE_RING];
+            const int up = g & 1, b = g >> 1, j = b % GLU_BUFS;
+            if (!up && !p.inline_act)   // block b - GLU_BUFS's activation out of buffer j before it is overwritten
+                while (__atomic_load_n(&p.done[b % GLU_HELPERS], __ATOMIC_ACQUIRE) < b - GLU_BUFS)
+                    if (__atomic_load_n(&p.failed, __ATOMIC_ACQUIRE)) break;
+            if (p.failed) break;
+            Q6_bias_mxmem2_A(up ? bias_u : bias_g);
+            uint8_t *dst = up ? p.us[j] : p.gs[j];
+            for (int t = 0; t < tiles; ++t) tile(A + (size_t)t * tile_bytes, wb, dst + (size_t)t * 2048u, croutons);
+            __atomic_store_n(&p.consumed, g - 1, __ATOMIC_RELEASE);   // one behind: HMX may still read this slot
+            if (!up) continue;
+            if (p.inline_act) {
+                glu_block(&kk, &p, b);
+            } else {
+                __atomic_thread_fence(__ATOMIC_SEQ_CST);
+                __atomic_store_n(&p.posted, b, __ATOMIC_RELEASE);
+            }
+        }
+        __atomic_store_n(&p.consumed, p.total, __ATOMIC_RELEASE);
+        for (int w = 0; w < started; ++w) {
+            int st;
+            qurt_thread_join(tid[w], &st);
+        }
+        for (int h = 0; h < helpers; ++h) {   // (their last blocks: done when they return)
+            int st;
+            qurt_thread_join(htid[h], &st);
+        }
+        if (p.failed) e = AEE_ENOTALLOWED;
+    }
+    return e;
+}
+
+int geode_npu_gemm_glu(remote_handle64 h, const unsigned char *a, int a_len, int g_fd, int u_fd, unsigned char *o,
+                       int o_len, int m, int k, int n, int g_shift, int u_shift, int part_blk, int act, int64_t *usec) {
+    npu_t *s = (npu_t *)(uintptr_t)h;
+    *usec = 0;
+    const int q4i = (g_shift & HMX4_Q4I) != 0;
+    if (q4i != ((u_shift & HMX4_Q4I) != 0)) return AEE_EBADPARM;
+    g_shift &= ~HMX4_Q4I;
+    u_shift &= ~HMX4_Q4I;
+    if (m <= 0 || k <= 0 || n <= 0 || (m & 31) || (k & 31) || (n & 31) || part_blk <= 0 || (n / 32) % part_blk ||
+        g_shift < 0 || g_shift > 24 || u_shift < 0 || u_shift > 24 || act < 0 || act > 1 ||
+        (uint32_t)a_len < (uint32_t)m * (uint32_t)k * 2u || (uint32_t)o_len < (uint32_t)m * (uint32_t)n * 2u ||
+        ((uintptr_t)a & 127) || ((uintptr_t)o & 127))
+        return AEE_EBADPARM;
+    void *gv = NULL, *uv = NULL;
+    uint64 pa = 0;
+    int e = HAP_mmap_get(g_fd, &gv, &pa);
+    if (e) return e;
+    if ((e = HAP_mmap_get(u_fd, &uv, &pa))) {
+        HAP_mmap_put(g_fd);
+        return e;
+    }
+    const uint64_t t0 = HAP_perf_get_time_us();
+    e = glu_ptr(s, a, (const uint8_t *)gv, (const uint8_t *)uv, o, m, k, n, g_shift, u_shift, q4i, part_blk, act);
+    *usec = (int64_t)(HAP_perf_get_time_us() - t0);
+    HAP_mmap_put(u_fd);
+    HAP_mmap_put(g_fd);
+    return e;
+}
+
 #else   // v73 / v75: the prompt's HMX products only
+int geode_npu_gemm_glu(remote_handle64 h, const unsigned char *a, int a_len, int g_fd, int u_fd, unsigned char *o,
+                       int o_len, int m, int k, int n, int g_shift, int u_shift, int part_blk, int act, int64_t *usec) {
+    (void)h, (void)a, (void)a_len, (void)g_fd, (void)u_fd, (void)o, (void)o_len, (void)m, (void)k, (void)n;
+    (void)g_shift, (void)u_shift, (void)part_blk, (void)act;
+    *usec = 0;
+    return AEE_EUNSUPPORTED;
+}
 int geode_npu_moe(remote_handle64 h, const unsigned char *desc, int desc_len, int io_fd, int64_t *usec) {
     (void)h, (void)desc, (void)desc_len, (void)io_fd;
     *usec = 0;

@@ -52,7 +52,7 @@ void to_quad(DType t, int64_t rows, int64_t cols, const uint8_t *src, uint8_t *d
 // words, affine codes) at ((c * 8 + j) * 8 + i) * 16, then the scales, chunk c of quad i ([block][row] bytes) at
 // 1024 * nch + (c * 8 + i) * 16. A quad's words are the quad layout's, only further apart: the CPU's quad kernel
 // reads it through strides.
-bool tile8_capable(DType t, int64_t rows, int64_t cols);   // q4, rows % 32 == 0, cols % 64 == 0
+bool tile8_capable(DType t, int64_t rows, int64_t cols);   // q4 / q4i, rows % 32 == 0, cols % 64 == 0
 void to_tile8(DType t, int64_t rows, int64_t cols, const uint8_t *src, uint8_t *dst);   // dst may be src
 // The mixed pack's expert layout ("tile8x": tile8 for q2, q3 and q4 alike, so one layer's routed experts of three
 // formats read the SAME activation tiles on the GPU). Per row and 16-value block, byte b (0..3) of a block's words

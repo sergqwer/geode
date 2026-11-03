@@ -33,8 +33,8 @@ android {
         // 30: ActivityManager.getHistoricalProcessExitReasons for the memory test
         minSdk = 30
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.9.13"
+        versionCode = 15
+        versionName = "0.9.14"
         buildConfigField("byte[]", "SITE_MASK", javaBytes(siteMask))
         buildConfigField("byte[]", "SITE_KEY",
             javaBytes(ByteArray(siteKey.size) { (siteKey[it].toInt() xor siteMask[it].toInt()).toByte() }))

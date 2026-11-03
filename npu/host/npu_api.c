@@ -22,7 +22,11 @@ typedef struct {
     int fd;
     int64_t rows, cols, kp;   // kp: the depth the NPU multiplies (cols, padded to 512 at least)
     int shift;       // the fp16 scales are 2^shift larger; HMX's convert takes it back out
+    int q4i;         // the codes are Gemma 4's q4i (level = c - 8): the gemm says so (GNPU_SHIFT_Q4I)
 } Mat;
+
+// a gemm's shift with this bit: the matrix's codes are q4i's (npu_imp.c HMX4_Q4I)
+#define GNPU_SHIFT_Q4I 0x100
 
 typedef struct {   // a gnpu_shared_alloc buffer
     void *p;
@@ -38,7 +42,8 @@ struct gnpu {
     int n_shared, shared_cap, dec;
     uint8_t *a, *o[4];   // the activations' row tiles, each matrix's result croutons (rpcmem: FastRPC passes them
                          // without copies)
-    size_t a_cap, o_cap[4], bytes;
+    uint8_t *mid;        // gnpu_mlp: act(gate) * up as the DSP leaves it, the down parts' input tiles
+    size_t a_cap, o_cap[4], mid_cap, bytes;
     double dsp_s, conv_s;
     gnpu_par_fn par;     // the engine's threads for the conversions (gnpu_set_par)
     void *par_ctx;
@@ -147,13 +152,14 @@ void gnpu_close(gnpu *g) {
     }
     free(g->mats);
     if (g->a) rpcmem_free(g->a);
+    if (g->mid) rpcmem_free(g->mid);
     for (int j = 0; j < 4; ++j)
         if (g->o[j]) rpcmem_free(g->o[j]);
     geode_npu_close(g->h);
     free(g);
 }
 
-int gnpu_adopt_q4(gnpu *g, const uint8_t *data, int64_t rows, int64_t cols, size_t row_bytes, float global) {
+static int adopt(gnpu *g, const uint8_t *data, int64_t rows, int64_t cols, size_t row_bytes, float global, int q4i) {
     if (!g || rows <= 0 || cols <= 0 || (rows & 31) || (cols & 31) || row_bytes != (size_t)(cols / 2 + cols / 16))
         return -1;
     // the largest scale: the 2^shift that brings it to [0.5, 1) keeps every fp16 scale away from underflow
@@ -181,6 +187,10 @@ int gnpu_adopt_q4(gnpu *g, const uint8_t *data, int64_t rows, int64_t cols, size
         for (int o = 0; o < 32; ++o) {
             const uint8_t *row = data + (b * 32u + (size_t)o) * row_bytes;
             for (int64_t p = 0; p < cols / 2; ++p) {   // the pack's byte p: values 2p (low), 2p + 1 (high)
+                if (q4i) {   // q4i's codes as they are (level = c - 8 on the DSP too)
+                    blk[(size_t)p * 32u + (size_t)o] = row[p];
+                    continue;
+                }
                 const uint8_t c0 = row[p] & 15, c1 = row[p] >> 4;
                 const uint8_t a0 = c0 < 8 ? c0 + 8 : 15 - c0, a1 = c1 < 8 ? c1 + 8 : 15 - c1;   // level = 2a - 15
                 blk[(size_t)p * 32u + (size_t)o] = (uint8_t)(a0 | a1 << 4);
@@ -200,9 +210,17 @@ int gnpu_adopt_q4(gnpu *g, const uint8_t *data, int64_t rows, int64_t cols, size
         g->cap = g->cap ? 2 * g->cap : 64;
         g->mats = (Mat *)realloc(g->mats, (size_t)g->cap * sizeof *g->mats);
     }
-    g->mats[g->n_mats] = (Mat){w, len, fd, rows, cols, kp, shift};
+    g->mats[g->n_mats] = (Mat){w, len, fd, rows, cols, kp, shift, q4i};
     g->bytes += len;
     return g->n_mats++;
+}
+
+int gnpu_adopt_q4(gnpu *g, const uint8_t *data, int64_t rows, int64_t cols, size_t row_bytes, float global) {
+    return adopt(g, data, rows, cols, row_bytes, global, 0);
+}
+
+int gnpu_adopt_q4i(gnpu *g, const uint8_t *data, int64_t rows, int64_t cols, size_t row_bytes, float global) {
+    return adopt(g, data, rows, cols, row_bytes, global, 1);
 }
 
 static int grow(uint8_t **buf, size_t *cap, size_t need) {
@@ -263,6 +281,7 @@ typedef struct {
     float *const *ys;
     const __fp16 *o16;
     int n, nn;
+    int add;   // added into ys (gnpu_mlp's down parts after the first)
 } OutJob;
 
 static void out_items(void *arg, int i0, int i1) {
@@ -276,15 +295,22 @@ static void out_items(void *arg, int i0, int i1) {
             if (r0 >= j->n) break;
             float *y0 = j->ys[r0] + b * 32, *y1 = r1 < j->n ? j->ys[r1] + b * 32 : NULL;
 #if defined(__ARM_NEON)
-            for (int q = 0; q < 32; q += 4) {
-                const float16x4x2_t v = vld2_f16(src + 2 * q);
-                vst1q_f32(y0 + q, vcvt_f32_f16(v.val[0]));
-                if (y1) vst1q_f32(y1 + q, vcvt_f32_f16(v.val[1]));
-            }
+            if (j->add)
+                for (int q = 0; q < 32; q += 4) {
+                    const float16x4x2_t v = vld2_f16(src + 2 * q);
+                    vst1q_f32(y0 + q, vaddq_f32(vld1q_f32(y0 + q), vcvt_f32_f16(v.val[0])));
+                    if (y1) vst1q_f32(y1 + q, vaddq_f32(vld1q_f32(y1 + q), vcvt_f32_f16(v.val[1])));
+                }
+            else
+                for (int q = 0; q < 32; q += 4) {
+                    const float16x4x2_t v = vld2_f16(src + 2 * q);
+                    vst1q_f32(y0 + q, vcvt_f32_f16(v.val[0]));
+                    if (y1) vst1q_f32(y1 + q, vcvt_f32_f16(v.val[1]));
+                }
 #else
             for (int q = 0; q < 32; ++q) {
-                y0[q] = (float)src[2 * q];
-                if (y1) y1[q] = (float)src[2 * q + 1];
+                y0[q] = (j->add ? y0[q] : 0.0f) + (float)src[2 * q];
+                if (y1) y1[q] = (j->add ? y1[q] : 0.0f) + (float)src[2 * q + 1];
             }
 #endif
         }
@@ -299,6 +325,7 @@ typedef struct {
     const int *ids;
     float *const *const *ys;
     int count, m, n;
+    int add;                 // the results after the first added into theirs (gnpu_mlp)
     int called, converted;   // matrices the DSP finished, matrices converted
     int stop;
     double conv_s;
@@ -315,7 +342,7 @@ static void *conv_thread(void *arg) {
         pthread_mutex_unlock(&c->mu);
         if (!go) break;
         const double t1 = now_s();
-        OutJob out = {c->ys[j], (const __fp16 *)c->g->o[j], c->n, (int)c->g->mats[c->ids[j]].rows};
+        OutJob out = {c->ys[j], (const __fp16 *)c->g->o[j], c->n, (int)c->g->mats[c->ids[j]].rows, c->add && j > 0};
         run_par(c->g, (c->m / 32) * (out.nn / 32), out_items, &out);
         pthread_mutex_lock(&c->mu);
         c->conv_s += now_s() - t1;
@@ -341,7 +368,7 @@ int gnpu_gemm_multi(gnpu *g, int count, const int *ids, int n, const float *cons
     InJob in = {xs, (__fp16 *)g->a, n, k, kc};
     run_par(g, (m / 32) * (k / 32), in_items, &in);
     double conv = now_s() - t0;
-    Conv c = {g, ids, ys, count, m, n, 0, 0, 0, 0.0};
+    Conv c = {g, ids, ys, count, m, n, 0, 0, 0, 0, 0.0};
     pthread_mutex_init(&c.mu, NULL);
     pthread_cond_init(&c.cv, NULL);
     pthread_t th;
@@ -352,7 +379,7 @@ int gnpu_gemm_multi(gnpu *g, int count, const int *ids, int n, const float *cons
         const Mat *mt = &g->mats[ids[j]];
         long long us = 0;
         err = geode_npu_gemm(g->h, g->a, m * k * 2, mt->fd, 0, g->o[j], m * (int)mt->rows * 2, m, k, (int)mt->rows,
-                             mt->shift, &us);
+                             mt->shift | (mt->q4i ? GNPU_SHIFT_Q4I : 0), &us);
         us_all += us;
         if (err) break;
         if (threaded) {
@@ -377,6 +404,81 @@ int gnpu_gemm_multi(gnpu *g, int count, const int *ids, int n, const float *cons
     }
     pthread_mutex_destroy(&c.mu);
     pthread_cond_destroy(&c.cv);
+    g->dsp_s += (double)us_all * 1e-6;
+    g->conv_s += conv;
+    return err;
+}
+
+// An MLP (npu_api.h gnpu_mlp): gate and up in one DSP call that leaves act(gate) * up in fp16 as down's input tiles
+// (geode_npu_gemm_glu, parts-major), then each part of down from its stretch of them - its results converted (the
+// first) or added (the rest) while the DSP multiplies the next, as gnpu_gemm_multi's
+int gnpu_mlp(gnpu *g, int gate, int up, int n_down, const int *downs, int act, int n, const float *const *xs,
+             float *const *ys) {
+    if (!g || n <= 0 || n_down < 1 || n_down > 4 || gate < 0 || gate >= g->n_mats || up < 0 || up >= g->n_mats)
+        return -1;
+    const Mat *mg = &g->mats[gate], *mu = &g->mats[up];
+    if (mg->rows != mu->rows || mg->cols != mu->cols || mg->kp != mu->kp || mg->q4i != mu->q4i) return -1;
+    const int64_t ff = mg->rows, pc = ff / n_down;
+    if (pc * n_down != ff || pc % 32) return -1;
+    int64_t H = -1;
+    for (int j = 0; j < n_down; ++j) {
+        if (downs[j] < 0 || downs[j] >= g->n_mats) return -1;
+        const Mat *md = &g->mats[downs[j]];
+        // (a part's depth is its inputs as they are: no padding, so the tiles of act(gate) * up are its input)
+        if (md->cols != pc || md->kp != pc || md->q4i != mg->q4i || (H >= 0 && md->rows != H)) return -1;
+        H = md->rows;
+    }
+    const int k = (int)mg->kp, kc = (int)mg->cols, m = (n + 31) & ~31;
+    if (grow(&g->a, &g->a_cap, (size_t)m * k * 2u) || grow(&g->mid, &g->mid_cap, (size_t)m * (size_t)ff * 2u))
+        return -1;
+    for (int j = 0; j < n_down; ++j)
+        if (grow(&g->o[j], &g->o_cap[j], (size_t)m * (size_t)H * 2u)) return -1;
+    const double t0 = now_s();
+    InJob in = {xs, (__fp16 *)g->a, n, k, kc};
+    run_par(g, (m / 32) * (k / 32), in_items, &in);
+    double conv = now_s() - t0;
+    const int q4 = mg->q4i ? GNPU_SHIFT_Q4I : 0;
+    long long us = 0, us_all = 0;
+    int err = geode_npu_gemm_glu(g->h, g->a, m * k * 2, mg->fd, mu->fd, g->mid, (int)((size_t)m * (size_t)ff * 2u), m,
+                                 k, (int)ff, mg->shift | q4, mu->shift | q4, (int)(pc / 32), act, &us);
+    us_all += us;
+    if (!err) {
+        float *const *yl[4] = {ys, ys, ys, ys};
+        Conv c = {g, downs, yl, n_down, m, n, 1, 0, 0, 0, 0.0};
+        pthread_mutex_init(&c.mu, NULL);
+        pthread_cond_init(&c.cv, NULL);
+        pthread_t th;
+        const int threaded = n_down > 1 && pthread_create(&th, NULL, conv_thread, &c) == 0;
+        const size_t part_bytes = (size_t)m * (size_t)pc * 2u;
+        for (int j = 0; j < n_down && !err; ++j) {
+            const Mat *md = &g->mats[downs[j]];
+            err = geode_npu_gemm(g->h, g->mid + (size_t)j * part_bytes, (int)part_bytes, md->fd, 0, g->o[j],
+                                 (int)((size_t)m * (size_t)H * 2u), m, (int)pc, (int)H, md->shift | q4, &us);
+            us_all += us;
+            if (err) break;
+            if (threaded) {
+                pthread_mutex_lock(&c.mu);
+                c.called = j + 1;
+                pthread_cond_broadcast(&c.cv);
+                pthread_mutex_unlock(&c.mu);
+            } else {
+                const double t1 = now_s();
+                OutJob out = {ys, (const __fp16 *)g->o[j], n, (int)H, j > 0};
+                run_par(g, (m / 32) * (int)(H / 32), out_items, &out);
+                conv += now_s() - t1;
+            }
+        }
+        if (threaded) {
+            pthread_mutex_lock(&c.mu);
+            c.stop = 1;
+            pthread_cond_broadcast(&c.cv);
+            pthread_mutex_unlock(&c.mu);
+            pthread_join(th, NULL);
+            conv += c.conv_s;
+        }
+        pthread_mutex_destroy(&c.mu);
+        pthread_cond_destroy(&c.cv);
+    }
     g->dsp_s += (double)us_all * 1e-6;
     g->conv_s += conv;
     return err;

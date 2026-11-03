@@ -1974,8 +1974,9 @@ bool Model::setup_gpu8(std::string &why) {
         }
     }
     if (!all_moved) {
-        // what moved stays in tile8, which the CPU reads; the GPU takes nothing
+        // what moved stays in tile8, which the CPU reads (in the pieces: kept); the GPU takes nothing
         gpu_status_ = "off (" + why + ")";
+        gpu8_keep_ = std::move(g);
         return true;
     }
     for (QView *m : views)
@@ -2027,12 +2028,73 @@ bool Model::setup_gpu8(std::string &why) {
     open_clock.mark("gpu: reserve");
     if (!reserved) {
         gpu_status_ = "off (" + (moved ? why : std::string("no q4 dense matrix")) + ")";
+        gpu8_keep_ = std::move(g);   // (what moved lives in its pieces)
         return true;
     }
     gpu8_ = std::move(g);
     char buf[200];
     std::snprintf(buf, sizeof buf, "on: %s, int8, %d matrices, %.0f MB of shared memory", gpu8_->device().c_str(), moved,
                   static_cast<double>(gpu8_->allocated()) / 1048576.0);
+    gpu_status_ = buf;
+    return true;
+}
+
+bool Model::setup_gpu8_gemma(std::string &why) {
+    auto g = std::make_unique<Gpu8>();
+    g->set_q4i(true);
+    g->set_cache_dir(pack_.dir());
+    if (!g->open(why)) return false;
+    open_clock.mark("gpu: OpenCL + programs");
+    const auto &c = cfg_;
+    // every dense q4i matrix a prompt's chunk multiplies into shared memory in tile8, its pages of dense.bin back to
+    // the system (the CPU's kernels read tile8 too: the answer's products, a short prompt's); lm_head stays (a chunk
+    // takes the last token's logits only)
+    std::vector<QView *> views;
+    for (GLayer &L : glayers_)
+        for (QView *m : {&L.q, &L.k, &L.v, &L.o, &L.gate, &L.up, &L.down, &L.ple_gate, &L.ple_proj})
+            if (m->data) views.push_back(m);
+    if (ple_model_.data) views.push_back(&ple_model_);
+    const int adopt_threads = std::max(1, static_cast<int>(big_.size()));
+    std::vector<std::pair<const uint8_t *, size_t>> olds;
+    for (QView *m : views)
+        if (Gpu8::fits(*m) && std::none_of(olds.begin(), olds.end(), [&](const auto &o) { return o.first == m->data; }))
+            olds.emplace_back(m->data, static_cast<size_t>(m->rows) * m->row_bytes);
+    if (olds.empty()) {
+        why = "no q4i matrix it takes";
+        return false;
+    }
+    const bool all_moved = g->adopt_all(views, adopt_threads, why);
+    for (const auto &[old, bytes] : olds)
+        if (std::none_of(views.begin(), views.end(), [&](const QView *m) { return m->data == old; }))
+            release_pages(const_cast<uint8_t *>(old), bytes);
+    open_clock.mark("gpu: dense into tile8");
+    int64_t max_cols = c.hidden, max_rows = c.hidden;
+    int moved = 0;
+    for (QView *m : views)
+        if (m->tile8 && g->holds(*m)) {
+            max_cols = std::max(max_cols, m->cols);
+            max_rows = std::max(max_rows, m->rows);
+            ++moved;
+        }
+    if (!all_moved) {
+        // what moved stays in tile8, which the CPU reads (in the pieces: kept); the GPU takes nothing
+        gpu_status_ = "off (" + why + ")";
+        gpu8_keep_ = std::move(g);
+        return false;
+    }
+    // staging for a chunk (no experts: the smallest shapes reserve() takes for them)
+    const int tokens = gemma_chunk_;
+    gpu_staging_ = g->staging_bytes(tokens, max_cols, max_rows, c.hidden, 32, 1, 1);
+    if (!g->reserve(tokens, max_cols, max_rows, c.hidden, 32, 1, 1, why)) {
+        gpu_status_ = "off (" + why + ")";
+        gpu8_keep_ = std::move(g);   // (the matrices live in its pieces)
+        return false;
+    }
+    open_clock.mark("gpu: reserve");
+    gpu8_ = std::move(g);
+    char buf[200];
+    std::snprintf(buf, sizeof buf, "on: %s, int8, %d matrices, %.0f MB of shared memory (a prompt's products)",
+                  gpu8_->device().c_str(), moved, static_cast<double>(gpu8_->allocated()) / 1048576.0);
     gpu_status_ = buf;
     return true;
 }
@@ -2054,13 +2116,17 @@ void Model::setup_npu() {
     using Open = void *(*)(const char *, char *, int);
     using Adopt = int (*)(void *, const uint8_t *, int64_t, int64_t, size_t, float);
     const auto open = reinterpret_cast<Open>(dlsym(lib, "gnpu_open"));
-    const auto adopt = reinterpret_cast<Adopt>(dlsym(lib, "gnpu_adopt_q4"));
+    // Gemma 4's matrices are q4i (levels code - 8): their own adoption (an older library has none: the CPU's)
+    const DType want_type = cfg_.gemma ? DType::Q4I : DType::Q4;
+    const auto adopt = reinterpret_cast<Adopt>(dlsym(lib, cfg_.gemma ? "gnpu_adopt_q4i" : "gnpu_adopt_q4"));
     npu_.gemm = reinterpret_cast<decltype(npu_.gemm)>(dlsym(lib, "gnpu_gemm"));
     npu_.close = reinterpret_cast<decltype(npu_.close)>(dlsym(lib, "gnpu_close"));
     npu_.bytes = reinterpret_cast<decltype(npu_.bytes)>(dlsym(lib, "gnpu_bytes"));
     npu_.dsp = reinterpret_cast<decltype(npu_.dsp)>(dlsym(lib, "gnpu_dsp_seconds"));
     npu_.gemm_multi = reinterpret_cast<decltype(npu_.gemm_multi)>(dlsym(lib, "gnpu_gemm_multi"));
     npu_.conv = reinterpret_cast<decltype(npu_.conv)>(dlsym(lib, "gnpu_convert_seconds"));
+    npu_.mlp = reinterpret_cast<decltype(npu_.mlp)>(dlsym(lib, "gnpu_mlp"));
+    if (const char *e = std::getenv("GEODE_NPU_MLP")) npu_.mlp_off = std::atoi(e) == 0;
     using SetPar = void (*)(void *, void (*)(void *, int, void (*)(void *, int, int), void *), void *);
     const auto set_par = reinterpret_cast<SetPar>(dlsym(lib, "gnpu_set_par"));
     if (!open || !adopt || !npu_.gemm || !npu_.close || !npu_.bytes || !npu_.dsp || !npu_.gemm_multi || !npu_.conv ||
@@ -2101,10 +2167,43 @@ void Model::setup_npu() {
         add(mtp_layer_);
         views.push_back(&mtp_fc_);
     }
+    for (const GLayer &L : glayers_)   // Gemma 4 (gemma.cpp): every product a prompt's layer makes
+        for (const QView *m : {&L.q, &L.k, &L.v, &L.o, &L.gate, &L.up, &L.down, &L.ple_gate, &L.ple_proj})
+            views.push_back(m);
+    if (cfg_.gemma) views.push_back(&ple_model_);
     int n = 0;
     for (const QView *m : views) {
-        if (!m->data || m->type != DType::Q4 || m->quad || m->rows % 32 || m->cols % 32 || npu_.ids.count(m->data))
+        if (!m->data || m->type != want_type || m->quad || m->rows % 32 || m->cols % 32 || npu_.ids.count(m->data) ||
+            npu_.parts.count(m->data))
             continue;
+        // Gemma 4's deep matrices in parts of at most kNpuPartCols inputs (Npu::Parts): each part's rows copied out of
+        // the pack's (its codes, then its scales), adopted as a matrix of its own
+        // (the fewest parts of whole 32-input tiles: E2B's 12288 in 3, 6144 in 2; E4B's 10240 in 4)
+        int nparts = static_cast<int>((m->cols + kNpuPartCols - 1) / kNpuPartCols);
+        while (nparts > 1 && nparts <= 16 && (m->cols % nparts || (m->cols / nparts) % 32)) ++nparts;
+        if (cfg_.gemma && nparts > 1 && nparts <= 16) {
+            const int64_t pc = m->cols / nparts;
+            const size_t prb = static_cast<size_t>(pc / 2 + pc / 16);
+            std::vector<uint8_t> tmp(static_cast<size_t>(m->rows) * prb);
+            Npu::Parts P;
+            P.cols = pc;
+            for (int j = 0; j < nparts; ++j) {
+                for (int64_t r = 0; r < m->rows; ++r) {
+                    const uint8_t *row = m->data + static_cast<size_t>(r) * m->row_bytes;
+                    uint8_t *dst = tmp.data() + static_cast<size_t>(r) * prb;
+                    std::memcpy(dst, row + static_cast<size_t>(j * pc / 2), static_cast<size_t>(pc / 2));
+                    std::memcpy(dst + pc / 2, row + static_cast<size_t>(m->cols / 2 + j * pc / 16),
+                                static_cast<size_t>(pc / 16));
+                }
+                const int id = adopt(npu_.g, tmp.data(), m->rows, pc, prb, m->global);
+                if (id < 0) break;
+                P.ids.push_back(id);
+            }
+            if (static_cast<int>(P.ids.size()) < nparts) break;   // out of the DSP's memory: the rest on the CPU
+            npu_.parts[m->data] = std::move(P);
+            ++n;
+            continue;
+        }
         const int id = adopt(npu_.g, m->data, m->rows, m->cols, m->row_bytes, m->global);
         if (id < 0) break;
         npu_.ids[m->data] = id;
@@ -2127,9 +2226,11 @@ void Model::setup_npu() {
     const auto arch = reinterpret_cast<int (*)()>(dlsym(lib, "gnpu_arch"));
     const auto skel_arch = reinterpret_cast<int (*)(int)>(dlsym(lib, "gnpu_skel_arch"));
     npu_.arch = arch && skel_arch ? skel_arch(arch()) : 0;
-    const bool want = cfg_.dense && !(std::getenv("GEODE_NPU_DECODE") && std::atoi(std::getenv("GEODE_NPU_DECODE")) == 0);
+    const bool want = cfg_.dense && !cfg_.gemma &&
+                      !(std::getenv("GEODE_NPU_DECODE") && std::atoi(std::getenv("GEODE_NPU_DECODE")) == 0);
     if (!want) {
-        npu_.dec_status = cfg_.dense ? "off (GEODE_NPU_DECODE)" : "off (a dense model only)";
+        npu_.dec_status = cfg_.gemma ? "off (Gemma 4: the prompt's products only)"
+                          : cfg_.dense ? "off (GEODE_NPU_DECODE)" : "off (a dense model only)";
     } else if (!npu_.shared || !npu_.dec_size || !npu_.dec_open || !npu_.dec_kv || !npu_.dec_step || !npu_.dec_draft) {
         npu_.dec_status = "off (libgeode_npu.so has no decoder)";
     } else if (npu_.arch < 79) {
@@ -2575,6 +2676,41 @@ void Model::npu_rekey() {
 
 bool Model::npu_products(const QView *const *ms, int count, int n, const float *const *xs, float *const *const *ys) {
     if (!npu_.g || npu_.products_off || n < kNpuMinTokens || count < 1 || count > 4) return false;
+    // a matrix adopted in parts (Npu::Parts): a product a part, from that part's first input, the results added
+    if (count == 1 && !npu_.parts.empty()) {
+        const auto sp = npu_.parts.find(ms[0]->data);
+        if (sp != npu_.parts.end()) {
+            const Npu::Parts &P = sp->second;
+            const int64_t rows = ms[0]->rows;
+            const size_t nn = static_cast<size_t>(n);
+            npu_.part_x.resize(nn);
+            npu_.part_rows.resize(nn);
+            if (npu_.part_y.size() < nn * static_cast<size_t>(rows)) npu_.part_y.resize(nn * static_cast<size_t>(rows));
+            for (size_t t = 0; t < nn; ++t) npu_.part_rows[t] = npu_.part_y.data() + t * static_cast<size_t>(rows);
+            const double t0 = now_seconds();
+            int e = 0;
+            for (size_t j = 0; j < P.ids.size() && !e; ++j) {
+                for (size_t t = 0; t < nn; ++t) npu_.part_x[t] = xs[t] + static_cast<size_t>(j) * static_cast<size_t>(P.cols);
+                float *const *out[1] = {j == 0 ? ys[0] : npu_.part_rows.data()};
+                e = npu_.gemm_multi(npu_.g, 1, &P.ids[j], n, npu_.part_x.data(), out);
+                if (!e && j > 0)
+                    par(static_cast<int64_t>(n), [&](int64_t a, int64_t b) {
+                        for (int64_t t = a; t < b; ++t) {
+                            float *y = ys[0][t];
+                            const float *p = npu_.part_rows[static_cast<size_t>(t)];
+                            for (int64_t r = 0; r < rows; ++r) y[r] += p[r];
+                        }
+                    }, 16);
+            }
+            npu_.wall += now_seconds() - t0;
+            npu_.calls += P.ids.size();
+            if (!e) return true;
+            npu_.status = "failed (" + std::to_string(e) + "): the CPU from now on";
+            npu_.close(npu_.g);
+            npu_.g = nullptr;
+            return false;
+        }
+    }
     int ids[4];
     for (int j = 0; j < count; ++j) {
         const auto it = npu_.ids.find(ms[j]->data);
@@ -2596,6 +2732,34 @@ bool Model::npu_products(const QView *const *ms, int count, int n, const float *
     return false;
 }
 
+bool Model::npu_mlp(const QView &gate, const QView &up, const QView &down, int act, int n, const float *const *xs,
+                    float *const *ys) {
+    if (!npu_.g || !npu_.mlp || npu_.mlp_off || npu_.products_off || n < kNpuMinTokens) return false;
+    const auto ig = npu_.ids.find(gate.data), iu = npu_.ids.find(up.data);
+    if (ig == npu_.ids.end() || iu == npu_.ids.end()) return false;
+    int downs[4], n_down = 0;
+    if (const auto sp = npu_.parts.find(down.data); sp != npu_.parts.end()) {
+        if (sp->second.ids.size() > 4) return false;
+        for (const int id : sp->second.ids) downs[n_down++] = id;
+    } else if (const auto id = npu_.ids.find(down.data); id != npu_.ids.end()) {
+        downs[n_down++] = id->second;
+    } else {
+        return false;
+    }
+    const double t0 = now_seconds();
+    const int e = npu_.mlp(npu_.g, ig->second, iu->second, n_down, downs, act, n, xs, ys);
+    npu_.wall += now_seconds() - t0;
+    npu_.calls += static_cast<uint64_t>(2 + n_down);
+    if (!e) {
+        ++npu_.mlp_calls;
+        return true;
+    }
+    // not this way (an older DSP, or a shape it does not take): the products one by one from now on, as before
+    npu_.mlp_off = true;
+    npu_.mlp_err = e;
+    return false;
+}
+
 void Model::matmul_many(const QView *const *ms, int count, int n, const float *const *xs, float *const *const *ys,
                         const QAct *const *pre) {
     if (npu_products(ms, count, n, xs, ys)) return;
@@ -2609,6 +2773,13 @@ std::string Model::npu_status() const {
         std::snprintf(b, sizeof b, "; %llu products, %.2f s (DSP %.2f s, conversions %.2f s)",
                       static_cast<unsigned long long>(npu_.calls), npu_.wall, npu_.g ? npu_.dsp(npu_.g) : 0.0,
                       npu_.g ? npu_.conv(npu_.g) : 0.0);
+        s += b;
+    }
+    if (npu_.mlp_calls || npu_.mlp_err) {
+        char b[120];
+        if (npu_.mlp_err) std::snprintf(b, sizeof b, "; MLPs in one go: %llu, then off (%d)",
+                                        static_cast<unsigned long long>(npu_.mlp_calls), npu_.mlp_err);
+        else std::snprintf(b, sizeof b, "; MLPs in one go: %llu", static_cast<unsigned long long>(npu_.mlp_calls));
         s += b;
     }
     if (npu_.moe_on || prof_.npu_moe_experts) {
@@ -2860,7 +3031,8 @@ void Model::matmul(const QView &m, int n, const float *const *xs, float *const *
             return;
         }
         gpu_status_ = "failed: " + e;
-        gpu8_.reset();   // the CPU from now on (its kernels read tile8)
+        // the CPU from now on: its kernels read tile8 in the GPU's pieces, so they stay (a reset freed them)
+        gpu8_keep_ = std::move(gpu8_);
         gpu8_experts_ = false;
     }
     // the GPU's rows first (it runs while the CPU quantizes and computes the rest); generating, launched once the

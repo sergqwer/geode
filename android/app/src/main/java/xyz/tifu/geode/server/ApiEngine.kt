@@ -595,7 +595,7 @@ class ApiEngine(private val app: GeodeApp) {
                 var done = pump()
                 if (done.code == GeodeNative.OK && out.received >= budget && budget < maxTokens &&
                     out.lastToken !in tpl.stopTokens) {
-                    if (out.reasoning) {
+                    if (out.reasoning || out.untagged) {   // (untagged: reasoning in plain text, as it turned out)
                         val close = tpl.closeThinking()
                         val left = maxTokens - out.received - close.size
                         if (left >= 16) {
@@ -626,6 +626,10 @@ class ApiEngine(private val app: GeodeApp) {
      * The tokens as they come, into the reasoning, the content and the tool calls: the content goes out as it is
      * written, but for its end that may still turn out to be the beginning of a stop sequence, and for trailing
      * whitespace (a tool call may follow it).
+     *
+     * A model that opens its reasoning itself, reasoning asked for, sometimes leaves the opening out and reasons in
+     * plain text up to the closing (Gemma 4 E2B: its <|channel> ~95% of the time at temperature 1): until it opens
+     * it, or writes a call, or ends, what it writes is held ([untagged]); a closing then makes all of it reasoning.
      */
     private class Output(
         private val req: GenRequest,
@@ -636,6 +640,11 @@ class ApiEngine(private val app: GeodeApp) {
         private val decoder: Tokenizer.StreamDecoder,
         private val send: suspend (GenEvent) -> Unit,
     ) {
+        /** Reasoning asked for of a model that opens it itself, not opened yet: the text so far is held in [pending]. */
+        var untagged = tpl.modelOpensReasoning && req.thinking && !startsReasoning && !req.prefill
+            private set
+        private val pending = StringBuilder()
+        private var pendingTokens = 0
         private val reasoningText = StringBuilder()
         private val contentText = StringBuilder()
         private val toolText = StringBuilder()
@@ -664,25 +673,56 @@ class ApiEngine(private val app: GeodeApp) {
             if (stopHit != null) return
             lastToken = id
             if (reasoning) reasoningTokens++
+            if (untagged) pendingTokens++
             when {
                 id == tpl.thinkEnd && reasoning -> {
                     route(decoder.flush())
                     endHeader()
                     reasoning = false
                 }
+                id == tpl.thinkEnd && untagged -> {   // it reasoned without the opening: what it held was reasoning
+                    route(decoder.flush())
+                    pendingAsReasoning()
+                }
+                // a closing of reasoning it never opened, nor was asked for (Gemma 4 E2B, reasoning off, sometimes
+                // reasons in plain text all the same): what came before went out as the answer, the mark is not text
+                id == tpl.thinkEnd -> route(decoder.flush())
                 id == tpl.thinkStart && tpl.modelOpensReasoning && !reasoning && !inTool -> {
                     route(decoder.flush())
+                    release()
                     reasoning = true
                     header = StringBuilder()
                 }
                 id == tpl.thinkStart || id in tpl.stopTokens -> Unit
                 id == tpl.callStart && !reasoning && !inTool -> {
                     route(decoder.flush())
+                    release()
                     inTool = true
                     toolText.append(callText)
                 }
                 else -> route(decoder.push(id))
             }
+        }
+
+        /** The held text was the reasoning (the model closed it, or its budget did). */
+        private suspend fun pendingAsReasoning() {
+            untagged = false
+            reasoningTokens += pendingTokens
+            val text = pending.toString().trim('\n')
+            pending.setLength(0)
+            if (text.isNotEmpty()) {
+                reasoningText.append(text)
+                send(GenEvent.Reasoning(text))
+            }
+        }
+
+        /** The held text was the answer's (the model opened its reasoning after it, wrote a call, or ended). */
+        private suspend fun release() {
+            if (!untagged) return
+            untagged = false
+            val text = pending.toString()
+            pending.setLength(0)
+            if (text.isNotEmpty()) content(text)
         }
 
         /**
@@ -710,12 +750,14 @@ class ApiEngine(private val app: GeodeApp) {
         suspend fun closeReasoning() {
             endHeader()
             reasoning = false
+            if (untagged) pendingAsReasoning()
         }
 
-        /** The generation ended: the decoder's last bytes. */
+        /** The generation ended: the decoder's last bytes (held text: the answer's). */
         suspend fun end() {
             route(decoder.flush())
             endHeader()
+            release()
         }
 
         private suspend fun route(piece: String) {
@@ -732,6 +774,7 @@ class ApiEngine(private val app: GeodeApp) {
                     send(GenEvent.Reasoning(piece))
                 }
                 inTool -> toolText.append(piece)
+                untagged -> pending.append(piece)
                 else -> content(piece)
             }
         }

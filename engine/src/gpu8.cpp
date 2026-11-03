@@ -61,6 +61,7 @@ struct Gpu8::Impl {
     cl::Program prog;
     cl::Program prog_pf;   // the prompt's token mixers (pf_setup): its failure leaves the rest of the GPU path working
     std::string cache_dir;   // the compiled programs between runs (set_cache_dir)
+    bool q4i = false;        // set_q4i: the programs built for q4i
     Gpu8::HostGemm host_gemm;   // a prompt's projections elsewhere (set_host_gemm)
     std::mutex pieces_mu;    // alloc() from several threads (the expert cache's slabs)
     cl_kernel k_quant = nullptr, k_swiglu = nullptr, k_gemm = nullptr, k_quant8 = nullptr, k_gemm8 = nullptr;
@@ -539,6 +540,7 @@ Gpu8::Gpu8() : p_(std::make_unique<Impl>()) {}
 Gpu8::~Gpu8() = default;
 
 void Gpu8::set_cache_dir(const std::string &dir) { p_->cache_dir = dir; }
+void Gpu8::set_q4i(bool on) { p_->q4i = on; }
 
 void Gpu8::set_host_gemm(HostGemm f) { p_->host_gemm = std::move(f); }
 
@@ -554,7 +556,9 @@ bool Gpu8::open(std::string &err) {
         return false;
     }
     // (-cl-fp32-correctly-rounded-divide-sqrt: this driver refuses it)
-    if (!p.prog.build_cached(p.dev, kSource, "-cl-std=CL3.0 -cl-mad-enable -DT=" + std::to_string(kT), p.cache_dir, err))
+    if (!p.prog.build_cached(p.dev, kSource,
+                             "-cl-std=CL3.0 -cl-mad-enable -DT=" + std::to_string(kT) + (p.q4i ? " -DQ4I" : ""),
+                             p.cache_dir, err))
         return false;
     p.k_quant = p.prog.kernel("quant", err);
     p.k_swiglu = p.prog.kernel("swiglu", err);
@@ -1524,7 +1528,7 @@ void Gpu8::set_experts(int k, int guesses) {
 bool Gpu8::fits(const QView &m) { return m.data && !m.quad && tile8_capable(m.type, m.rows, m.cols); }
 
 bool Gpu8::holds(const QView &m) const {
-    return m.type == DType::Q4 && m.tile8 && m.cols % 64 == 0 && p_->find(m.data) != nullptr;
+    return m.type == (p_->q4i ? DType::Q4I : DType::Q4) && m.tile8 && m.cols % 64 == 0 && p_->find(m.data) != nullptr;
 }
 
 bool Gpu8::adopt(QView &m, std::string &err) {

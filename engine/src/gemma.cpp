@@ -17,6 +17,12 @@
 #if defined(__aarch64__) && defined(__ARM_NEON)
 #include <arm_neon.h>
 #define GEODE_GEMMA_NEON 1
+#if defined(__ARM_FEATURE_DOTPROD)
+#define GEODE_GEMMA_DOT 1   // SDOT: the int8 KV cache's scores against int8 queries
+#endif
+#if defined(__linux__)
+#include <sys/auxv.h>   // getauxval: i8mm (i8mm_here)
+#endif
 #endif
 
 namespace geode {
@@ -29,11 +35,26 @@ const Tensor *find_t(const Pack &p, const std::string &name, std::string &err) {
     return t;
 }
 
+// a prompt's chunk this long and longer attends on i8mm (gemma_attend_mm); a verified batch of the drafter's (2..5
+// tokens) stays on the path a single token takes: its rows are its single passes' bit for bit
+constexpr int kMmMinTokens = 32;
+
 // gelu with tanh (transformers' gelu_pytorch_tanh)
 inline float gelu_tanh(float x) {
     constexpr float k = 0.7978845608028654f;   // sqrt(2 / pi)
     return 0.5f * x * (1.0f + std::tanh(k * (x + 0.044715f * x * x * x)));
 }
+// the same as x sigmoid(2u) on fast_exp (vision.cpp's): no call, so its loops vectorize - a prompt's MLPs take ~0.7 G
+// of them for 2048 tokens (std::tanh: seconds of the prompt). Not in exact arithmetic (the reference's form there)
+inline float gelu_fast(float x) {
+    return x / (1.0f + fast_exp(-1.5957691216057308f * (x + 0.044715f * x * x * x)));
+}
+// tanh(y) = (1 - e^-2y) / (1 + e^-2y) on fast_exp (the logits' soft cap, a vocabulary's worth a token)
+inline float tanh_fast(float y) {
+    const float e = fast_exp(-2.0f * y);
+    return (1.0f - e) / (1.0f + e);
+}
+
 
 // a KV head's row to int8: amax / 127 its scale (model.cpp's quant_kv_row)
 inline void quant_row(const float *x, int n, int8_t *q, float &scale) {
@@ -60,6 +81,131 @@ inline void load8(const int8_t *p, float32x4_t &a, float32x4_t &b) {
     a = vcvtq_f32_s32(vmovl_s16(vget_low_s16(w)));
     b = vcvtq_f32_s32(vmovl_high_s16(w));
 }
+#if defined(GEODE_GEMMA_DOT) && defined(__linux__)
+#define GEODE_GEMMA_MM 1
+// SMMLA and USMMLA here (FEAT_I8MM: the 8 Elite's Oryon, not the 720G's A76); GEODE_NO_I8MM=1 leaves them off. On the
+// Oryon's cores (measured; products a cycle on a prime core / on the others): SMMLA 128 / 64, SDOT 64 / 32, BFMMLA
+// 20 / 16, FP32 FMLA 12 / 8 - of the matrix instructions only the int8 ones pay
+bool i8mm_here() {
+    static const bool yes = [] {
+        const char *off = std::getenv("GEODE_NO_I8MM");
+        return (getauxval(AT_HWCAP2) & (1UL << 13)) != 0 && !(off && std::atoi(off) != 0);   // HWCAP2_I8MM
+    }();
+    return yes;
+}
+// The integer scores of 8 heads over a block's position pairs j0..j1 (multiples of 4): qp = the token's 4 head pairs,
+// [pair][hd / 8][16: the pair's two heads' 8 values]; kp = the block's keys, [position pair][hd / 8][16: the pair's
+// two positions' 8 values]; out[g * ld + 2 (j - j0) + x]. An SMMLA multiplies 2 heads x 8 values by 8 values x 2
+// positions (32 products); 4 head pairs x 4 position pairs a tile (16 accumulators). Exact in int32: the integers
+// qk_dots_i8 gives.
+__attribute__((target("arch=armv8.6-a+i8mm"))) void qk_mm8(const int8_t *qp, const int8_t *kp, int j0, int j1, int hd,
+                                                            int32_t *out, int ld) {
+    const int nc = hd / 8;
+    for (int j = j0; j < j1; j += 4) {
+        int32x4_t a[4][4];
+        for (int x = 0; x < 4; ++x)
+            for (int y = 0; y < 4; ++y) a[x][y] = vdupq_n_s32(0);
+        const int8_t *k0 = kp + static_cast<size_t>(j) * nc * 16;
+        for (int c = 0; c < nc; ++c) {
+            int8x16_t kv[4];
+            for (int y = 0; y < 4; ++y) kv[y] = vld1q_s8(k0 + (static_cast<size_t>(y) * nc + c) * 16);
+            for (int x = 0; x < 4; ++x) {
+                const int8x16_t qv = vld1q_s8(qp + (static_cast<size_t>(x) * nc + c) * 16);
+                for (int y = 0; y < 4; ++y) a[x][y] = vmmlaq_s32(a[x][y], qv, kv[y]);
+            }
+        }
+        for (int x = 0; x < 4; ++x)
+            for (int y = 0; y < 4; ++y) {
+                const int col = 2 * (j - j0 + y);
+                vst1_s32(out + static_cast<size_t>(2 * x) * ld + col, vget_low_s32(a[x][y]));
+                vst1_s32(out + static_cast<size_t>(2 * x + 1) * ld + col, vget_high_s32(a[x][y]));
+            }
+    }
+}
+// The weighted values of 8 heads over a block, in integers: w = the weights as u8, [head pair][no octets][16: the
+// pair's two heads x the octet's 8 positions]; vt = the block's values transposed, [hd / 2 dim pairs][octs][16: the
+// pair's two dims x an octet's 8 positions], from its octet o0; out[g * hd + d]. A USMMLA multiplies 2 heads x 8
+// positions by 8 positions x 2 dims (32 products, the weights unsigned); 4 head pairs x 4 dim pairs a tile. In int32:
+// 255 x 127 x a block's positions (8192 at most) < 2^31.
+__attribute__((target("arch=armv8.6-a+i8mm"))) void pv_mm8(const uint8_t *w, const int8_t *vt, int o0, int no, int octs,
+                                                            int hd, int32_t *out) {
+    for (int dp = 0; dp < hd / 2; dp += 4) {
+        int32x4_t a[4][4];
+        for (int x = 0; x < 4; ++x)
+            for (int y = 0; y < 4; ++y) a[x][y] = vdupq_n_s32(0);
+        const int8_t *v0 = vt + (static_cast<size_t>(dp) * octs + o0) * 16;
+        for (int o = 0; o < no; ++o) {
+            int8x16_t vv[4];
+            for (int y = 0; y < 4; ++y) vv[y] = vld1q_s8(v0 + (static_cast<size_t>(y) * octs + o) * 16);
+            for (int x = 0; x < 4; ++x) {
+                const uint8x16_t wv = vld1q_u8(w + (static_cast<size_t>(x) * no + o) * 16);
+                for (int y = 0; y < 4; ++y) a[x][y] = vusmmlaq_s32(a[x][y], wv, vv[y]);
+            }
+        }
+        for (int x = 0; x < 4; ++x)
+            for (int y = 0; y < 4; ++y) {
+                const int d = 2 * (dp + y);
+                vst1_s32(out + static_cast<size_t>(2 * x) * hd + d, vget_low_s32(a[x][y]));
+                vst1_s32(out + static_cast<size_t>(2 * x + 1) * hd + d, vget_high_s32(a[x][y]));
+            }
+    }
+}
+// the keys and values gemma_attend_mm rearranges at a time, bytes of each: past it, the blocks in groups
+// (GEODE_MM_BUILD_KB: smaller, for the tests - a short prompt then takes several)
+size_t mm_build_bytes() {
+    static const size_t b = [] {
+        const char *e = std::getenv("GEODE_MM_BUILD_KB");
+        const long kb = e ? std::atol(e) : 0;
+        return kb > 0 ? static_cast<size_t>(kb) << 10 : size_t{8} << 20;
+    }();
+    return b;
+}
+#endif
+
+#if defined(GEODE_GEMMA_DOT)
+// The integer dots of G int8 query rows (hd values) with np int8 key rows `stride` bytes apart, into out[g * ld + p]:
+// four heads by four positions at a time (16 accumulators; a key row loaded once for four heads), SDOT over 16 values
+// a step. Exact in int32 (127 x 127 x 512 < 2^31), so the order does not matter: a token's scores are the same in a
+// batch and alone.
+template <int G>
+inline void qk_dots_i8(const int8_t *const *q, const int8_t *k, size_t stride, int np, int hd, int32_t *out, int ld) {
+    static_assert(G == 1 || G % 4 == 0, "four heads at a time, or one");
+    int p = 0;
+    if constexpr (G % 4 == 0) {
+        for (; p + 4 <= np; p += 4) {
+            const int8_t *k0 = k + static_cast<size_t>(p) * stride, *k1 = k0 + stride, *k2 = k1 + stride,
+                         *k3 = k2 + stride;
+            for (int g0 = 0; g0 < G; g0 += 4) {
+                int32x4_t a[4][4];
+                for (int g = 0; g < 4; ++g)
+                    for (int j = 0; j < 4; ++j) a[g][j] = vdupq_n_s32(0);
+                for (int i = 0; i < hd; i += 16) {
+                    const int8x16_t x0 = vld1q_s8(k0 + i), x1 = vld1q_s8(k1 + i), x2 = vld1q_s8(k2 + i),
+                                    x3 = vld1q_s8(k3 + i);
+                    for (int g = 0; g < 4; ++g) {
+                        const int8x16_t qv = vld1q_s8(q[g0 + g] + i);
+                        a[g][0] = vdotq_s32(a[g][0], qv, x0);
+                        a[g][1] = vdotq_s32(a[g][1], qv, x1);
+                        a[g][2] = vdotq_s32(a[g][2], qv, x2);
+                        a[g][3] = vdotq_s32(a[g][3], qv, x3);
+                    }
+                }
+                for (int g = 0; g < 4; ++g)
+                    for (int j = 0; j < 4; ++j) out[(g0 + g) * ld + p + j] = vaddvq_s32(a[g][j]);
+            }
+        }
+    }
+    for (; p < np; ++p) {   // the rest one position at a time
+        const int8_t *kr = k + static_cast<size_t>(p) * stride;
+        for (int g = 0; g < G; ++g) {
+            int32x4_t a = vdupq_n_s32(0);
+            for (int i = 0; i < hd; i += 16) a = vdotq_s32(a, vld1q_s8(q[g] + i), vld1q_s8(kr + i));
+            out[g * ld + p] = vaddvq_s32(a);
+        }
+    }
+}
+#endif
+
 // the G scores q[g] . k of one position: the portable loop's eight partial sums as lanes 0-3 and 4-7, its order
 template <typename T, int G>
 inline void qk_scores(const float *const *q, const T *k, int hd, float *out) {
@@ -168,9 +314,27 @@ bool Model::bind_gemma(std::string &err) {
 
 bool Model::open_gemma(const ModelOptions &opt, std::string &err) {
     const auto &c = cfg_;
-    // the CPU first (docs/gemma4-plan.md: the GPU and the NPU are phases 3 and 4)
-    gpu_status_ = "off (Gemma 4 runs on the CPU for now)";
-    npu_.status = "off (Gemma 4 runs on the CPU for now)";
+    // the NPU: a prompt's products on HMX (Model::matmul sends a batch of kNpuMinTokens and more there), the rest of
+    // the prompt and the answer on the CPU. It takes the pack's row layout: before quad_dense lays them out anew
+    const bool npu_on = std::getenv("GEODE_NPU") ? std::atoi(std::getenv("GEODE_NPU")) != 0 : opt.npu > 0;
+    if (exact_ || check_) npu_.status = "off (exact / checked arithmetic)";
+    else if (!npu_on) npu_.status = "off (the setting)";
+    else setup_npu();
+    // a prompt's chunk: larger with the NPU, whose call expands every weight block once whatever the tokens
+    gemma_chunk_ = npu_.g ? kGemmaNpuChunk : kGemmaChunk;
+    if (const char *e = std::getenv("GEODE_GEMMA_CHUNK")) gemma_chunk_ = std::clamp(std::atoi(e), 16, kMaxPrompt);
+    // the GPU (an Adreno 7xx+): a prompt's products where the NPU does not take them - before quad_dense, as the NPU
+    const bool gpu_on = std::getenv("GEODE_GPU") ? std::atoi(std::getenv("GEODE_GPU")) != 0 : opt.gpu;
+    if (!gpu_on) {
+        gpu_status_ = "off (the setting)";
+    } else if (exact_ || check_) {
+        gpu_status_ = "off (exact / checked arithmetic)";
+    } else if (npu_.g) {
+        gpu_status_ = "off (the NPU takes the prompt's products)";
+    } else {
+        std::string why;
+        if (!setup_gpu8_gemma(why) && gpu_status_.rfind("off", 0) != 0) gpu_status_ = "off (" + why + ")";
+    }
     // attention in blocks of 256 positions (model.cpp: 1024): E2B has one KV head, so a token generated would
     // otherwise attend on one thread; more blocks, more threads (the blocks start at position 0 whatever the batch)
     attn_block_ = 256;
@@ -204,11 +368,32 @@ bool Model::open_gemma(const ModelOptions &opt, std::string &err) {
     max_cols_ = std::max({H, q, static_cast<size_t>(c.shared_ff)});
     // what a prompt's chunk holds besides the weights and the KV cache: its scratch (kGemmaChunk tokens: the int8
     // activations at most a quarter more), attention's partial sums (gemma_attend: up to 16 MiB), a margin
-    const uint64_t scratch = static_cast<uint64_t>(kGemmaChunk) * token_floats_ * sizeof(float) * 5 / 4 + (16ull << 20);
     // the drafter (drafter.bin, read whole), when the pack has one and it is wanted
     const Tensor *dh = pack_.manifest()["drafter"].is_object() && !std::getenv("GEODE_NO_DRAFTER") ? pack_.find("drafter.head") : nullptr;
     const uint64_t draft_bytes = dh ? pack_.file(dh->file).size() : 0;
-    const uint64_t fixed = pack_.dense_bytes() + (32ull << 20) + scratch + kv_chunk_bytes_ + draft_bytes;
+    // the fixed part with the NPU's copies of the matrices (besides the CPU's: the answer reads those) or without
+    const auto fixed_of = [&](bool npu) {
+        const uint64_t chunk = static_cast<uint64_t>(npu ? gemma_chunk_ : kGemmaChunk);
+        const uint64_t scratch = chunk * token_floats_ * sizeof(float) * 5 / 4 + (16ull << 20);
+        return pack_.dense_bytes() + (32ull << 20) + scratch + kv_chunk_bytes_ + draft_bytes +
+               (npu ? static_cast<uint64_t>(npu_.bytes(npu_.g)) : 0) + (gpu8_ ? gpu_staging_ : 0);
+    };
+    // the NPU only where its copies leave the context asked for its room (a faster prompt is not worth a shorter
+    // conversation): otherwise the CPU's prompt, its copies freed
+    if (opt.memory_budget && npu_.g) {
+        const uint64_t kv_all = static_cast<uint64_t>((ctx_ + kv_chunk_ - 1) / kv_chunk_ - 1) * kv_chunk_bytes_;
+        if (opt.memory_budget < fixed_of(true) + min_slots * slot + kv_all) {
+            npu_.status = "off (its copies of the matrices, " + std::to_string(npu_.bytes(npu_.g) >> 20) +
+                          " MB, would leave too little of the memory budget for the context)";
+            npu_.close(npu_.g);
+            npu_.g = nullptr;
+            npu_.ids.clear();
+            npu_.adopted.clear();
+            npu_.parts.clear();
+            gemma_chunk_ = kGemmaChunk;
+        }
+    }
+    const uint64_t fixed = fixed_of(npu_.g != nullptr);
     if (opt.memory_budget) {
         if (opt.memory_budget < fixed + min_slots * slot) {
             err = "the memory budget (" + std::to_string(opt.memory_budget >> 20) + " MB) is below what the model needs: " +
@@ -247,9 +432,9 @@ bool Model::open_gemma(const ModelOptions &opt, std::string &err) {
 }
 
 bool Model::forward_gemma(const int *tokens, int n, float *logits, bool all_logits, std::string &err) {
-    // in chunks of up to kGemmaChunk tokens, each through every layer (a dense model reads its weights once a chunk
+    // in chunks of up to gemma_chunk_ tokens, each through every layer (a dense model reads its weights once a chunk
     // either way)
-    const int parts = (n + kGemmaChunk - 1) / kGemmaChunk, sub = (n + parts - 1) / parts;
+    const int parts = (n + gemma_chunk_ - 1) / gemma_chunk_, sub = (n + parts - 1) / parts;
     // the drafter's hidden rows: the whole call's (hidden(t), t < n), in hid_long_ when it takes several chunks
     const bool keep = keeps_hidden();
     if (keep) {
@@ -369,19 +554,27 @@ bool Model::gemma_chunk(const int *tokens, int n, float *logits, bool all_logits
             }
         }, 8);
         prof_.attention += now_seconds() - ta;
-        // the MLP: down(gelu(gate) * up)
+        // the MLP: down(gelu(gate) * up) - on the NPU in one go where it takes it (gelu(gate) * up stays there)
         const double tm = now_seconds();
-        {
+        if (exact_ || !npu_mlp(L.gate, L.up, L.down, 0, n, hs.data(), os.data())) {
             const size_t w = 2 * static_cast<size_t>(L.ffn);
             const auto gs = rows(sh_act_, w, n), us = rows(sh_act_, w, n, static_cast<size_t>(L.ffn));
-            const QAct *const *qh = quantize_h(hs, H);
+            const QAct *const *qh = npu_takes(L.gate, n) || gpu_takes(L.gate, n) ? nullptr : quantize_h(hs, H);
             const QView *mats[2] = {&L.gate, &L.up};
             float *const *outs[2] = {gs.data(), us.data()};
             matmul_many(mats, 2, n, hs.data(), outs, qh);
-            par(static_cast<int64_t>(n) * L.ffn, [&](int64_t a, int64_t b) {
-                for (int64_t i = a; i < b; ++i) {
-                    const size_t t = static_cast<size_t>(i / L.ffn), j = static_cast<size_t>(i % L.ffn);
-                    gs[t][j] = gelu_tanh(gs[t][j]) * us[t][j];
+            const int64_t ffn = L.ffn;
+            par(static_cast<int64_t>(n) * ffn, [&](int64_t a, int64_t b) {
+                // a stretch of a row at a time (the index divided once a stretch: the inner loop vectorizes)
+                for (int64_t i = a; i < b;) {
+                    const int64_t t = i / ffn, j0 = i % ffn, j1 = std::min(ffn, j0 + (b - i));
+                    float *g = gs[static_cast<size_t>(t)];
+                    const float *u = us[static_cast<size_t>(t)];
+                    if (exact_)
+                        for (int64_t j = j0; j < j1; ++j) g[j] = gelu_tanh(g[j]) * u[j];
+                    else
+                        for (int64_t j = j0; j < j1; ++j) g[j] = gelu_fast(g[j]) * u[j];
+                    i += j1 - j0;
                 }
             }, 4096);
             matmul(L.down, n, gs.data(), os.data());
@@ -402,7 +595,10 @@ bool Model::gemma_chunk(const int *tokens, int n, float *logits, bool all_logits
                 for (int64_t t = a; t < b; ++t) {
                     float *g = gs[static_cast<size_t>(t)];
                     const float *pl = ple_.data() + static_cast<size_t>(t) * LP + static_cast<size_t>(l) * P;
-                    for (int i = 0; i < P; ++i) g[i] = gelu_tanh(g[i]) * pl[i];
+                    if (exact_)
+                        for (int i = 0; i < P; ++i) g[i] = gelu_tanh(g[i]) * pl[i];
+                    else
+                        for (int i = 0; i < P; ++i) g[i] = gelu_fast(g[i]) * pl[i];
                 }
             }, 8);
             matmul(L.ple_proj, n, gs.data(), hs.data());
@@ -453,10 +649,16 @@ bool Model::gemma_chunk(const int *tokens, int n, float *logits, bool all_logits
         matmul(lm_head_, static_cast<int>(in.size()), in.data(), out.data());
         if (c.softcap > 0.0f) {
             const float cap = c.softcap, inv = 1.0f / c.softcap;
-            par(static_cast<int64_t>(out.size()) * c.vocab, [&](int64_t a, int64_t b) {
-                for (int64_t i = a; i < b; ++i) {
-                    float &v = out[static_cast<size_t>(i / c.vocab)][i % c.vocab];
-                    v = std::tanh(v * inv) * cap;
+            const int64_t V = c.vocab;
+            par(static_cast<int64_t>(out.size()) * V, [&](int64_t a, int64_t b) {
+                for (int64_t i = a; i < b;) {   // a stretch of a row at a time, as the MLP's
+                    const int64_t t = i / V, j0 = i % V, j1 = std::min(V, j0 + (b - i));
+                    float *v = out[static_cast<size_t>(t)];
+                    if (exact_)
+                        for (int64_t j = j0; j < j1; ++j) v[j] = std::tanh(v[j] * inv) * cap;
+                    else
+                        for (int64_t j = j0; j < j1; ++j) v[j] = tanh_fast(v[j] * inv) * cap;
+                    i += j1 - j0;
                 }
             }, 1 << 14);
         }
@@ -474,7 +676,7 @@ void Model::gemma_attention(const GLayer &L, int n) {
     const auto qs = rows(qg_, qw, n);
     const auto ks = rows(kbuf_, kw, n);
     const auto vs = rows(vbuf_, kw, n);
-    const QAct *const *qh = quantize_h(hs, H);
+    const QAct *const *qh = npu_takes(L.q, n) || gpu_takes(L.q, n) ? nullptr : quantize_h(hs, H);
     if (L.own_kv) {
         const QView *mats[3] = {&L.q, &L.k, &L.v};
         float *const *outs[3] = {qs.data(), ks.data(), vs.data()};
@@ -553,6 +755,27 @@ void Model::gemma_attend(const GLayer &L, int n) {
             }
         }
     const int group = nh / nkv;
+    // the int8 KV cache's scores on SDOT: the queries as int8 too, a row per token and head (amax / 127 its scale,
+    // as the KV rows'), once a layer
+    qi8_on_ = false;
+#if defined(GEODE_GEMMA_DOT)
+    if constexpr (std::is_same_v<T, int8_t>)
+        if (!exact_ && hd % 16 == 0 && (group == 1 || group % 4 == 0)) {
+            const size_t rows_n = static_cast<size_t>(n) * nh;
+            if (qi8_.size() < rows_n * hd) qi8_.resize(rows_n * hd);
+            if (qi8_s_.size() < rows_n) qi8_s_.resize(rows_n);
+            par(static_cast<int64_t>(rows_n), [&](int64_t a, int64_t b) {
+                for (int64_t r = a; r < b; ++r)
+                    quant_row(qg_.data() + static_cast<size_t>(r) * hd, hd, qi8_.data() + static_cast<size_t>(r) * hd,
+                              qi8_s_[static_cast<size_t>(r)]);
+            }, 64);
+            qi8_on_ = true;
+        }
+#endif
+#if defined(GEODE_GEMMA_MM)
+    if constexpr (std::is_same_v<T, int8_t>)
+        if (qi8_on_ && n >= kMmMinTokens && gemma_attend_mm(L, n)) return;
+#endif
     const int nb = (apos_ + n + attn_block_ - 1) / attn_block_;
     const size_t part = static_cast<size_t>(hd) + 2;
     const auto lo_of = [&](int t) { return L.full ? 0 : std::max(0, apos_ + t - c.window + 1); };
@@ -628,7 +851,41 @@ void Model::gemma_heads(const GLayer &L, int kh, int h0, int t, int b, int nb) {
         sc[g] = scores.data() + static_cast<size_t>(g) * np;
         mx[g] = -INFINITY;
     }
-    chunks([&](int s0, int s1) {
+    bool scored = false;
+#if defined(GEODE_GEMMA_DOT)
+    if constexpr (std::is_same_v<T, int8_t> && (G == 1 || G % 4 == 0))
+        if (qi8_on_) {
+            // SDOT: the int8 queries (gemma_attend) against the int8 keys, then the two scales
+            const int8_t *qi[G];
+            float qs[G];
+            for (int g = 0; g < G; ++g) {
+                const size_t r = static_cast<size_t>(t) * c.n_heads + static_cast<size_t>(h0 + g);
+                qi[g] = qi8_.data() + r * hd;
+                qs[g] = qi8_s_[r];
+            }
+            thread_local std::vector<int32_t> dots;
+            if (dots.size() < static_cast<size_t>(G) * np) dots.resize(static_cast<size_t>(G) * np);
+            chunks([&](int s0, int s1) {
+                const int8_t *k = reinterpret_cast<int8_t *>(kv_row_bytes(s0, layer, false)) + static_cast<size_t>(kh) * hd;
+                const float *ksc = kv_scale(s0, layer, false) + kh;
+                const int m = s1 - s0, p0r = s0 - p0;
+                qk_dots_i8<G>(qi, k, kv_row_, m, hd, dots.data(), m);
+                for (int g = 0; g < G; ++g) {
+                    const int32_t *d = dots.data() + static_cast<size_t>(g) * m;
+                    float *s = sc[g] + p0r;
+                    float mg = mx[g];
+                    for (int r = 0; r < m; ++r) {
+                        const float sv = static_cast<float>(d[r]) * (qs[g] * ksc[static_cast<size_t>(r) * kv_heads_]);
+                        s[r] = sv;
+                        mg = std::max(mg, sv);
+                    }
+                    mx[g] = mg;
+                }
+            });
+            scored = true;
+        }
+#endif
+    if (!scored) chunks([&](int s0, int s1) {
         const T *k = reinterpret_cast<T *>(kv_row_bytes(s0, layer, false)) + static_cast<size_t>(kh) * hd;
         const float *ksc = nullptr;
         if constexpr (std::is_same_v<T, int8_t>) ksc = kv_scale(s0, layer, false) + kh;
@@ -658,12 +915,26 @@ void Model::gemma_heads(const GLayer &L, int kh, int h0, int t, int b, int nb) {
         }
     });
     for (int g = 0; g < G; ++g) {
-        float sum = 0.0f;
-        for (int p = 0; p < np; ++p) {
-            sc[g][p] = std::exp(sc[g][p] - mx[g]);
-            sum += sc[g][p];
+        float *w = sc[g];
+        const float m = mx[g];
+        if (exact_) {
+            float sum = 0.0f;
+            for (int p = 0; p < np; ++p) {
+                w[p] = std::exp(w[p] - m);
+                sum += w[p];
+            }
+            sums[g] = sum;
+            continue;
         }
-        sums[g] = sum;
+        // fast_exp (a prompt's attention takes ~0.3 G of them for 2048 tokens: std::exp's calls were a good part of
+        // it), the sum in four lanes: both loops vectorize
+        for (int p = 0; p < np; ++p) w[p] = fast_exp(w[p] - m);
+        float s4[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        int p = 0;
+        for (; p + 4 <= np; p += 4)
+            for (int j = 0; j < 4; ++j) s4[j] += w[p + j];
+        for (; p < np; ++p) s4[0] += w[p];
+        sums[g] = (s4[0] + s4[1]) + (s4[2] + s4[3]);
     }
     if constexpr (std::is_same_v<T, int8_t>)
         chunks([&](int s0, int s1) {
@@ -718,5 +989,255 @@ void Model::gemma_heads(const GLayer &L, int kh, int h0, int t, int b, int nb) {
         for (int g = 0; g < G; ++g) std::memcpy(dst[g] + i, acc[g], sizeof acc[g]);
     }
 }
+
+
+#if defined(GEODE_GEMMA_MM)
+// A prompt's chunk over the int8 KV cache on i8mm: the scores on SMMLA (qk_mm8: the integers SDOT gives), the
+// weighted values on USMMLA (pv_mm8), each block's weights as u8 against its largest (255: ~0.2% of it each, rounded
+// to nearest), the blocks joined as they come - an online softmax, in block order, so a token's bits depend neither
+// on the threads nor on how the blocks are grouped. The keys by position pairs and the values transposed (and the
+// blocks' scales in a row) are built once a layer for the octets of positions the chunk reads, mm_build_bytes() of each
+// at a time; a layer sharing another's KV reuses that layer's (Model::MmOps).
+bool Model::gemma_attend_mm(const GLayer &L, int n) {
+    const auto &c = cfg_;
+    const int nh = c.n_heads, nkv = c.n_kv_heads, hd = L.hd, group = nh / nkv, B = attn_block_;
+    if (group % 8 || hd % 16 || hd > 1024 || B % 8 || B > 8192 || !i8mm_here()) return false;
+    const int nc = hd / 8, octs = B / 8, end = apos_ + n;
+    const size_t qw = static_cast<size_t>(nh) * hd, blk = static_cast<size_t>(B) * hd;
+    const size_t rows_n = static_cast<size_t>(n) * nh;
+    const auto lo_of = [&](int t) { return L.full ? 0 : std::max(0, apos_ + t - c.window + 1); };
+    // the queries by head pairs, [pair][hd / 8][16]: a pair where qi8_ has its first head's row
+    if (qp_.size() < rows_n * hd) qp_.resize(rows_n * hd);
+    par(static_cast<int64_t>(rows_n / 2), [&](int64_t a, int64_t b) {
+        for (int64_t r = a; r < b; ++r) {
+            const int8_t *q0 = qi8_.data() + static_cast<size_t>(2 * r) * hd, *q1 = q0 + hd;
+            int8_t *o = qp_.data() + static_cast<size_t>(2 * r) * hd;
+            for (int i = 0; i < hd; i += 16) {
+                const int64x2_t x = vreinterpretq_s64_s8(vld1q_s8(q0 + i)), y = vreinterpretq_s64_s8(vld1q_s8(q1 + i));
+                vst1q_s8(o + 2 * i, vreinterpretq_s8_s64(vzip1q_s64(x, y)));
+                vst1q_s8(o + 2 * i + 16, vreinterpretq_s8_s64(vzip2q_s64(x, y)));
+            }
+        }
+    }, 64);
+    if (run_m_.size() < rows_n) {
+        run_m_.resize(rows_n);
+        run_s_.resize(rows_n);
+    }
+    std::fill(run_m_.begin(), run_m_.begin() + static_cast<std::ptrdiff_t>(rows_n), -INFINITY);
+    const int lo0 = lo_of(0), b_lo = lo0 / B, b_hi = (end - 1) / B;
+    const int gn = std::max(1, static_cast<int>(mm_build_bytes() / (static_cast<size_t>(nkv) * blk)));
+    static const int8_t zeros[1024] = {};
+    for (int g0 = b_lo; g0 <= b_hi; g0 += gn) {
+        const int g1 = std::min(b_hi, g0 + gn - 1), nbk = g1 - g0 + 1;
+        const bool whole = g0 == b_lo && g1 == b_hi;   // one group: the build can be kept for the layers sharing it
+        MmOps *ops = nullptr;
+        if (whole && !L.own_kv)
+            for (MmOps &m : mm_ops_)
+                if (m.slot == L.slot && m.lo == lo0 && m.end == end && m.hd == hd && m.b0 == g0 && m.nb == nbk) ops = &m;
+        if (ops) {
+            ops->used = ++mm_tick_;
+        } else {
+            // a layer with its own KV wrote its slot: its entry, or the one used longest ago
+            ops = &mm_ops_[0];
+            for (MmOps &m : mm_ops_) {
+                if (m.slot == L.slot) {
+                    ops = &m;
+                    break;
+                }
+                if (m.used < ops->used) ops = &m;
+            }
+            const size_t need = static_cast<size_t>(nkv) * nbk * blk, nsc = static_cast<size_t>(nkv) * nbk * B;
+            if (ops->kp.size() < need) {
+                ops->kp.resize(need);
+                ops->vt.resize(need);
+            }
+            if (ops->ks.size() < nsc) {
+                ops->ks.resize(nsc);
+                ops->vs.resize(nsc);
+            }
+            ops->slot = whole ? L.slot : -1;
+            ops->lo = lo0;
+            ops->end = end;
+            ops->hd = hd;
+            ops->b0 = g0;
+            ops->nb = nbk;
+            ops->used = ++mm_tick_;
+            int8_t *kpb = ops->kp.data(), *vtb = ops->vt.data();
+            float *ksb = ops->ks.data(), *vsb = ops->vs.data();
+            // an octet of positions an item: its keys by pairs ([pair][hd / 8][16]), its values transposed ([hd / 2]
+            // [octs][16]: an 8 x 16 byte transpose in three rounds of zips), its scales; positions before the window
+            // or not written yet as zeros, octets no token of the chunk reads left as they are
+            par(static_cast<int64_t>(nkv) * nbk * octs, [&](int64_t a, int64_t b) {
+                for (int64_t i = a; i < b; ++i) {
+                    const int o = static_cast<int>(i % octs), bi = static_cast<int>(i / octs % nbk),
+                              kh = static_cast<int>(i / octs / nbk);
+                    const int p0 = (g0 + bi) * B + 8 * o;
+                    if (p0 + 8 <= lo0 || p0 >= end) continue;
+                    const size_t base = (static_cast<size_t>(kh) * nbk + bi) * blk;
+                    int8_t *kd = kpb + base + static_cast<size_t>(o) * 4 * nc * 16;   // its pairs 4o..4o+3
+                    uint8_t *vd = reinterpret_cast<uint8_t *>(vtb + base) + static_cast<size_t>(o) * 16;
+                    float *kq = ksb + (static_cast<size_t>(kh) * nbk + bi) * B + 8 * o, *vq = vsb + (kq - ksb);
+                    const int8_t *kr[8], *vr[8];
+                    for (int r = 0; r < 8; ++r) {
+                        const int p = p0 + r;
+                        const bool in = p >= lo0 && p < end;
+                        kr[r] = in ? reinterpret_cast<const int8_t *>(kv_row_bytes(p, L.slot, false)) +
+                                         static_cast<size_t>(kh) * hd
+                                   : zeros;
+                        vr[r] = in ? reinterpret_cast<const int8_t *>(kv_row_bytes(p, L.slot, true)) +
+                                         static_cast<size_t>(kh) * hd
+                                   : zeros;
+                        kq[r] = in ? kv_scale(p, L.slot, false)[kh] : 0.0f;
+                        vq[r] = in ? kv_scale(p, L.slot, true)[kh] : 0.0f;
+                    }
+                    for (int d = 0; d < hd; d += 16) {
+                        for (int r = 0; r < 8; r += 2) {
+                            const int64x2_t x = vreinterpretq_s64_s8(vld1q_s8(kr[r] + d)),
+                                            y = vreinterpretq_s64_s8(vld1q_s8(kr[r + 1] + d));
+                            int8_t *dst = kd + static_cast<size_t>(r / 2) * nc * 16 + static_cast<size_t>(d) * 2;
+                            vst1q_s8(dst, vreinterpretq_s8_s64(vzip1q_s64(x, y)));
+                            vst1q_s8(dst + 16, vreinterpretq_s8_s64(vzip2q_s64(x, y)));
+                        }
+                        uint8x16_t rw[8];
+                        for (int r = 0; r < 8; ++r) rw[r] = vreinterpretq_u8_s8(vld1q_s8(vr[r] + d));
+                        uint16x8_t a8[8];   // bytes: (row 2k, row 2k + 1) a value
+                        for (int k = 0; k < 4; ++k) {
+                            a8[2 * k] = vreinterpretq_u16_u8(vzip1q_u8(rw[2 * k], rw[2 * k + 1]));
+                            a8[2 * k + 1] = vreinterpretq_u16_u8(vzip2q_u8(rw[2 * k], rw[2 * k + 1]));
+                        }
+                        uint32x4_t b8[8];   // 16 bits: four rows a value - b8[k] values 4k..4k+3 of rows 0-3, b8[4 + k] of rows 4-7
+                        for (int h = 0; h < 2; ++h) {
+                            const uint16x8_t *s = a8 + 4 * h;   // rows 4h..4h+3: s[0], s[2] values 0-7, s[1], s[3] 8-15
+                            b8[4 * h + 0] = vreinterpretq_u32_u16(vzip1q_u16(s[0], s[2]));
+                            b8[4 * h + 1] = vreinterpretq_u32_u16(vzip2q_u16(s[0], s[2]));
+                            b8[4 * h + 2] = vreinterpretq_u32_u16(vzip1q_u16(s[1], s[3]));
+                            b8[4 * h + 3] = vreinterpretq_u32_u16(vzip2q_u16(s[1], s[3]));
+                        }
+                        for (int k = 0; k < 4; ++k) {   // 32 bits: the eight rows of values 4k + 2x, 4k + 2x + 1
+                            uint8_t *dst = vd + (static_cast<size_t>(d / 2 + 2 * k) * octs) * 16;
+                            vst1q_u8(dst, vreinterpretq_u8_u32(vzip1q_u32(b8[k], b8[4 + k])));
+                            vst1q_u8(dst + static_cast<size_t>(octs) * 16, vreinterpretq_u8_u32(vzip2q_u32(b8[k], b8[4 + k])));
+                        }
+                    }
+                }
+            }, 4);
+        }
+        const int8_t *kpb = ops->kp.data(), *vtb = ops->vt.data();
+        const float *ksb = ops->ks.data(), *vsb = ops->vs.data();
+        par(static_cast<int64_t>(n) * nkv, [&](int64_t a, int64_t b) {
+            thread_local std::vector<int32_t> dots, acc;
+            thread_local std::vector<float> sc;
+            thread_local std::vector<uint8_t> wq, wp;
+            const size_t eb = static_cast<size_t>(8) * B;
+            if (dots.size() < eb) dots.resize(eb);
+            if (sc.size() < eb) sc.resize(eb);
+            if (wq.size() < eb) wq.resize(eb);
+            if (wp.size() < eb) wp.resize(eb);
+            if (acc.size() < static_cast<size_t>(8) * hd) acc.resize(static_cast<size_t>(8) * hd);
+            for (int64_t i = a; i < b; ++i) {
+                const int t = static_cast<int>(i / nkv), kh = static_cast<int>(i % nkv);
+                const int lo = lo_of(t), hi = apos_ + t + 1;
+                for (int bk = std::max(g0, lo / B), be = std::min(g1, (hi - 1) / B); bk <= be; ++bk) {
+                    const int bs = bk * B, p0 = std::max(bs, lo), p1 = std::min(hi, bs + B), np = p1 - p0;
+                    const size_t bb = static_cast<size_t>(kh) * nbk + static_cast<size_t>(bk - g0);
+                    const float *ks = ksb + bb * B + (p0 - bs), *vs = vsb + bb * B + (p0 - bs);
+                    // the scores over whole position pairs, four at a time; the weights over whole octets
+                    const int j0 = ((p0 - bs) / 2) & ~3, j1 = std::min(B / 2, (((p1 - bs + 1) / 2) + 3) & ~3);
+                    const int ld = 2 * (j1 - j0), off = p0 - (bs + 2 * j0);
+                    const int o0 = (p0 - bs) / 8, o1 = (p1 - bs + 7) / 8, no = o1 - o0, ow = p0 - (bs + 8 * o0);
+                    for (int hg = 0; hg < group; hg += 8) {
+                        const int h0 = kh * group + hg;
+                        const size_t r0 = static_cast<size_t>(t) * nh + static_cast<size_t>(h0);
+                        qk_mm8(qp_.data() + r0 * hd, kpb + bb * blk, j0, j1, hd, dots.data(), ld);
+                        float mx[8], sum[8], ws[8];
+                        for (int g = 0; g < 8; ++g) {
+                            const int32_t *d = dots.data() + static_cast<size_t>(g) * ld + off;
+                            float *s = sc.data() + static_cast<size_t>(g) * B;
+                            const float qs = qi8_s_[r0 + static_cast<size_t>(g)];
+                            const float32x4_t qv = vdupq_n_f32(qs);
+                            float32x4_t mv = vdupq_n_f32(-INFINITY);
+                            int p = 0;
+                            for (; p + 4 <= np; p += 4) {
+                                const float32x4_t v = vmulq_f32(vcvtq_f32_s32(vld1q_s32(d + p)), vmulq_f32(qv, vld1q_f32(ks + p)));
+                                vst1q_f32(s + p, v);
+                                mv = vmaxq_f32(mv, v);
+                            }
+                            float m = vmaxvq_f32(mv);
+                            for (; p < np; ++p) {
+                                const float v = static_cast<float>(d[p]) * (qs * ks[p]);
+                                s[p] = v;
+                                m = std::max(m, v);
+                            }
+                            for (p = 0; p < np; ++p) s[p] = fast_exp(s[p] - m);
+                            // their sum; the weights times the values' scales, and the largest
+                            float32x4_t sv = vdupq_n_f32(0.0f), wv = vdupq_n_f32(0.0f);
+                            for (p = 0; p + 4 <= np; p += 4) {
+                                const float32x4_t e = vld1q_f32(s + p), w = vmulq_f32(e, vld1q_f32(vs + p));
+                                sv = vaddq_f32(sv, e);
+                                vst1q_f32(s + p, w);
+                                wv = vmaxq_f32(wv, w);
+                            }
+                            float s4[4];
+                            vst1q_f32(s4, sv);
+                            float wm = vmaxvq_f32(wv);
+                            for (; p < np; ++p) {
+                                s4[0] += s[p];
+                                s[p] *= vs[p];
+                                wm = std::max(wm, s[p]);
+                            }
+                            // as u8 against the largest
+                            uint8_t *q = wq.data() + static_cast<size_t>(g) * B;
+                            std::memset(q, 0, static_cast<size_t>(no) * 8);
+                            const float inv = wm > 0.0f ? 255.0f / wm : 0.0f;
+                            const float32x4_t iv = vdupq_n_f32(inv);
+                            for (p = 0; p + 8 <= np; p += 8) {
+                                const uint32x4_t u0 = vcvtnq_u32_f32(vmulq_f32(vld1q_f32(s + p), iv)),
+                                                 u1 = vcvtnq_u32_f32(vmulq_f32(vld1q_f32(s + p + 4), iv));
+                                vst1_u8(q + ow + p, vqmovn_u16(vcombine_u16(vqmovn_u32(u0), vqmovn_u32(u1))));
+                            }
+                            for (; p < np; ++p) q[ow + p] = static_cast<uint8_t>(std::min(255.0f, std::nearbyint(s[p] * inv)));
+                            mx[g] = m;
+                            sum[g] = (s4[0] + s4[1]) + (s4[2] + s4[3]);
+                            ws[g] = wm / 255.0f;
+                        }
+                        for (int hp = 0; hp < 4; ++hp)   // by head pairs, [pair][no][16]
+                            for (int o = 0; o < no; ++o) {
+                                uint8_t *d = wp.data() + (static_cast<size_t>(hp) * no + o) * 16;
+                                std::memcpy(d, wq.data() + static_cast<size_t>(2 * hp) * B + 8 * o, 8);
+                                std::memcpy(d + 8, wq.data() + static_cast<size_t>(2 * hp + 1) * B + 8 * o, 8);
+                            }
+                        pv_mm8(wp.data(), vtb + bb * blk, o0, no, octs, hd, acc.data());
+                        for (int g = 0; g < 8; ++g) {   // into the token's running softmax (its first block: as it is)
+                            const size_t r = r0 + static_cast<size_t>(g);
+                            float *o = core_.data() + static_cast<size_t>(t) * qw + static_cast<size_t>(h0 + g) * hd;
+                            const int32_t *v = acc.data() + static_cast<size_t>(g) * hd;
+                            if (run_m_[r] == -INFINITY) {
+                                run_m_[r] = mx[g];
+                                run_s_[r] = sum[g];
+                                for (int d = 0; d < hd; ++d) o[d] = static_cast<float>(v[d]) * ws[g];
+                                continue;
+                            }
+                            const float M = std::max(run_m_[r], mx[g]);
+                            const float fo = std::exp(run_m_[r] - M), fb = std::exp(mx[g] - M);
+                            run_s_[r] = run_s_[r] * fo + sum[g] * fb;
+                            run_m_[r] = M;
+                            const float f = ws[g] * fb;
+                            for (int d = 0; d < hd; ++d) o[d] = o[d] * fo + static_cast<float>(v[d]) * f;
+                        }
+                    }
+                }
+            }
+        });
+    }
+    par(static_cast<int64_t>(rows_n), [&](int64_t a, int64_t b) {
+        for (int64_t r = a; r < b; ++r) {
+            float *o = core_.data() + static_cast<size_t>(r) * hd;
+            const float inv = 1.0f / run_s_[static_cast<size_t>(r)];
+            for (int d = 0; d < hd; ++d) o[d] *= inv;
+        }
+    }, 64);
+    return true;
+}
+#endif
 
 }  // namespace geode

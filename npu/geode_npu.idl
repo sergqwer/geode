@@ -70,4 +70,12 @@ interface geode_npu : remote_handle64 {
    // A prompt's routed experts on HMX (npu/moe_cfg.h): desc = moe_hdr_t, the buffers holding the experts' tile8
    // matrices, the experts, their picks; io: x and y (mapped buffers). usec: the DSP's time
    long moe(in sequence<octet> desc, in long io_fd, rout long long usec);
+   // An MLP's way in, O = act(A x G^T) * (A x U^T): G and U hmx4 blocks of the same shape (k inputs, n outputs) in
+   // buffers the CPU mapped once (g_fd, u_fd), A as gemm's; O fp16 as the next product's activation tiles, parts-major
+   // (n / 32 / part_blk parts, each m / 32 row tiles of part_blk croutons: each part of the down projection reads its
+   // stretch as it is). g_shift / u_shift: each matrix's out_shift (gemm's). act 0: gelu (tanh form), 1: silu. v79
+   // and newer (the activation on two more HVX threads: v79's six contexts; checked there only); older:
+   // AEE_EUNSUPPORTED. usec: the DSP's time
+   long gemm_glu(in sequence<octet> a, in long g_fd, in long u_fd, rout sequence<octet> o, in long m, in long k,
+                 in long n, in long g_shift, in long u_shift, in long part_blk, in long act, rout long long usec);
 };

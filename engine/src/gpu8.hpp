@@ -32,6 +32,9 @@ public:
     bool open(std::string &err);
     // Where the compiled programs are kept between runs (cl::Program::build_cached); before open(). Empty: none.
     void set_cache_dir(const std::string &dir);
+    // Gemma 4's q4i matrices (levels code - 8, signed E4M3 scales) instead of q4: the programs built for them (-D Q4I),
+    // holds() takes q4i only; before open(). Only the batch products (gemm) are meant for them.
+    void set_q4i(bool on);
     // A prompt's projections elsewhere (the NPU: Model::npu_products): ms[j] . n rows of `in` (in_stride floats apart)
     // -> outs[j] (ms[j]->rows floats a row); false: not taken there (the GPU multiplies them). The GDN's qkv, z and out
     // and the attention's q, k, v and o go there; the rest of a layer stays here. must: taken whatever happens (the
