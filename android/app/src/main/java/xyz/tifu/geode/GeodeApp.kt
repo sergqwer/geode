@@ -36,6 +36,9 @@ class GeodeApp : Application() {
     /** What the user gives every chat's agent: MCP servers and skills of their own. */
     val agentConfig: xyz.tifu.geode.agent.AgentConfig by lazy { xyz.tifu.geode.agent.AgentConfig(this) }
 
+    /** The agent's browser (one page, whichever chat's agent used it last). */
+    val browser: xyz.tifu.geode.agent.browser.AgentBrowser by lazy { xyz.tifu.geode.agent.browser.AgentBrowser(this) }
+
     /** The phone's folders the user gives every chat's agent (/phone in its Linux). */
     val phoneFolders: xyz.tifu.geode.agent.PhoneFolders by lazy { xyz.tifu.geode.agent.PhoneFolders(this) }
 

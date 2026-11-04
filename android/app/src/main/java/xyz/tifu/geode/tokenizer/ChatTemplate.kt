@@ -362,6 +362,9 @@ class ChatTemplate(private val tok: Tokenizer) : ApiTemplate {
         return out
     }
 
+    override fun callName(text: String): String? =
+        FUNCTION_OPEN.findAll(text).lastOrNull()?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
+
     private fun typed(v: String, schema: Map<String, Any?>?): Any? {
         if (v.trim().equals("null", ignoreCase = true)) return null
         val type = (schema?.get("type") as? String ?: (schema?.list("type")?.firstOrNull { it != "null" } as? String))
@@ -383,6 +386,8 @@ class ChatTemplate(private val tok: Tokenizer) : ApiTemplate {
         private val CALL = Regex("<tool_call>\\s*<function=([^>\\n]+)>(.*?)</function>\\s*</tool_call>",
             RegexOption.DOT_MATCHES_ALL)
         private val PARAM = Regex("<parameter=([^>\\n]+)>(.*?)</parameter>", RegexOption.DOT_MATCHES_ALL)
+        /** A call's name as it opens (callName: the calls may not be whole yet). */
+        private val FUNCTION_OPEN = Regex("<function=([^>\\n]+)>")
 
         /** The template's instructions after the tools (its <tool_call> tags become the special tokens). */
         private const val TOOLS_NOTE = "\n\nIf you choose to call a function ONLY reply in the following format " +

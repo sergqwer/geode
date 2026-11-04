@@ -54,6 +54,9 @@ sealed interface AgentEvent {
     data class ToolResult(val id: String, val ok: Boolean, val output: String) : AgentEvent
     /** The model reads this many new tokens of the prompt (the slow part, on a phone). */
     data class Reading(val tokens: Int) : AgentEvent
+    /** The model writes a tool's call ([tool]: its name once written), [tokens] so far - a file's whole text, it may
+     *  be: the call comes whole when it ends (the model's own, from the engine: the harness says nothing meanwhile). */
+    data class Writing(val tool: String?, val tokens: Int) : AgentEvent
     /** The agent condensed [items] older messages (~[tokens] tokens) of its context into a summary (geode_compacted). */
     data class Compacted(val items: Int, val tokens: Int) : AgentEvent
     /** The turn waits: another one runs (the web chat's, the phone's). */
@@ -273,11 +276,13 @@ class Agent(private val app: GeodeApp) {
             // first); what it changes in a read-and-write one goes back when the turn ends, cancelled or not
             app.phoneFolders.beforeTurn()
             return coroutineScope {
-                // the prompt's reading, from the engine: the harness says nothing until the first word
+                // the prompt's reading, and a call being written, from the engine: the harness says nothing until the
+                // first word, nor while a call is written (it gets the call whole)
                 val reading = launch(start = CoroutineStart.UNDISPATCHED) {
                     app.apiEngine.live.collect { e ->
                         if (e is GenEvent.Started && e.promptTokens > e.cachedTokens)
                             onEvent(AgentEvent.Reading(e.promptTokens - e.cachedTokens))
+                        if (e is GenEvent.Calling) onEvent(AgentEvent.Writing(e.name, e.tokens))
                     }
                 }
                 try {
@@ -462,6 +467,9 @@ class Agent(private val app: GeodeApp) {
         md.update(modelPath.toByteArray())
         md.update("vision=${File(modelPath, "vision.bin").isFile};context=${app.settings.flow.first().contextLength}".toByteArray())
         runCatching { md.update(File(app.filesDir, "agent/mcp.json").readBytes()) }
+        // the browser's tools are in the start too, and the persona that tells of it
+        md.update("browser=${app.agentConfig.browser.value}".toByteArray())
+        if (app.agentConfig.browser.value) md.update(browserPersona("browser").toByteArray())
         app.agentConfig.skillsDir.walkTopDown().filter { it.isFile }.sortedBy { it.path }.forEach {
             md.update("${it.path}:${it.length()}:${it.lastModified()}".toByteArray())
         }
@@ -553,6 +561,22 @@ private fun input(model: xyz.tifu.geode.models.InstalledModel): String =
 private fun modelKey(model: xyz.tifu.geode.models.InstalledModel, context: Int): String =
     model.dir.path + "|" + input(model) + "|" + context
 
+/**
+ * geode-agent's persona suffix (agent/src/config.rs PERSONA_SUFFIX: kept in step with it) with the browser in it, for
+ * GEODE_PERSONA_SUFFIX. Its own says the pages the agent makes open in the chat "no browser needed" - and said last in
+ * the system prompt, after the browser's own instructions, it had the model tell the user to open a page themselves
+ * ("I work in an isolated system") rather than use the browser's tools ([server]: the name its tools go by).
+ */
+private fun browserPersona(server: String): String =
+    "Your folder is /workspace: it belongs to this chat and the user sees it. To give the user something to look at " +
+        "(a page, a chart, a picture, a document), save it in /workspace: the files you create appear under your answer " +
+        "and open right in the chat with a tap (HTML and SVG pages, PNG and JPEG images, Markdown, text). You also have " +
+        "a real browser: the phone's Chromium, which the user watches in the chat (the mcp__${server}__ tools). When the " +
+        "user asks to open, run, show or test a page, open it there yourself (mcp__${server}__open with its /workspace " +
+        "path, or a web address), read its console and look at it - never tell the user to open it themselves, and " +
+        "never say you have no browser. For anything visual write one self-contained HTML file for a phone's screen. " +
+        "The phone's screen is small: keep answers short. Answer in the user's language."
+
 /** A service's model as a harness started for it knows it. */
 private fun remoteKey(p: xyz.tifu.geode.models.Provider): String =
     "remote:" + p.id + "|" + p.model + "|" + p.vision + "|" + p.context + "|" + p.maxTokens
@@ -593,6 +617,10 @@ private class Harness(
     @Volatile
     var model: String? = null
         private set
+    /** That model takes images (the browser's screenshots are for one that does). */
+    @Volatile
+    private var vision = false
+    private val browserMcp = xyz.tifu.geode.agent.browser.BrowserMcp(app, chatId) { vision }
 
     /**
      * A chat whose Linux last ran another image (the app updated it) runs the new image's /etc/geode/migrate with the
@@ -627,11 +655,16 @@ private class Harness(
         }
     }
 
-    /** The model's API, and Geode's web search for the harness's web_search (web-search-geode.mjs), same key. */
+    /**
+     * The model's API, Geode's web search for the harness's web_search (web-search-geode.mjs) and the agent's browser
+     * (an MCP server of the app's, [BrowserMcp]), same key.
+     */
     private suspend fun serve(req: HttpRequest, r: HttpResponder) {
-        if (req.path != "/geode/search" && !req.path.endsWith("/chat/completions")) return api.handle(req, r)
+        val ours = req.path == "/geode/search" || req.path == BROWSER_PATH
+        if (!ours && !req.path.endsWith("/chat/completions")) return api.handle(req, r)
         val given = req.header("authorization")?.trim()?.removePrefix("Bearer")?.trim().orEmpty()
         if (!MessageDigest.isEqual(given.toByteArray(), key.toByteArray())) return r.json(401, mapOf("error" to "unauthorized"))
+        if (req.path == BROWSER_PATH) return browserMcp.handle(req, r)
         if (req.path != "/geode/search") {
             // a service's model chosen: the request is its (never the phone's model in its place, a key missing)
             val remote = try {
@@ -674,10 +707,21 @@ private class Harness(
                 // them, sound if it hears
                 "GEODE_CONTEXT" to s.contextFor(model).toString(),
                 "GEODE_INPUT" to input(model),
-            ).also { this@Harness.model = modelKey(model, s.contextFor(model)) }
+            ).also {
+                this@Harness.model = modelKey(model, s.contextFor(model))
+                vision = model.vision
+            }
         }
-        if (remote != null) this@Harness.model = remoteKey(remote)
+        if (remote != null) {
+            this@Harness.model = remoteKey(remote)
+            vision = remote.vision
+        }
         val native = File(app.applicationInfo.nativeLibraryDir, NATIVE)
+        // the browser (geode-agent's: it speaks MCP over HTTP), under a name none of the user's servers has
+        val browser = if (native.isFile && app.agentConfig.browser.value) {
+            val taken = app.agentConfig.enabledServers().map { it.name }.toSet()
+            listOf("browser", "geode_browser", "geode-browser-app").first { it !in taken }
+        } else null
         process = if (native.isFile) {
             // geode-agent (geode/agent: the harness in Rust) runs here, outside the Linux, which it starts only for
             // what runs in it (bash, an MCP server's command)
@@ -694,7 +738,7 @@ private class Harness(
                 "GEODE_FOLDERS" to app.phoneFolders.forHarness(),
                 "TMPDIR" to File(own, "tmp").apply { mkdirs() }.path,
                 "PATH" to "/system/bin",
-            )
+            ) + (browser?.let { mapOf("GEODE_PERSONA_SUFFIX" to browserPersona(it)) } ?: emptyMap())
             for (d in listOf("workspace", "home", "local", "tmp")) File(own, d).mkdirs()
             ProcessBuilder(native.path).directory(workspace.apply { mkdirs() }).redirectErrorStream(false).apply {
                 environment().clear()
@@ -716,11 +760,23 @@ private class Harness(
         }
         scope.launch { read() }
         scope.launch {
-            runCatching { process.errorStream.bufferedReader().forEachLine { synchronized(errors) { errors.appendLine(it) } } }
+            // (and into the log: adb logcat -s GeodeAgent)
+            runCatching {
+                process.errorStream.bufferedReader().forEachLine {
+                    android.util.Log.w(TAG, "stderr: $it")
+                    synchronized(errors) { errors.appendLine(it) }
+                }
+            }
         }
         request("initialize", mapOf("protocolVersion" to 1, "clientCapabilities" to mapOf(
             "fs" to mapOf("readTextFile" to false, "writeTextFile" to false), "terminal" to false)))
-        val args = mapOf("cwd" to "/workspace", "mcpServers" to app.agentConfig.enabledServers().map { it.acp() })
+        val servers: List<Map<String, Any?>> = app.agentConfig.enabledServers().map { it.acp() } +
+            listOfNotNull(browser?.let { name ->
+                linkedMapOf("type" to "http", "name" to name, "url" to "http://127.0.0.1:${server.boundPort}$BROWSER_PATH",
+                    "headers" to listOf(linkedMapOf("name" to "Authorization", "value" to "Bearer $key")))
+            })
+        // (resume and new alike: a resumed session opens its servers again)
+        val args = mapOf("cwd" to "/workspace", "mcpServers" to servers)
         sessionId = resume?.let { id ->
             runCatching { request("session/resume", args + ("sessionId" to id)); id }.getOrNull()
         } ?: (request("session/new", args)["sessionId"] as? String ?: throw AgentException("no session"))
@@ -830,7 +886,10 @@ private class Harness(
             write(mapOf("jsonrpc" to "2.0", "id" to id, "method" to method, "params" to params))
             val m = done.await()
             @Suppress("UNCHECKED_CAST")
-            (m["error"] as? Map<String, Any?>)?.let { throw AgentException(it.str("message") ?: method) }
+            (m["error"] as? Map<String, Any?>)?.let {
+                android.util.Log.w(TAG, "$method failed: ${it.str("message")}")
+                throw AgentException(it.str("message") ?: method)
+            }
             @Suppress("UNCHECKED_CAST")
             return m["result"] as? Map<String, Any?> ?: emptyMap()
         } finally {
@@ -889,6 +948,7 @@ private class Harness(
         } finally {
             // the harness went: whoever waits learns why
             val why = synchronized(errors) { errors.lines().lastOrNull { it.startsWith("dsh:") }?.removePrefix("dsh:")?.trim() }
+            android.util.Log.i(TAG, "the agent's output closed${why?.let { ": $it" } ?: ""} (${pending.size} requests waiting)")
             for (d in pending.values) d.complete(mapOf("error" to mapOf("message" to (why ?: "the agent stopped"))))
         }
     }
@@ -928,6 +988,9 @@ private class Harness(
         private const val IMAGES = ".geode/images"
         private const val AUDIO = ".geode/audio"
         private const val MIGRATE_S = 600L
+        private const val TAG = "GeodeAgent"
+        /** The agent's browser's MCP endpoint on the harness's server. */
+        private const val BROWSER_PATH = "/geode/mcp/browser"
 
         /**
          * The harness's start (DeepSeek Harness in the Linux, a build without geode-agent). A chat whose Linux last ran another image (the app updated it) first runs the new

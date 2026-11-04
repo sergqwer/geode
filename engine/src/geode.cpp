@@ -348,6 +348,17 @@ int geode_generate(geode_model *model, const int32_t *prompt, int32_t n_prompt, 
                     mtp_tok[i] = y;
                     break;
                 }
+                if (stop_now) {
+                    // the answer ends on a draft that stood (its limit, or a stop): that draft, already through the
+                    // model, is taken back and left pending - as one token at a time leaves its last token - so a
+                    // next call goes on from it (an empty prompt too: the reasoning budget's rest of the answer)
+                    if (!m.model.verify_keep(kept - 1, e)) {
+                        rc = fail(err, err_len, GEODE_E_IO, e);
+                        break;
+                    }
+                    m.pending = batch[kept - 1];
+                    break;
+                }
                 if (kept < n) {
                     // the drafts after the last that stood taken back: the model just after it
                     if (!m.model.verify_keep(kept, e)) {
@@ -355,7 +366,6 @@ int geode_generate(geode_model *model, const int32_t *prompt, int32_t n_prompt, 
                         break;
                     }
                 }
-                if (stop_now) break;
                 tok = next;
                 mtp_n = kept;   // the MTP positions P .. P + kept - 1 (the tokens after them: the stood drafts and tok)
                 mtp_pos = P;

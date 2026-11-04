@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.IndeterminateCheckBox
 import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
@@ -198,8 +199,22 @@ private fun DiffLine(text: String, color: Color) {
         overflow = TextOverflow.Ellipsis)
 }
 
+/** The browser's tool a call is (open, eval...: BrowserMcp's, under the name the harness gave its server), or null. */
+private val BROWSER_TOOL = Regex("^mcp__(?:browser|geode_browser|geode-browser-app)__([a-z]+)$")
+
+private fun browserTool(tool: String): String? = BROWSER_TOOL.find(tool)?.groupValues?.get(1)
+
 /** What the call is about, in the card's head: a file, a pattern, an address, the command's purpose. */
-private fun subject(s: AgentStep, a: Map<String, Any?>): String = when (s.tool) {
+private fun subject(s: AgentStep, a: Map<String, Any?>): String = browserTool(s.tool)?.let { t ->
+    when (t) {
+        "open" -> a.str("url")
+        "eval" -> a.str("expression")?.lineSequence()?.firstOrNull()
+        "text" -> a.str("selector")
+        "act" -> listOfNotNull(a.str("action"), a.str("selector") ?: a.str("key") ?: a.str("text")).joinToString(" ")
+        "cdp" -> a.str("method")
+        else -> null
+    }.orEmpty()
+} ?: when (s.tool) {
     "bash", "pwsh", "shell" -> a.str("description") ?: ""
     "read", "write", "edit", "read_image" -> short(a.str("file_path") ?: s.title)
     "glob", "grep" -> a.str("pattern") ?: s.title
@@ -210,7 +225,17 @@ private fun subject(s: AgentStep, a: Map<String, Any?>): String = when (s.tool) 
 }
 
 @Composable
-private fun label(tool: String): String = stringResource(when (tool) {
+private fun label(tool: String): String = stringResource(browserTool(tool)?.let {
+    when (it) {
+        "open" -> R.string.agent_tool_browser_open
+        "screenshot" -> R.string.agent_tool_browser_shot
+        "eval" -> R.string.agent_tool_browser_eval
+        "console" -> R.string.agent_tool_browser_console
+        "text" -> R.string.agent_tool_browser_text
+        "act" -> R.string.agent_tool_browser_act
+        else -> R.string.agent_tool_browser_cdp
+    }
+} ?: when (tool) {
     "bash", "pwsh", "shell" -> R.string.agent_tool_command
     "read" -> R.string.agent_tool_read
     "write" -> R.string.agent_tool_write
@@ -225,7 +250,7 @@ private fun label(tool: String): String = stringResource(when (tool) {
     else -> R.string.agent_tool_other
 })
 
-private fun icon(tool: String): ImageVector = when (tool) {
+private fun icon(tool: String): ImageVector = if (browserTool(tool) != null) Icons.Outlined.Language else when (tool) {
     "bash", "pwsh", "shell" -> Icons.Outlined.Terminal
     "read" -> Icons.Outlined.Description
     "write", "edit" -> Icons.Outlined.EditNote

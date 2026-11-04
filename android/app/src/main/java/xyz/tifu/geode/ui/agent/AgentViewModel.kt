@@ -59,6 +59,14 @@ class AgentViewModel(private val app: GeodeApp) : ViewModel() {
     fun deleteServer(name: String) = io { config.deleteServer(name) }
     fun setEnabled(name: String, on: Boolean) = io { config.setEnabled(name, on) }
 
+    val browser: StateFlow<Boolean> = config.browser
+
+    /** The agent's browser on or off (off: closed now, its memory back at once). */
+    fun setBrowser(on: Boolean) = io {
+        config.setBrowser(on)
+        if (!on) app.browser.close()
+    }
+
     fun createSkill(name: String, description: String, body: String) = io { config.createSkill(name, description, body) }
     fun deleteSkill(skill: Skill) = io { config.deleteSkill(skill) }
 

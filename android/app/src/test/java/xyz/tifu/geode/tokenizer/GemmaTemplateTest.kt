@@ -138,6 +138,17 @@ class GemmaTemplateTest {
     }
 
     @Test
+    fun theNameOfACallBeingWritten() {
+        // the chat's status while a long call is written: the name once its brace is there, the last call's
+        assertEquals(null, tpl.callName("<|tool_call>"))
+        assertEquals(null, tpl.callName("<|tool_call>call:wri"))
+        assertEquals("write", tpl.callName("<|tool_call>call:write{"))
+        assertEquals("write", tpl.callName("<|tool_call>call:write{path:<|\"|>index.html<|\"|>,content:<|\"|><html>{x}"))
+        assertEquals("bash", tpl.callName("<|tool_call>call:write{a:1}<tool_call|><|tool_call>call:bash{cmd:"))
+        assertEquals(null, tpl.callName("<|tool_call>call:write{a:1}<tool_call|><|tool_call>call:ba"))
+    }
+
+    @Test
     fun aBrokenCallDoesNotTakeTheNext() {
         val calls = tpl.parseCalls("<|tool_call>call:a<tool_call|><|tool_call>call:b{x:1}<tool_call|>" +
             "<|tool_call>call:c{y:2,l:[1,],}<tool_call|><|tool_call>call:d{n:1.,m:.5,k:007,e:1e5}<tool_call|>" +

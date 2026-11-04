@@ -67,6 +67,7 @@ import xyz.tifu.geode.util.formatBytes
 fun AgentScreen(vm: AgentViewModel, openDrawer: () -> Unit) {
     val linux by vm.linux.collectAsStateWithLifecycle()
     val servers by vm.servers.collectAsStateWithLifecycle()
+    val browser by vm.browser.collectAsStateWithLifecycle()
     val skills by vm.skills.collectAsStateWithLifecycle()
     val folders by vm.folders.collectAsStateWithLifecycle()
     val folderStates by vm.folderStates.collectAsStateWithLifecycle()
@@ -201,6 +202,15 @@ fun AgentScreen(vm: AgentViewModel, openDrawer: () -> Unit) {
             OutlinedButton(onClick = { pickShared.launch(null) }, modifier = Modifier.padding(top = 8.dp)) {
                 Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp))
                 Text(stringResource(R.string.agent_folders_add), Modifier.padding(start = 6.dp))
+            }
+
+            // ---- the browser (the app's own MCP server)
+            Section(stringResource(R.string.browser_name))
+            Row(Modifier.fillMaxWidth().clickable { vm.setBrowser(!browser) }.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.agent_browser_desc), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).padding(end = 12.dp))
+                Switch(checked = browser, onCheckedChange = vm::setBrowser)
             }
 
             // ---- MCP servers

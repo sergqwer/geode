@@ -43,6 +43,10 @@ interface ApiTemplate {
      */
     fun parseCalls(text: String, tools: List<Map<String, Any?>>): List<Pair<String, Map<String, Any?>>>
 
+    /** The name of the last call in [text] - calls being written, from [callStart] on - once it is written whole;
+     *  null before (what the chat shows while a long call is written). */
+    fun callName(text: String): String?
+
     /** The tokens of [p]'s system turn (its closing and newline included), when it starts with one; 0: none. */
     fun systemTurn(p: Prompt): Int
 

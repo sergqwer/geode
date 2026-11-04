@@ -417,6 +417,7 @@ class EngineClient(private val context: Context) : ServiceConnection {
                     openedNpu = msg.data.getString(P.K_NPU_STATUS)
                     openedRun = msg.data.getString(P.K_RUN)
                 }
+                if (msg.arg1 != 1) android.util.Log.w("GeodeEngine", "the model did not open: ${msg.data.getString(P.K_ERROR)}")
                 pendingOpen?.complete(if (msg.arg1 == 1) null else msg.data.getString(P.K_ERROR) ?: "?")
             }
             P.TOKEN -> _events.tryEmit(EngineEvent.Token(msg.arg1))
@@ -424,6 +425,9 @@ class EngineClient(private val context: Context) : ServiceConnection {
             P.ENCODING -> _events.tryEmit(EngineEvent.Encoding(msg.arg1 == 1))
             P.DONE -> {
                 _running.value = false
+                // a failed generation into the log (adb logcat -s GeodeEngine); a stop is no failure
+                if (msg.arg1 != GeodeNative.OK && msg.arg1 != GeodeNative.E_STOPPED)
+                    android.util.Log.w("GeodeEngine", "generation failed (code ${msg.arg1}): ${msg.data.getString(P.K_ERROR)}")
                 msg.data.getLongArray(P.K_STATS)?.let(::figures)
                 _events.tryEmit(EngineEvent.Done(msg.arg1, msg.data.getString(P.K_ERROR),
                     msg.data.getLongArray(P.K_STATS)))

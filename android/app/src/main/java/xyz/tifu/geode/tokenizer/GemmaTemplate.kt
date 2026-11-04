@@ -425,6 +425,17 @@ class GemmaTemplate(private val tok: Tokenizer) : ApiTemplate {
         return out
     }
 
+    override fun callName(text: String): String? {
+        val i = text.lastIndexOf(CALL_OPEN).takeIf { it >= 0 } ?: return null
+        var p = i + CALL_OPEN.length
+        while (p < text.length && text[p].isWhitespace()) p++
+        if (text.startsWith("call:", p)) p += 5
+        // the name ends at the arguments' brace: not before it is written
+        val brace = text.indexOf('{', p).takeIf { it >= 0 } ?: return null
+        return text.substring(p, brace).trim()
+            .takeIf { n -> n.isNotEmpty() && n.none { it == '<' || it == '>' || it == '}' || it == ',' } }
+    }
+
     /** A call's arguments as the model writes them: {key:value,...}, strings between <|"|>, keys bare or quoted. */
     private class Args(private val s: String, var i: Int) {
         fun value(): Any? {

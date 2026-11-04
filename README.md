@@ -49,6 +49,9 @@ Adreno GPU (OpenCL) and the Hexagon NPU (HVX / HMX), and it can run each model o
 - **Agent**: every chat has its own Linux (Debian, run through proot). The agent runs commands, installs packages,
   writes and edits files, and searches the web. Folders of the phone can be given to it, read-only or
   read-and-write.
+- **A browser for the agent**: the phone's own Chromium. The agent opens web pages and the pages it makes, taps,
+  types, runs their scripts, reads the console and takes screenshots, while you watch it in a small window in the
+  chat or on the whole screen.
 - **Web search** that runs on the phone: a Rust port of SearXNG queries the search engines directly.
 - **Choose where it runs**: CPU, GPU, NPU, or two of them (one reads the prompt, the other writes the answer). The
   default, NPU + GPU, is the fastest where the phone has both.
@@ -64,6 +67,11 @@ Adreno GPU (OpenCL) and the Hexagon NPU (HVX / HMX), and it can run each model o
 - **Private by design**: no accounts and no analytics, and an optional app lock (a PIN, a password or a fingerprint).
   The app sends data only when you choose to: a report on an answer, on how Geode runs on your device, or a chat
   with a service's model you picked.
+
+<p align="center">
+  <img src="media/agent-browser.jpg" width="320" alt="The agent searching Google Images in its browser, shown in a small window over the chat"><br>
+  <sub>Asked to find cat photos on google.com, the agent opens the page in its browser, looks at it and answers.</sub>
+</p>
 
 ## Models and speed
 
@@ -99,6 +107,7 @@ flowchart LR
     A <--> T["Agent<br>Rust, ACP"]
     T --> L["Linux<br>Debian in proot"]
     T --> S["Web search<br>Rust SearXNG port"]
+    T --> B["Browser<br>WebView over CDP"]
 ```
 
 1. **Only a small part of the 35B model is active.** Qwen3.6-35B-A3B has 256 experts per layer, and each token uses
@@ -121,7 +130,10 @@ flowchart LR
    stays small.
 6. **An agent with a real computer.** geode-agent, a Rust port of DeepSeek Harness, talks to the app over the Agent
    Client Protocol and runs its tools in a per-chat Debian, started by proot without root. Web search goes through
-   geode-search, which fetches pages with a browser-like TLS fingerprint.
+   geode-search, which fetches pages with a browser-like TLS fingerprint. Its browser is the phone's own WebView:
+   the app draws it off screen into a virtual display, drives it over the Chrome DevTools Protocol and gives it to
+   the agent as an MCP server (open, look, click, type, run scripts, read the console), and the chat shows its frames
+   live.
 
 ## Repository layout
 

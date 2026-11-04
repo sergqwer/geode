@@ -65,6 +65,21 @@ class AgentConfig(context: Context) {
     /** The servers a session opens with. */
     fun enabledServers(): List<McpServer> = _servers.value.filter { it.enabled }
 
+    /** The agent has the phone's browser (agent/browser.BrowserMcp); on unless the user turned it off. */
+    private val browserOff = File(context.filesDir, "agent/browser-off")
+    private val _browser = MutableStateFlow(!browserOff.exists())
+    val browser: StateFlow<Boolean> = _browser.asStateFlow()
+
+    fun setBrowser(on: Boolean) {
+        if (on == _browser.value) return
+        if (on) browserOff.delete() else {
+            browserOff.parentFile?.mkdirs()
+            browserOff.createNewFile()
+        }
+        _browser.value = on
+        version++
+    }
+
     fun saveServer(server: McpServer, replacing: String? = null) {
         val list = _servers.value.filter { it.name != (replacing ?: server.name) && it.name != server.name } + server
         store(list.sortedBy { it.name.lowercase() })

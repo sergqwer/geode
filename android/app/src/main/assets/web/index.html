@@ -402,7 +402,10 @@ function fillBot(el, m) {
   body.innerHTML = md(m.text || '');
   el.appendChild(body);
   const toolRuns = (m.steps || []).some(st => st.tool && st.ok == null);
-  if (m.live && !m.text && !m.thinking && !toolRuns) {
+  if (m.live && m.calling) {
+    // a long tool call being written (a file's whole text): nothing else shows until it ends
+    const s = document.createElement('div'); s.className = 'status dots'; s.textContent = m.calling; el.appendChild(s);
+  } else if (m.live && !m.text && !m.thinking && !toolRuns) {
     const s = document.createElement('div'); s.className = 'status dots'; s.textContent = m.status || L.waiting; el.appendChild(s);
   }
   if (m.error) { const e = document.createElement('div'); e.className = 'err'; e.textContent = m.error; el.appendChild(e); }
@@ -466,18 +469,20 @@ async function send() {
       if (d.prompt > d.cached) a.status = fmt(L.reading, d.prompt - d.cached);
     } else if (ev === 'status') {
       a.status = d.installing ? L.installing : L.waiting;
+    } else if (ev === 'calling') {
+      a.calling = d.text;
     } else if (ev === 'tool') {
       // the words so far stay above the tool's line, the next ones start after it
       if (a.text.trim()) a.steps.push({ words: a.text.trim() });
-      a.text = ''; a.thinking = ''; a.status = '';
+      a.text = ''; a.thinking = ''; a.status = ''; a.calling = '';
       a.steps.push({ id: d.id, tool: d.tool, args: d.args, ok: null });
     } else if (ev === 'tool_done') {
       const st = a.steps.slice().reverse().find(x => x.tool && x.ok == null && (!d.id || x.id === d.id));
       if (st) st.ok = d.ok;
-    } else if (ev === 'reasoning') a.thinking += d.text;
-    else if (ev === 'content') a.text += d.text;
-    else if (ev === 'done') { Object.assign(a, d); a.live = false; }
-    else if (ev === 'error') { a.error = d.message; a.live = false; }
+    } else if (ev === 'reasoning') { a.thinking += d.text; a.calling = ''; }
+    else if (ev === 'content') { a.text += d.text; a.calling = ''; }
+    else if (ev === 'done') { Object.assign(a, d); a.live = false; a.calling = ''; }
+    else if (ev === 'error') { a.error = d.message; a.live = false; a.calling = ''; }
     fillBot(botEl, a);
     if (stick) toBottom();
   };

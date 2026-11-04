@@ -95,6 +95,11 @@ sealed interface GenEvent {
     data class Started(val promptTokens: Int, val cachedTokens: Int) : GenEvent
     data class Reasoning(val text: String) : GenEvent
     data class Content(val text: String) : GenEvent
+    /**
+     * A tool call being written (the client gets it whole, when it ends): its name once known, its tokens so far. The
+     * app's own (ApiEngine.live: the chat's status line) - never sent to a client.
+     */
+    data class Calling(val name: String?, val tokens: Int) : GenEvent
 }
 
 /**
@@ -247,7 +252,8 @@ class ApiEngine(private val app: GeodeApp) {
         var last = SystemClock.elapsedRealtime()
         val send: suspend (GenEvent) -> Unit = { e ->
             _live.tryEmit(e)
-            lock.withLock {
+            // a call's progress is the app's own: the client gets the call whole (and Waiting while it is written)
+            if (e !is GenEvent.Calling) lock.withLock {
                 emit(e)
                 last = SystemClock.elapsedRealtime()
             }
@@ -260,6 +266,12 @@ class ApiEngine(private val app: GeodeApp) {
         }
         try {
             generate(req, callPrefix, send).also { _results.tryEmit(it) }
+        } catch (e: ApiError) {
+            // into the log as well (adb logcat -s GeodeApi): the agent and the chat show it, but not what led to it -
+            // not the read ahead's planned end (the shared start only)
+            if (currentCoroutineContext()[xyz.tifu.geode.engine.EngineGate.Background] == null)
+                android.util.Log.w(TAG, "a request of ${req.messages.size} messages failed (${e.status}): ${e.message}")
+            throw e
         } finally {
             ticker.cancel()
         }
@@ -672,6 +684,8 @@ class ApiEngine(private val app: GeodeApp) {
          *  not reasoning. */
         private var header: StringBuilder? = null
         private var inTool = false
+        /** The calls' tokens so far (GenEvent.Calling, every [CALL_EVERY]). */
+        private var callTokens = 0
         var received = 0
             private set
         var reasoningTokens = 0
@@ -716,6 +730,13 @@ class ApiEngine(private val app: GeodeApp) {
                     toolText.append(callText)
                 }
                 else -> route(decoder.push(id))
+            }
+            // a call goes out whole when it ends: meanwhile (a file's whole text, it may be) the chat shows it is
+            // being written - its name once written, its tokens
+            if (inTool) {
+                callTokens++
+                if (callTokens == 1 || callTokens % CALL_EVERY == 0)
+                    send(GenEvent.Calling(tpl.callName(toolText.toString()), callTokens))
             }
         }
 
@@ -854,6 +875,8 @@ class ApiEngine(private val app: GeodeApp) {
         companion object {
             /** The longest first line taken for a reasoning channel's name. */
             private const val HEADER_MAX = 24
+            /** A call's progress every this many tokens (its name looked for again each time). */
+            private const val CALL_EVERY = 16
         }
     }
 

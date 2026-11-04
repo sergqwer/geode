@@ -69,6 +69,7 @@ import androidx.compose.material.icons.outlined.ForkRight
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Summarize
 import androidx.compose.material.icons.outlined.ExpandLess
@@ -161,6 +162,10 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
     if (showFiles) vm.agentFolder()?.let { AgentFiles(it, onDismiss = { showFiles = false }) }
     var reporting by remember { mutableStateOf<ChatMessage?>(null) }
     val context = LocalContext.current
+    // the agent's browser: over this chat while this chat's agent is the one using it
+    val browser = remember { (context.applicationContext as xyz.tifu.geode.GeodeApp).browser }
+    val browserUi by browser.ui.collectAsStateWithLifecycle()
+    val browserHere = browserUi.chatId != null && browserUi.chatId == st.chatId
     LaunchedEffect(Unit) { vm.refreshModel() }
     // the system's photo picker: no storage permission, the user picks one image
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -277,6 +282,13 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
                 }
             },
             actions = {
+                // the agent's browser, hidden by the user: shown again
+                if (browserUi.chatId != null && browserUi.chatId == st.chatId &&
+                    browserUi.view == xyz.tifu.geode.agent.browser.AgentBrowser.View.HIDDEN) {
+                    IconButton(onClick = { browser.show(xyz.tifu.geode.agent.browser.AgentBrowser.View.MINI) }) {
+                        Icon(Icons.Outlined.Language, contentDescription = stringResource(R.string.browser_show))
+                    }
+                }
                 // every chat is the agent's: its folder (the files it made, the user's own put in)
                 if (st.chatId != null && st.messages.isNotEmpty()) {
                     IconButton(onClick = { showFiles = true }) {
@@ -352,6 +364,7 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
                         onOpenFile = { openFile = it }, speaking = speaking, onSpeak = vm::speak)
                 }
             }
+            if (browserHere && browserUi.view == xyz.tifu.geode.agent.browser.AgentBrowser.View.MINI) BrowserMini(browser, browserUi)
             if (pinching) {
                 Surface(Modifier.align(Alignment.TopCenter).padding(top = 12.dp), shape = RoundedCornerShape(50),
                     color = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface) {
@@ -430,6 +443,8 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
             onStop = vm::stop,
         ) }
     }
+    // the browser on the whole screen: a layer over the chat (GeodeRoot shows the screen in a Box)
+    if (browserHere && browserUi.view == xyz.tifu.geode.agent.browser.AgentBrowser.View.FULL) BrowserFull(browser, browserUi)
 }
 
 /**

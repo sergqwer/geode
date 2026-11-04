@@ -803,6 +803,8 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
             withContext(NonCancellable) { if (here()) edit(id) { it.copy(error = app.getString(R.string.chat_stopped)) } }
             throw e
         } catch (e: Exception) {
+            // what the answer shows, into the log too (adb logcat -s GeodeChat)
+            android.util.Log.w(LOG, "the agent's answer failed", e)
             if (here()) edit(id) { it.copy(error = e.message ?: e.javaClass.simpleName) }
         } finally {
             figures.cancel()
@@ -868,6 +870,11 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
             is AgentEvent.Reading -> _state.update { it.copy(agentStatus = app.getString(R.string.agent_reading, e.tokens)) }
             is AgentEvent.Installing -> _state.update { it.copy(agentStatus = app.getString(R.string.agent_starting)) }
             is AgentEvent.ToolCall -> _state.update { it.copy(agentStatus = app.getString(R.string.agent_running_tool, e.tool)) }
+            // a long call (a file's whole text) shows nothing in the answer until it ends: here, that it is written
+            is AgentEvent.Writing -> _state.update {
+                it.copy(agentStatus = e.tool?.let { t -> app.getString(R.string.agent_writing_call, t, e.tokens) }
+                    ?: app.getString(R.string.agent_writing_call_start, e.tokens))
+            }
             is AgentEvent.Compacted -> _state.update {
                 it.copy(agentStatus = null, stats = it.stats.copy(compactions = it.stats.compactions + 1))
             }
@@ -899,6 +906,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     }
 
     private fun fail(id: Long, error: String) {
+        android.util.Log.w(LOG, "the answer failed: $error")
         edit(id) { it.copy(streaming = false, error = error) }
         _state.update { it.copy(generating = false, loadingModel = false, waiting = false) }
     }
@@ -921,6 +929,8 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         private const val MIN_CLIP = AudioStore.RATE / 4
         /** The agent's command that compacts the conversation (geode-agent's /compact). */
         private const val COMPACT = "/compact"
+        /** The log's tag for the errors an answer shows. */
+        private const val LOG = "GeodeChat"
         /** The chats' saves, one at a time and in the order they were asked for. */
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         private val SAVES = Dispatchers.IO.limitedParallelism(1)

@@ -73,6 +73,17 @@ class TemplateTest {
     }
 
     @Test
+    fun theNameOfACallBeingWritten() {
+        val tpl = ChatTemplate(tok)
+        // the chat's status while a long call is written: the name once its tag is closed, the last call's
+        assertEquals(null, tpl.callName("<tool_call>\n"))
+        assertEquals(null, tpl.callName("<tool_call>\n<function=wri"))
+        assertEquals("write", tpl.callName("<tool_call>\n<function=write>\n<parameter=content>\n<html><p>a</p>"))
+        assertEquals("bash", tpl.callName("<tool_call>\n<function=write>\n</function>\n</tool_call>\n" +
+            "<tool_call>\n<function=bash>\n<parameter=cmd>\nls"))
+    }
+
+    @Test
     fun continuesLikeHuggingFace() {
         val tpl = ChatTemplate(tok)
         cases.list("continuations")!!.forEachIndexed { i, c ->

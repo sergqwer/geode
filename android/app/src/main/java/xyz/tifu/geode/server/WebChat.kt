@@ -402,6 +402,10 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
                                 "args" to AgentTurns.brief(e.input)))
                             is AgentEvent.ToolResult -> out("tool_done", linkedMapOf("id" to e.id, "ok" to e.ok))
                             is AgentEvent.Compacted -> stats = stats.copy(compactions = stats.compactions + 1)
+                            // a long call being written (nothing else shows meanwhile): its line, in the app's words
+                            is AgentEvent.Writing -> out("calling", mapOf("text" to (e.tool?.let { t ->
+                                app.getString(R.string.agent_writing_call, t, e.tokens)
+                            } ?: app.getString(R.string.agent_writing_call_start, e.tokens))))
                         }
                         answer = answer.withAgent(e)
                     }
@@ -421,6 +425,7 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
             throw e
         } catch (e: Exception) {
             val why = e.message ?: e.javaClass.simpleName
+            android.util.Log.w("GeodeWebChat", "the agent's answer failed", e)
             save(id, title, created, before + answer.finished(emptyList()).copy(error = why), stats, session)
             out("error", mapOf("message" to why))
         } finally {

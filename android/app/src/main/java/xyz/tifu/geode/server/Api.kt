@@ -285,7 +285,7 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
                     open()
                     when (e) {
                         GenEvent.Waiting -> r.comment("waiting")
-                        is GenEvent.Started -> Unit
+                        is GenEvent.Started, is GenEvent.Calling -> Unit
                         is GenEvent.Reasoning -> chunk(mapOf("reasoning_content" to e.text))
                         is GenEvent.Content -> chunk(mapOf("content" to e.text))
                     }
@@ -482,6 +482,7 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
                             ev("content_block_delta", linkedMapOf("index" to index,
                                 "delta" to linkedMapOf("type" to "text_delta", "text" to e.text)))
                         }
+                        is GenEvent.Calling -> Unit   // (never sent: ApiEngine.run)
                     }
                 }
             }
