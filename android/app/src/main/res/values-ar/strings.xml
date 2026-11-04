@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">الدردشة</string>
     <string name="nav_models">النماذج</string>
-    <string name="nav_settings">الإعدادات</string>
+    <string name="nav_settings">إعدادات التطبيق</string>
 
     <!-- chat -->
     <string name="chat_input_hint">رسالة</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">المساحة الفارغة: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">الإعدادات</string>
+    <string name="settings_title">إعدادات التطبيق</string>
     <string name="settings_section_memory">الذاكرة</string>
     <string name="settings_memory_budget">ذاكرة النموذج</string>
     <string name="settings_memory_budget_value">%1$s (المُوصى به %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">أطول سياق: %1$d رمز</string>
     <string name="settings_context_desc">لا يُحجز السياق مسبقًا: بل ينمو على دفعات مع تقدّم الدردشة، وكل دفعة تأخذ ذاكرتها من ذاكرة الخبراء المؤقتة (من أقل الخبراء استخدامًا)، لذا يجعل السياق الطويل التوليد أبطأ. والدردشة الجديدة تعيد كل ذلك.</string>
+    <string name="settings_context_desc_dense">لا يُحجز السياق مسبقًا: ينمو على دفعات مع تقدّم المحادثة، والسياق الطويل يأخذ ذاكرة أكثر ويُبطئ التوليد. المحادثة الجديدة تستعيد كل ذلك.</string>
     <string name="settings_context_memory">السياق (ذاكرة KV المؤقتة، int8): %1$s عند %2$d رمز (%3$s لكل 1000) · وتحتفظ ذاكرة الخبراء المؤقتة حينها بـ %4$s</string>
     <string name="settings_context_capped">ميزانية الذاكرة هذه تتسع لـ %1$d رمز على الأكثر: تتوقف المحادثة عند ذلك.</string>
     <string name="settings_section_performance">الأداء</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">أخذ العينات · مع الاستدلال</string>
     <string name="settings_sampling_plain">أخذ العينات · بدون استدلال</string>
     <string name="settings_presence">عقوبة الحضور: %1$.2f</string>
-    <string name="settings_presence_desc">تقلّل احتمال الرموز الموجودة في الإجابة بالفعل، كي لا يدور الاستدلال الطويل في حلقة مفرغة. توصي Qwen بالقيمة 1.5.</string>
-    <string name="settings_sampling_reset">القيم التي توصي بها Qwen</string>
+    <string name="settings_presence_desc">تقلّل احتمال الرموز الموجودة في الإجابة بالفعل، كي لا يدور الاستدلال الطويل في حلقة مفرغة.</string>
+    <string name="settings_sampling_reset">القيم الموصى بها للنموذج</string>
+    <string name="settings_section_features">ما يستقبله النموذج</string>
+    <string name="settings_feature_images">الصور</string>
+    <string name="settings_feature_images_desc">الصور الفوتوغرافية والرسومات في الدردشة. عند الإيقاف: لا يُحمَّل مُرمِّز الرؤية، مما يوفر الذاكرة.</string>
+    <string name="settings_feature_video">الفيديو</string>
+    <string name="settings_feature_video_desc">مقاطع الفيديو في الدردشة: يشاهد النموذج إطاراتها ويسمع صوتها.</string>
+    <string name="settings_feature_audio">الصوت</string>
+    <string name="settings_feature_audio_desc">الرسائل الصوتية والملفات الصوتية. عند الإيقاف: لا يُحمَّل مُرمِّز الصوت، مما يوفر الذاكرة.</string>
+    <string name="settings_feature_draft">فك الترميز التخميني</string>
+    <string name="settings_feature_draft_desc_mtp">تُعِدّ طبقة MTP في النموذج مسودة للكلمة التالية، ويتحقق النموذج من كلمتين معًا: إجابات أسرع بالنص نفسه. عند الإيقاف: كلمة واحدة في كل مرة.</string>
+    <string name="settings_feature_draft_desc_drafter">يتوقع النموذج المساعد الصغير في Gemma الكلمات التالية، ويتحقق منها النموذج دفعة واحدة: إجابات أسرع بالنص نفسه. عند الإيقاف: كلمة واحدة في كل مرة، مع توفير ذاكرة النموذج المساعد.</string>
+    <string name="settings_sampling_recommended">الموصى به لـ %1$s في هذا الوضع: درجة الحرارة %2$.2f، top-p %3$.2f، top-k %4$d، عقوبة الحضور %5$.1f.</string>
+    <string name="settings_context_model_max">دُرِّب هذا النموذج على سياق يصل إلى %1$d رمز.</string>
     <string name="settings_think_budget">ميزانية الاستدلال: %1$s</string>
     <string name="settings_think_budget_desc">بعد هذا العدد من رموز الاستدلال يُطلب من النموذج أن يجيب فورًا.</string>
     <string name="settings_max_answer">أطول إجابة: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">تنضم الأنوية الصغيرة إلى الكبيرة في الموجّهات الطويلة. على Redmi Note 9 Pro جعلت الموجّهات أبطأ.</string>
     <string name="settings_prefetch">القراءة المسبقة</string>
     <string name="settings_prefetch_desc">أثناء حساب طبقة، يقرأ الخبراء الذين يُتوقّع أن تحتاجهم الطبقة التالية.</string>
-    <string name="settings_gpu">استخدام GPU</string>
-    <string name="settings_gpu_desc">يشغّل النموذج على شريحة رسوميات الهاتف حيثما أمكن: الإجابة كاملة على Adreno 7xx أو أحدث؛ وعلى Adreno 618 جزءًا من عمليات الضرب الكبيرة في الموجّه.</string>
+    <string name="settings_runs_on">يعمل على</string>
+    <string name="settings_runs_on_desc">أي معالجات الهاتف تشغّل النموذج. عند اختيار اثنين، يقرأ الأول الطلبات ويكتب الثاني الإجابة. لا تظهر إلا المعالجات الموجودة في هذا الهاتف؛ الافتراضي NPU + GPU، وهو الأسرع حيث يتوفر كلاهما.</string>
     <string name="settings_route_prior">إجابات أسرع عندما لا يتسع النموذج في الذاكرة</string>
     <string name="settings_route_prior_desc">يفضّل الخبراء الموجودين في الذاكرة مسبقًا، فيقلّ ما يُقرأ من التخزين. قد تتغير صياغة الإجابات قليلًا، وأحيانًا جودتها. معطّل افتراضيًا.</string>
-    <string name="settings_npu">استخدام وحدة NPU</string>
-    <string name="settings_npu_desc">يستخدم معالج الذكاء الاصطناعي في الهاتف (Snapdragon Hexagon) حيث يفيد: يقرأ الطلبات بسرعة أكبر ودقة أعلى قليلًا، وعلى Snapdragon 8 Elite يتولى أيضًا جزءًا من خبراء نموذج 35B ويشغّل النموذج الخفيف بالكامل. إن لم يوجد أو فشل في الفحص، تعمل وحدة GPU والمعالج كما كان سابقًا.</string>
     <string name="settings_word_experts">عدد الخبراء لكل كلمة</string>
     <string name="settings_word_experts_desc">8 (الافتراضي): كل الخبراء الذين يختارهم النموذج، أي جودته الكاملة. 6 أو 4: إذا لم يكن أحد آخر 2 أو 4 خبراء مختارين في الذاكرة، فيُتخطّى بدل قراءته. أسرع عندما لا يتسع النموذج في الذاكرة، لكن إجابات النموذج تصبح أقل دقة.</string>
     <string name="settings_gpu_share">حصة GPU من الصفوف: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">ضغط السياق</string>
     <string name="chat_compressing">يلخّص النموذج المحادثة…</string>
     <string name="chat_summary_title">تم ضغط السياق</string>
+    <string name="chat_pruned">حُذفت الرسائل الأقدم بعد ضغط السياق: يتابع النموذج من ملخّصه لها.</string>
     <string name="chat_summary_note">من هنا فصاعدًا يرى النموذج هذا الملخص بدلًا من الرسائل التي فوقه.</string>
     <string name="settings_image_detail">تفاصيل الصورة</string>
     <string name="settings_image_detail_fast">سريع</string>
     <string name="settings_image_detail_fine">مفصّل</string>
     <string name="settings_image_detail_most">الأقصى</string>
     <string name="settings_image_detail_desc">مدى دقة رؤية النموذج للصورة المرفقة: حتى 256 أو 576 أو 1024 من رموزه. الدقة الأعلى تقرأ النص الصغير أفضل لكنها تؤخر بدء الإجابة (تُرمَّز الصورة على أنوية الهاتف؛ ولا تُقرأ أوزانها من التخزين إلا حينها).</string>
-    <string name="settings_auto_compress">ضغط السياق تلقائيًا</string>
-    <string name="settings_auto_compress_desc">عندما يمتلئ السياق بنسبة 90%، يلخّص النموذج المحادثة ويتابع من الملخص (تتوقف الإجابة قبل آخر 10%، التي يأخذها الملخص).</string>
     <string name="answer_notif_title">Geode يجيب</string>
     <string name="answer_notif_text">يواصل النموذج العمل أثناء وجود التطبيق في الخلفية.</string>
     <string name="answer_notif_stop">إيقاف</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">شكرًا لك، تم إرسال البلاغ</string>
     <string name="report_queued">لا يوجد اتصال: سيُرسل البلاغ لاحقًا</string>
     <string name="cpu_unsupported">معالج هذا الهاتف غير مدعوم: يحتاج Geode إلى معالج ARM بمعمارية 64 بت يدعم تعليمات dot product (ARMv8.2، معظم الهواتف منذ 2019).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">الخصوصية</string>
+    <string name="lock_setting">قفل التطبيق</string>
+    <string name="lock_setting_desc">رمز PIN أو كلمة مرور قبل ظهور الدردشات: عند تشغيل التطبيق وعند العودة إليه.</string>
+    <string name="lock_kind_pin">رمز PIN</string>
+    <string name="lock_kind_password">كلمة المرور</string>
+    <string name="lock_repeat">أعِد إدخاله</string>
+    <string name="lock_short_pin">4 أرقام على الأقل</string>
+    <string name="lock_short_password">4 أحرف على الأقل</string>
+    <string name="lock_mismatch">الإدخالان غير متطابقين</string>
+    <string name="lock_enter_pin">رمز PIN الخاص بك</string>
+    <string name="lock_enter_password">كلمة المرور الخاصة بك</string>
+    <string name="lock_wrong">غير صحيح، حاول مرة أخرى</string>
+    <string name="lock_wait">محاولات كثيرة جدًا: المحاولة التالية بعد %1$s</string>
+    <string name="lock_unlock">فتح القفل</string>
+    <string name="lock_title">Geode مقفل</string>
+    <string name="lock_fingerprint">فتح القفل ببصمة الإصبع</string>
+    <string name="lock_fingerprint_desc">بدلًا من الرمز. إضافة بصمة إلى الهاتف لاحقًا تُوقف هذا الخيار.</string>
+    <string name="lock_fingerprint_none">أضِف بصمة إصبع في إعدادات الهاتف أولًا.</string>
+    <string name="lock_fingerprint_changed">تغيّرت البصمات في الهاتف، لذا أُوقف فتح القفل بالبصمة: افتح القفل بالرمز ثم فعّله مجددًا في الإعدادات.</string>
+    <string name="lock_prompt_title">فتح قفل Geode</string>
+    <string name="lock_prompt_code">استخدام الرمز</string>
+    <string name="lock_after">القفل بعد مغادرة التطبيق</string>
+    <string name="lock_after_now">فورًا</string>
+    <string name="lock_after_min">%1$d دقيقة</string>
+    <string name="lock_change">تغيير رمز PIN أو كلمة المرور</string>
+    <string name="lock_off">إيقاف القفل</string>
+    <string name="lock_now">القفل الآن</string>
+    <string name="lock_note">ما دام القفل مفعّلًا، تُخفى معاينة التطبيق في التطبيقات الحديثة. تحتفظ دردشة الويب وواجهة API على الشبكة بكلمة مرورهما ومفتاحهما الخاصين.</string>
+    <string name="lock_forgot">هل نسيت الرمز؟</string>
+    <string name="lock_forgot_title">حذف كل الدردشات؟</string>
+    <string name="lock_forgot_text">لا توجد طريقة أخرى للدخول بدون الرمز: تُحذف كل الدردشات مع صورها وأصواتها وملفات الوكيل، ثم القفل. تبقى النماذج.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">حجم نص الدردشة: %1$d%%</string>
+    <string name="settings_chat_text_desc">الرسائل وحقل الكتابة في الدردشة. يمكن تغييره أيضًا بإصبعين على المحادثة.</string>
+    <string name="models_search">البحث عن نماذج</string>
+    <string name="models_cap_photos">الصور</string>
+    <string name="models_cap_video">الفيديو</string>
+    <string name="models_cap_sound">الصوت</string>
+    <string name="models_cap_reasoning">الاستدلال</string>
+    <string name="models_no_match">لا يوجد نموذج مطابق</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">الشاشة</string>
+    <string name="screen_keep">إبقاء الشاشة مضاءة</string>
+    <string name="screen_keep_off">لا: حسب مهلة الهاتف</string>
+    <string name="screen_keep_answering">أثناء إجابة Geode</string>
+    <string name="screen_keep_always">دائمًا، ما دام Geode مفتوحًا</string>
+    <string name="screen_black_after">شاشة سوداء بعد %1$d د دون لمس</string>
+    <string name="screen_black_never">الشاشة السوداء: أبدًا</string>
+    <string name="screen_black_desc">للحماية من احتراق الشاشة: على شاشة OLED قد تحترق أجزاء الصورة التي لا تتحرك أبدًا (الأشرطة، حقل الكتابة) بعد ساعات. الشاشة السوداء ليست قفلًا: يبقى الهاتف غير مقفل، ويكفي لمس الشاشة لتعود إلى Geode.</string>
+    <string name="screen_black_off_warning">دون الشاشة السوداء، قد تحترق صورة ثابتة لساعات في شاشة OLED بشكل دائم.</string>
+    <string name="screen_black_hint">المس الشاشة للعودة</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">يعمل على المعالج (تقرأ وحدة NPU المطالبات حيث توجد)، على الهواتف ذات ذاكرة 8 غيغابايت أو أكثر</string>
+    <string name="models_catalog_ram_short">ذاكرة %1$s: أقل مما يلزم لهذا النموذج (يحتاج 8 غيغابايت)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">الصوت</string>
+    <string name="voice_read_aloud">قراءة الإجابات بصوت عالٍ</string>
+    <string name="voice_read_aloud_desc">جملةً جملة أثناء كتابة الإجابة. مكبر الصوت أسفل الإجابة يقرؤها مرة أخرى.</string>
+    <string name="voice_rate">سرعة الكلام: %1$d%%</string>
+    <string name="voice_none">لا يوجد في هذا الهاتف محرك لتحويل النص إلى كلام: ثبّت واحدًا (مثل خدمات الكلام من Google) من إعدادات النظام.</string>
+    <string name="chat_speak">قراءة بصوت عالٍ</string>
+    <string name="chat_speak_stop">إيقاف القراءة</string>
+    <string name="nav_model_settings">إعدادات النموذج</string>
+    <string name="model_settings_selected">النموذج المحدد: %1$s</string>
+    <string name="model_settings_none">لم يُحدَّد أي نموذج بعد: تنطبق هذه الإعدادات على النموذج الذي تختاره.</string>
+    <string name="chat_take_photo">التقاط صورة</string>
+    <string name="chat_record_video">تسجيل فيديو</string>
+    <string name="chat_camera_denied">لا يستطيع Geode التقاط الصور أو الفيديو دون إذن الكاميرا</string>
+    <string name="chat_camera_none">لا يوجد تطبيق كاميرا على هذا الهاتف</string>
+    <string name="voice_voice">الصوت</string>
+    <string name="voice_auto">تلقائي: الصوت الافتراضي لكل لغة</string>
+    <string name="voice_voice_desc">الصوت المختار يقرأ لغته، وتبقى اللغات الأخرى بصوتها الافتراضي.</string>
+    <string name="voice_pitch">طبقة الصوت: %1$d%%</string>
+    <string name="voice_listen">استماع</string>
+    <string name="voice_sample">هكذا ستبدو الإجابات.</string>
+    <string name="voice_engine_settings">إعدادات تحويل النص إلى كلام</string>
+    <string name="voice_network">يحتاج إلى الإنترنت</string>
+    <string name="chat_read_aloud_on">تُقرأ الإجابات بصوت عالٍ</string>
+    <string name="chat_read_aloud_off">لا تُقرأ الإجابات بصوت عالٍ</string>
+    <string name="voice_engine">ما الذي يقرأ بصوت عالٍ</string>
+    <string name="voice_engine_system">تحويل النص إلى كلام في الهاتف</string>
+    <string name="voice_engine_geode">صوت Geode الخاص</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: ‏31 لغة تُقرأ على هذا الهاتف، منها الأوكرانية والروسية والإنجليزية؛ أما اللغات الأخرى فيقرؤها محرك تحويل النص إلى كلام في الهاتف. يبقى على وحدة التخزين ولا يأخذ نحو 300 ميغابايت من الذاكرة إلا أثناء القراءة.</string>
+    <string name="voice_download">تنزيل الصوت (%1$s)</string>
+    <string name="voice_downloading">جارٍ تنزيل الصوت: %1$d%%</string>
+    <string name="voice_delete">حذف الصوت</string>
+    <string name="voice_download_failed">لم يُنزَّل الصوت: %1$s</string>
+    <string name="voice_female">صوت نسائي %1$d</string>
+    <string name="voice_male">صوت رجالي %1$d</string>
+    <string name="voice_license">ترخيص الصوت</string>
+    <string name="voice_license_note">Supertonic 3 من Supertone، بموجب ترخيص Open RAIL-M: تسري قيود استخدامه على ما يقرؤه. يعمل عبر sherpa-onnx.</string>
+    <string name="agent_folders">مجلدات الهاتف</string>
+    <string name="agent_folders_desc">مجلدات هذا الهاتف التي يمكن لوكيل كل دردشة العمل عليها: توجد في نظام Linux الخاص به في ‎/phone. يعمل الوكيل على نسخة من كل مجلد تُحدَّث قبل كل رسالة، وتُنقل تغييراته إلى المجلد ذي القراءة والكتابة عندما ينتهي. سحب المجلد يحذف النسخة فقط.</string>
+    <string name="agent_folders_none">لم يُمنح أي مجلد بعد.</string>
+    <string name="agent_folders_add">منح مجلد</string>
+    <string name="agent_folder_read">قراءة فقط</string>
+    <string name="agent_folder_write">قراءة وكتابة</string>
+    <string name="agent_folder_remove">سحب</string>
+    <string name="agent_folder_files">الملفات: %1$d · %2$s</string>
+    <string name="agent_folder_copying">جارٍ النسخ…</string>
+    <string name="agent_folder_skipped">لم يُنسخ: %1$d (تتسع النسخة لـ 10000 ملف و%2$s على الأكثر)</string>
+    <string name="agent_folder_error">تتعذر قراءة المجلد: %1$s</string>
+    <string name="agent_folder_add_failed">تعذّر منح المجلد للوكيل</string>
+    <string name="models_services">نماذج الخدمات</string>
+    <string name="models_services_desc">يمكن لنموذج خدمة لديك مفتاحها أن يجيب في المحادثات بدلًا من نموذج الهاتف: DeepSeek أو OpenRouter أو OpenAI أو Anthropic أو أي خدمة تتحدث بواجهات API الخاصة بها. ما ترسله المحادثات يذهب إلى تلك الخدمة؛ ويبقى نظام Linux الخاص بالوكيل وملفاته على الهاتف.</string>
+    <string name="models_service_add">إضافة خدمة</string>
+    <string name="models_service_edit">تعديل</string>
+    <string name="service_name">الاسم</string>
+    <string name="service_url">عنوان API</string>
+    <string name="service_protocol">البروتوكول</string>
+    <string name="service_key">مفتاح API</string>
+    <string name="service_key_kept">محفوظ على هذا الهاتف ومشفّر. اكتب مفتاحًا جديدًا لاستبداله.</string>
+    <string name="service_model">النموذج</string>
+    <string name="service_list">عرض نماذجها</string>
+    <string name="service_list_failed">تعذّر عرض النماذج: %1$s</string>
+    <string name="service_vision">النموذج يقرأ الصور</string>
+    <string name="service_context">السياق، بالرموز</string>
+    <string name="service_max">أطول إجابة، بالرموز</string>
+    <string name="service_leaves">تُرسل المحادثات مع هذا النموذج إلى %1$s وتُعالج وفق شروطها. يبقى المفتاح على هذا الهاتف مشفّرًا.</string>
+    <string name="chat_empty_remote">اسأل عن أي شيء. تأتي الإجابات من %1$s (%2$s): ما ترسله يغادر الهاتف.</string>
+    <string name="chat_info_service">تُرسل المحادثة إلى %1$s</string>
+    <string name="settings_about_services">وعندما تختار نموذج خدمة في شاشة النماذج، تُرسل محادثاته إلى تلك الخدمة.</string>
 </resources>

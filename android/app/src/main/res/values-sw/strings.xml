@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">Gumzo</string>
     <string name="nav_models">Modeli</string>
-    <string name="nav_settings">Mipangilio</string>
+    <string name="nav_settings">Mipangilio ya programu</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Ujumbe</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">Nafasi iliyo wazi: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Mipangilio</string>
+    <string name="settings_title">Mipangilio ya programu</string>
     <string name="settings_section_memory">Kumbukumbu</string>
     <string name="settings_memory_budget">Kumbukumbu ya modeli</string>
     <string name="settings_memory_budget_value">%1$s (inapendekezwa %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">Muktadha mrefu zaidi: tokeni %1$d</string>
     <string name="settings_context_desc">Muktadha hautengwi mapema: hukua kwa vipande kadiri gumzo linavyoendelea, na kila kipande huchukua kumbukumbu yake kutoka kwenye akiba ya wataalamu (wataalamu wasiotumika sana) - muktadha mrefu hufanya uzalishaji kuwa wa polepole. Gumzo jipya hurudisha yote.</string>
+    <string name="settings_context_desc_dense">Muktadha hauhifadhiwi mapema: hukua kwa vipande kadiri gumzo linavyoendelea, na muktadha mrefu huchukua kumbukumbu zaidi na kupunguza kasi ya kuzalisha. Gumzo jipya hurudisha yote.</string>
     <string name="settings_context_memory">Muktadha (akiba ya KV, int8): %1$s kwa tokeni %2$d (%3$s kwa kila 1000) · akiba ya wataalamu kisha inabaki na %4$s</string>
     <string name="settings_context_capped">Bajeti hii ya kumbukumbu inatosha tokeni %1$d tu: mazungumzo yanasimama hapo.</string>
     <string name="settings_section_performance">Utendaji</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">Sampuli · kwa kufikiri</string>
     <string name="settings_sampling_plain">Sampuli · bila kufikiri</string>
     <string name="settings_presence">Adhabu ya kuwepo (presence): %1$.2f</string>
-    <string name="settings_presence_desc">Hupunguza uwezekano wa tokeni ambazo jibu tayari linazo, ili kufikiri kwa muda mrefu kusizunguke mahali pamoja. Qwen inapendekeza 1.5.</string>
-    <string name="settings_sampling_reset">Thamani zinazopendekezwa na Qwen</string>
+    <string name="settings_presence_desc">Hupunguza uwezekano wa tokeni ambazo jibu tayari linazo, ili kufikiri kwa muda mrefu kusizunguke mahali pamoja.</string>
+    <string name="settings_sampling_reset">Thamani zinazopendekezwa na modeli</string>
+    <string name="settings_section_features">Modeli inapokea nini</string>
+    <string name="settings_feature_images">Picha</string>
+    <string name="settings_feature_images_desc">Picha na michoro kwenye gumzo. Imezimwa: kisimbaji cha picha hakipakiwi, hivyo kuokoa kumbukumbu.</string>
+    <string name="settings_feature_video">Video</string>
+    <string name="settings_feature_video_desc">Video kwenye gumzo: modeli hutazama fremu zake na kusikiliza sauti yake.</string>
+    <string name="settings_feature_audio">Sauti</string>
+    <string name="settings_feature_audio_desc">Ujumbe wa sauti na faili za sauti. Imezimwa: kisimbaji cha sauti hakipakiwi, hivyo kuokoa kumbukumbu.</string>
+    <string name="settings_feature_draft">Usimbuaji wa kubashiri</string>
+    <string name="settings_feature_draft_desc_mtp">Tabaka la MTP la modeli huandaa rasimu ya neno linalofuata, kisha modeli hukagua maneno mawili kwa pamoja: majibu ya haraka zaidi, maandishi yaleyale. Imezimwa: neno moja kwa wakati.</string>
+    <string name="settings_feature_draft_desc_drafter">Modeli ndogo msaidizi ya Gemma hubashiri maneno yanayofuata, kisha modeli kuu huyakagua kwa pamoja: majibu ya haraka zaidi, maandishi yaleyale. Imezimwa: neno moja kwa wakati, na kumbukumbu ya modeli msaidizi inaokolewa.</string>
+    <string name="settings_sampling_recommended">Inapendekezwa kwa %1$s katika hali hii: joto %2$.2f, top-p %3$.2f, top-k %4$d, adhabu ya kuwepo (presence) %5$.1f.</string>
+    <string name="settings_context_model_max">Modeli hii ilifunzwa kwa muktadha wa hadi tokeni %1$d.</string>
     <string name="settings_think_budget">Bajeti ya kufikiri: %1$s</string>
     <string name="settings_think_budget_desc">Baada ya tokeni hizi za kufikiri, modeli huambiwa ijibu sasa.</string>
     <string name="settings_max_answer">Jibu refu zaidi: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">Viini vidogo husaidia vikubwa kwenye vidokezo virefu. Kwenye Redmi Note 9 Pro vilifanya vidokezo kuwa polepole zaidi.</string>
     <string name="settings_prefetch">Soma mapema</string>
     <string name="settings_prefetch_desc">Wakati safu moja inakokotolewa, husoma wataalamu ambao safu inayofuata inatabiriwa kuwahitaji.</string>
-    <string name="settings_gpu">Tumia GPU</string>
-    <string name="settings_gpu_desc">Huendesha modeli kwenye chipu ya michoro ya simu inapowezekana: jibu zima kwenye Adreno 7xx au mpya zaidi; kwenye Adreno 618, sehemu ya mazidisho makubwa ya kidokezo.</string>
+    <string name="settings_runs_on">Inaendeshwa kwenye</string>
+    <string name="settings_runs_on_desc">Ni vichakataji vipi vya simu vinavyoendesha modeli. Vikiwa viwili, cha kwanza husoma maombi na cha pili huandika jibu. Vinaonyeshwa tu vile ambavyo simu hii inavyo; chaguo-msingi ni NPU + GPU, cha haraka zaidi pale vyote viwili vipo.</string>
     <string name="settings_route_prior">Majibu ya haraka zaidi modeli isipotosha kwenye kumbukumbu</string>
     <string name="settings_route_prior_desc">Hupendelea wataalamu ambao tayari wako kwenye kumbukumbu, hivyo husoma kidogo kutoka kwenye hifadhi. Majibu yanaweza kubadilika kidogo kimaneno, na mara chache kwa ubora. Imezimwa kwa chaguomsingi.</string>
-    <string name="settings_npu">Tumia NPU</string>
-    <string name="settings_npu_desc">Hutumia kichakataji cha AI cha simu (Snapdragon Hexagon) pale kinaposaidia: husoma maagizo kwa haraka zaidi na kwa usahihi zaidi kidogo, na kwenye Snapdragon 8 Elite pia huchukua sehemu ya wataalamu wa modeli ya 35B na kuendesha modeli nyepesi yote. Kisipokuwepo au kikishindwa ukaguzi, GPU na CPU hufanya kazi kama awali.</string>
     <string name="settings_word_experts">Wataalamu kwa kila neno</string>
     <string name="settings_word_experts_desc">8 (chaguo-msingi): wataalamu wote ambao modeli inawachagua, ubora wake kamili. 6 au 4: ikiwa mmoja wa wataalamu 2 au 4 wa mwisho waliochaguliwa hayuko kwenye kumbukumbu, anarukwa badala ya kusomwa. Ni haraka zaidi modeli isipotosha kwenye kumbukumbu, lakini majibu ya modeli yanakuwa si sahihi sana.</string>
     <string name="settings_gpu_share">Sehemu ya safu mlalo kwa GPU: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">Bana muktadha</string>
     <string name="chat_compressing">Modeli inafupisha mazungumzo…</string>
     <string name="chat_summary_title">Muktadha umebanwa</string>
+    <string name="chat_pruned">Ujumbe wa zamani umeondolewa baada ya muktadha kubanwa: modeli inaendelea kutoka kwa muhtasari wake.</string>
     <string name="chat_summary_note">Kuanzia hapa modeli huona muhtasari huu badala ya jumbe zilizo juu yake.</string>
     <string name="settings_image_detail">Undani wa picha</string>
     <string name="settings_image_detail_fast">Haraka</string>
     <string name="settings_image_detail_fine">Kwa undani</string>
     <string name="settings_image_detail_most">Upeo</string>
     <string name="settings_image_detail_desc">Jinsi modeli inavyoona kwa undani picha iliyoambatishwa: hadi tokeni 256, 576 au 1024. Undani zaidi husoma maandishi madogo vizuri zaidi lakini huchukua muda mrefu kabla jibu halijaanza (picha husimbwa kwenye viini vya simu; uzito wake husomwa kutoka kwenye hifadhi wakati huo tu).</string>
-    <string name="settings_auto_compress">Bana muktadha kiotomatiki</string>
-    <string name="settings_auto_compress_desc">Muktadha unapojaa kwa 90%, modeli hufupisha mazungumzo na kuendelea kutoka kwenye muhtasari (jibu husimama kabla ya 10% za mwisho, ambazo muhtasari huchukua).</string>
     <string name="answer_notif_title">Geode inajibu</string>
     <string name="answer_notif_text">Modeli inaendelea kufanya kazi wakati programu iko chinichini.</string>
     <string name="answer_notif_stop">Simamisha</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">Asante, ripoti imetumwa</string>
     <string name="report_queued">Hakuna muunganisho: ripoti itatumwa baadaye</string>
     <string name="cpu_unsupported">Kichakataji cha simu hii hakitumiki: Geode inahitaji kichakataji cha ARM cha biti 64 chenye maagizo ya dot product (ARMv8.2, simu nyingi tangu 2019).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Faragha</string>
+    <string name="lock_setting">Funga programu</string>
+    <string name="lock_setting_desc">PIN au nenosiri kabla ya magumzo kuonekana: programu inapoanza na unaporudi kwake.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">Nenosiri</string>
+    <string name="lock_repeat">Rudia</string>
+    <string name="lock_short_pin">Angalau tarakimu 4</string>
+    <string name="lock_short_password">Angalau herufi 4</string>
+    <string name="lock_mismatch">Hayo mawili hayalingani</string>
+    <string name="lock_enter_pin">PIN yako</string>
+    <string name="lock_enter_password">Nenosiri lako</string>
+    <string name="lock_wrong">Si sahihi, jaribu tena</string>
+    <string name="lock_wait">Majaribio mengi mno: linalofuata baada ya %1$s</string>
+    <string name="lock_unlock">Fungua</string>
+    <string name="lock_title">Geode imefungwa</string>
+    <string name="lock_fingerprint">Fungua kwa alama ya kidole</string>
+    <string name="lock_fingerprint_desc">Badala ya msimbo. Alama ya kidole itakayoongezwa kwenye simu baadaye itazima hili.</string>
+    <string name="lock_fingerprint_none">Kwanza ongeza alama ya kidole katika mipangilio ya simu.</string>
+    <string name="lock_fingerprint_changed">Alama za vidole kwenye simu zimebadilika, kwa hiyo alama ya kidole imezimwa: fungua kwa msimbo kisha uiwashe tena katika Mipangilio.</string>
+    <string name="lock_prompt_title">Fungua Geode</string>
+    <string name="lock_prompt_code">Tumia msimbo</string>
+    <string name="lock_after">Funga baada ya kuondoka kwenye programu</string>
+    <string name="lock_after_now">Mara moja</string>
+    <string name="lock_after_min">Dak %1$d</string>
+    <string name="lock_change">Badilisha PIN au nenosiri</string>
+    <string name="lock_off">Zima kufunga</string>
+    <string name="lock_now">Funga sasa</string>
+    <string name="lock_note">Kufunga kukiwa kumewashwa, onyesho la programu katika programu za hivi karibuni hufichwa. Gumzo la wavuti na API kwenye mtandao hubaki na nenosiri na ufunguo wao wenyewe.</string>
+    <string name="lock_forgot">Umesahau msimbo?</string>
+    <string name="lock_forgot_title">Ungependa kufuta magumzo yote?</string>
+    <string name="lock_forgot_text">Bila msimbo hakuna njia nyingine ya kuingia: magumzo yote yanafutwa pamoja na picha, sauti na faili za wakala, kisha kufunga. Modeli zinabaki.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Ukubwa wa maandishi ya gumzo: %1$d%%</string>
+    <string name="settings_chat_text_desc">Ujumbe na sehemu ya kuandika katika gumzo. Vidole viwili kwenye mazungumzo pia huubadilisha.</string>
+    <string name="models_search">Tafuta modeli</string>
+    <string name="models_cap_photos">Picha</string>
+    <string name="models_cap_video">Video</string>
+    <string name="models_cap_sound">Sauti</string>
+    <string name="models_cap_reasoning">Kufikiri</string>
+    <string name="models_no_match">Hakuna modeli inayolingana</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Skrini</string>
+    <string name="screen_keep">Weka skrini ikiwaka</string>
+    <string name="screen_keep_off">Hapana: muda wa simu yenyewe</string>
+    <string name="screen_keep_answering">Wakati Geode inajibu</string>
+    <string name="screen_keep_always">Daima, wakati Geode iko wazi</string>
+    <string name="screen_black_after">Skrini nyeusi baada ya dakika %1$d bila kuguswa</string>
+    <string name="screen_black_never">Skrini nyeusi: kamwe</string>
+    <string name="screen_black_desc">Dhidi ya kuungua kwa skrini: kwenye skrini ya OLED, sehemu za picha zisizosogea kamwe (pau, sehemu ya kuandika) zinaweza kubaki kwenye skrini baada ya saa kadhaa. Skrini nyeusi si kufuli: simu inabaki bila kufungwa, na kugusa skrini kunairudisha Geode.</string>
+    <string name="screen_black_off_warning">Bila skrini nyeusi, picha inayobaki tuli kwa saa nyingi inaweza kuungua kwenye skrini ya OLED milele.</string>
+    <string name="screen_black_hint">Gusa skrini ili kurudi</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">Huendeshwa kwenye kichakataji (NPU husoma maelekezo pale ilipo), kwenye simu zenye RAM ya GB 8 au zaidi</string>
+    <string name="models_catalog_ram_short">RAM ya %1$s: ni ndogo mno kwa modeli hii (inahitaji GB 8)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Sauti</string>
+    <string name="voice_read_aloud">Soma majibu kwa sauti</string>
+    <string name="voice_read_aloud_desc">Sentensi moja moja jibu linapoandikwa. Spika chini ya jibu hulisoma tena.</string>
+    <string name="voice_rate">Kasi ya usemi: %1$d%%</string>
+    <string name="voice_none">Simu hii haina injini ya maandishi-hadi-usemi: sakinisha moja (kwa mfano Huduma za Usemi za Google) katika mipangilio ya mfumo.</string>
+    <string name="chat_speak">Soma kwa sauti</string>
+    <string name="chat_speak_stop">Acha kusoma</string>
+    <string name="nav_model_settings">Mipangilio ya modeli</string>
+    <string name="model_settings_selected">Modeli iliyochaguliwa: %1$s</string>
+    <string name="model_settings_none">Bado hakuna modeli iliyochaguliwa: mipangilio hii inahusu ile utakayochagua.</string>
+    <string name="chat_take_photo">Piga picha</string>
+    <string name="chat_record_video">Rekodi video</string>
+    <string name="chat_camera_denied">Geode haiwezi kupiga picha wala video bila ruhusa ya kamera</string>
+    <string name="chat_camera_none">Hakuna programu ya kamera kwenye simu hii</string>
+    <string name="voice_voice">Sauti</string>
+    <string name="voice_auto">Kiotomatiki: sauti chaguomsingi ya kila lugha</string>
+    <string name="voice_voice_desc">Sauti iliyochaguliwa husoma lugha yake; lugha nyingine hubaki na sauti zao chaguomsingi.</string>
+    <string name="voice_pitch">Kina cha sauti: %1$d%%</string>
+    <string name="voice_listen">Sikiliza</string>
+    <string name="voice_sample">Hivi ndivyo majibu yatakavyosikika.</string>
+    <string name="voice_engine_settings">Mipangilio ya maandishi kuwa sauti</string>
+    <string name="voice_network">inahitaji intaneti</string>
+    <string name="chat_read_aloud_on">Majibu yanasomwa kwa sauti</string>
+    <string name="chat_read_aloud_off">Majibu hayasomwi kwa sauti</string>
+    <string name="voice_engine">Kinachosoma kwa sauti</string>
+    <string name="voice_engine_system">Kibadilisha maandishi kuwa sauti cha simu</string>
+    <string name="voice_engine_geode">Sauti ya Geode yenyewe</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: lugha 31 husomwa kwenye simu hii, zikiwemo Kiukreni, Kirusi na Kiingereza; lugha nyingine husomwa na kibadilisha maandishi kuwa sauti cha simu. Hukaa kwenye hifadhi na huchukua takriban MB 300 za kumbukumbu wakati tu inaposoma.</string>
+    <string name="voice_download">Pakua sauti (%1$s)</string>
+    <string name="voice_downloading">Inapakua sauti: %1$d%%</string>
+    <string name="voice_delete">Futa sauti</string>
+    <string name="voice_download_failed">Sauti haikupakuliwa: %1$s</string>
+    <string name="voice_female">Sauti ya kike %1$d</string>
+    <string name="voice_male">Sauti ya kiume %1$d</string>
+    <string name="voice_license">Leseni ya sauti</string>
+    <string name="voice_license_note">Supertonic 3 ya Supertone, chini ya leseni ya Open RAIL-M: vikwazo vyake vya matumizi vinahusu kile inachosoma. Inaendeshwa na sherpa-onnx.</string>
+    <string name="agent_folders">Folda za simu</string>
+    <string name="agent_folders_desc">Folda za simu hii ambazo wakala wa kila gumzo anaweza kufanya kazi nazo: kwenye Linux yake ziko katika /phone. Wakala hufanya kazi kwenye nakala ya kila moja, inayosasishwa kabla ya kila ujumbe; folda ya kusoma na kuandika hupokea mabadiliko ya wakala anapomaliza. Kuchukua folda tena hufuta nakala tu.</string>
+    <string name="agent_folders_none">Bado hakuna folda iliyotolewa.</string>
+    <string name="agent_folders_add">Toa folda</string>
+    <string name="agent_folder_read">Kusoma tu</string>
+    <string name="agent_folder_write">Kusoma na kuandika</string>
+    <string name="agent_folder_remove">Chukua tena</string>
+    <string name="agent_folder_files">Faili: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Inanakili…</string>
+    <string name="agent_folder_skipped">Hazikunakiliwa: %1$d (nakala hubeba faili 10,000 na %2$s kwa juu kabisa)</string>
+    <string name="agent_folder_error">Folda haiwezi kusomwa: %1$s</string>
+    <string name="agent_folder_add_failed">Folda haikuweza kutolewa kwa wakala</string>
+    <string name="models_services">Miundo ya huduma</string>
+    <string name="models_services_desc">Muundo wa huduma uliyo na ufunguo wake unaweza kujibu kwenye gumzo badala ya muundo wa simu: DeepSeek, OpenRouter, OpenAI, Anthropic, au huduma yoyote inayotumia API zao. Kinachotumwa na gumzo huenda kwa huduma hiyo; Linux ya wakala na faili zake hubaki kwenye simu.</string>
+    <string name="models_service_add">Ongeza huduma</string>
+    <string name="models_service_edit">Hariri</string>
+    <string name="service_name">Jina</string>
+    <string name="service_url">Anwani ya API</string>
+    <string name="service_protocol">Itifaki</string>
+    <string name="service_key">Ufunguo wa API</string>
+    <string name="service_key_kept">Umehifadhiwa kwenye simu hii ukiwa umesimbwa. Andika mpya ili kuubadilisha.</string>
+    <string name="service_model">Muundo</string>
+    <string name="service_list">Orodhesha miundo yake</string>
+    <string name="service_list_failed">Haikuweza kuorodhesha miundo: %1$s</string>
+    <string name="service_vision">Muundo unasoma picha</string>
+    <string name="service_context">Muktadha, tokeni</string>
+    <string name="service_max">Jibu refu zaidi, tokeni</string>
+    <string name="service_leaves">Gumzo na muundo huu hutumwa kwa %1$s na kushughulikiwa kwa masharti yake. Ufunguo hubaki kwenye simu hii ukiwa umesimbwa.</string>
+    <string name="chat_empty_remote">Uliza chochote. Majibu yanatoka %1$s (%2$s): unachotuma kinaondoka kwenye simu.</string>
+    <string name="chat_info_service">Gumzo linatumwa kwa %1$s</string>
+    <string name="settings_about_services">Na unapochagua muundo wa huduma kwenye skrini ya Miundo, gumzo zake hutumwa kwa huduma hiyo.</string>
 </resources>

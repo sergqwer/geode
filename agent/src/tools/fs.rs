@@ -154,6 +154,17 @@ fn write_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
     r
 }
 
+/// A file in a folder of the phone the user gave read-only is not changed.
+fn writable(env: &Env, verb: &str, r: &Resolved) -> Result<(), String> {
+    match env.ns.read_only(&r.guest) {
+        Some(folder) => Err(format!(
+            "cannot {verb} \"{}\": {folder} is a folder of the user's phone given to you read-only — write your result in /workspace instead",
+            r.guest
+        )),
+        None => Ok(()),
+    }
+}
+
 fn not_observed(display: &str) -> String {
     format!("cannot modify \"{display}\": file has not been read — read the file, then retry")
 }
@@ -165,6 +176,7 @@ pub fn write(env: &Env, sess: &mut Session, args: &Value) -> Result<Output, Stri
         return Err("file_path must be a non-empty string".into());
     }
     let r = resolve(env, sess, file_path, false)?;
+    writable(env, "write", &r)?;
     let existing = fs::symlink_metadata(&r.host).ok();
     if let Some(m) = &existing
         && m.is_dir()
@@ -220,6 +232,7 @@ pub fn edit(env: &Env, sess: &mut Session, args: &Value) -> Result<Output, Strin
         return Err("old_string and new_string must differ".into());
     }
     let r = resolve(env, sess, file_path, true)?;
+    writable(env, "edit", &r)?;
     let expected = match sess.observed.get(&r.guest) {
         None => return Err(not_observed(&r.guest)),
         Some(Observed::Absent) => return Err(format!("cannot edit \"{}\": not found", r.guest)),

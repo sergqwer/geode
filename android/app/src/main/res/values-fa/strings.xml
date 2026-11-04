@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">گفت‌وگو</string>
     <string name="nav_models">مدل‌ها</string>
-    <string name="nav_settings">تنظیمات</string>
+    <string name="nav_settings">تنظیمات برنامه</string>
 
     <!-- chat -->
     <string name="chat_input_hint">پیام</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">فضای آزاد: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">تنظیمات</string>
+    <string name="settings_title">تنظیمات برنامه</string>
     <string name="settings_section_memory">حافظه</string>
     <string name="settings_memory_budget">حافظه برای مدل</string>
     <string name="settings_memory_budget_value">%1$s (پیشنهادی %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">بیشترین طول زمینه: %1$d توکن</string>
     <string name="settings_context_desc">زمینه از پیش رزرو نمی‌شود: با پیش رفتن گفت‌وگو تکه‌تکه بزرگ می‌شود و هر تکه حافظه‌اش را از کش متخصص‌ها (از کم‌استفاده‌ترین متخصص‌ها) می‌گیرد؛ پس زمینهٔ طولانی تولید را کندتر می‌کند. گفت‌وگوی جدید همه را پس می‌دهد.</string>
+    <string name="settings_context_desc_dense">زمینه از پیش رزرو نمی‌شود: با پیش رفتن گفتگو تکه‌تکه بزرگ می‌شود، و زمینهٔ طولانی حافظهٔ بیشتری می‌گیرد و تولید را کندتر می‌کند. گفتگوی تازه همه را آزاد می‌کند.</string>
     <string name="settings_context_memory">زمینه (کش KV، int8): %1$s در %2$d توکن (%3$s برای هر 1000) · کش متخصص‌ها در آن زمان %4$s را نگه می‌دارد</string>
     <string name="settings_context_capped">این بودجهٔ حافظه حداکثر برای %1$d توکن جا دارد: گفت‌وگو همان‌جا متوقف می‌شود.</string>
     <string name="settings_section_performance">کارایی</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">نمونه‌برداری · با استدلال</string>
     <string name="settings_sampling_plain">نمونه‌برداری · بدون استدلال</string>
     <string name="settings_presence">جریمهٔ حضور: %1$.2f</string>
-    <string name="settings_presence_desc">احتمال توکن‌هایی را که در پاسخ آمده‌اند کم می‌کند تا استدلال طولانی دور خودش نچرخد. Qwen مقدار 1.5 را پیشنهاد می‌کند.</string>
-    <string name="settings_sampling_reset">مقادیر پیشنهادی Qwen</string>
+    <string name="settings_presence_desc">احتمال توکن‌هایی را که در پاسخ آمده‌اند کم می‌کند تا استدلال طولانی دور خودش نچرخد.</string>
+    <string name="settings_sampling_reset">مقادیر پیشنهادی مدل</string>
+    <string name="settings_section_features">ورودی‌های مدل</string>
+    <string name="settings_feature_images">تصاویر</string>
+    <string name="settings_feature_images_desc">عکس‌ها و تصاویر در گفتگو. در حالت خاموش: رمزگذار بینایی بارگذاری نمی‌شود و حافظه کمتری مصرف می‌شود.</string>
+    <string name="settings_feature_video">ویدیو</string>
+    <string name="settings_feature_video_desc">ویدیوها در گفتگو: مدل فریم‌های آن‌ها را می‌بیند و صدایشان را می‌شنود.</string>
+    <string name="settings_feature_audio">صدا</string>
+    <string name="settings_feature_audio_desc">پیام‌های صوتی و فایل‌های صوتی. در حالت خاموش: رمزگذار صوتی بارگذاری نمی‌شود و حافظه کمتری مصرف می‌شود.</string>
+    <string name="settings_feature_draft">رمزگشایی حدسی</string>
+    <string name="settings_feature_draft_desc_mtp">لایهٔ MTP مدل، واژهٔ بعدی را پیش‌نویس می‌کند و مدل دو واژه را هم‌زمان بررسی می‌کند: پاسخ سریع‌تر، با همان متن. در حالت خاموش: هر بار یک واژه.</string>
+    <string name="settings_feature_draft_desc_drafter">مدل کمکی کوچک Gemma واژه‌های بعدی را حدس می‌زند و مدل آن‌ها را هم‌زمان بررسی می‌کند: پاسخ سریع‌تر، با همان متن. در حالت خاموش: هر بار یک واژه، با صرفه‌جویی در حافظهٔ مدل کمکی.</string>
+    <string name="settings_sampling_recommended">پیشنهاد برای %1$s در این حالت: دما %2$.2f، top-p %3$.2f، top-k %4$d، جریمهٔ حضور %5$.1f.</string>
+    <string name="settings_context_model_max">این مدل برای زمینه‌ای تا %1$d توکن آموزش دیده است.</string>
     <string name="settings_think_budget">بودجهٔ استدلال: %1$s</string>
     <string name="settings_think_budget_desc">پس از این تعداد توکن استدلال، به مدل گفته می‌شود که همین حالا پاسخ دهد.</string>
     <string name="settings_max_answer">بیشترین طول پاسخ: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">هسته‌های کوچک در پرامپت‌های طولانی به هسته‌های بزرگ کمک می‌کنند. در Redmi Note 9 Pro پرامپت‌ها را کندتر کردند.</string>
     <string name="settings_prefetch">پیش‌خوانی</string>
     <string name="settings_prefetch_desc">هنگام محاسبهٔ یک لایه، متخصص‌هایی را که پیش‌بینی می‌شود لایهٔ بعدی نیاز داشته باشد می‌خواند.</string>
-    <string name="settings_gpu">استفاده از GPU</string>
-    <string name="settings_gpu_desc">هر جا ممکن باشد، مدل را روی تراشهٔ گرافیکی گوشی اجرا می‌کند: کل پاسخ روی Adreno 7xx یا جدیدتر؛ روی Adreno 618، بخشی از ضرب‌های بزرگ پرامپت.</string>
+    <string name="settings_runs_on">اجرا روی</string>
+    <string name="settings_runs_on_desc">کدام پردازنده‌های گوشی مدل را اجرا کنند. با دو پردازنده، اولی پرامپت‌ها را می‌خواند و دومی پاسخ را می‌نویسد. فقط پردازنده‌هایی که این گوشی دارد فهرست می‌شوند؛ پیش‌فرض NPU + GPU است که هر جا هر دو باشند سریع‌ترین است.</string>
     <string name="settings_route_prior">پاسخ‌های سریع‌تر وقتی مدل در حافظه جا نمی‌شود</string>
     <string name="settings_route_prior_desc">کارشناس‌هایی را که از قبل در حافظه هستند ترجیح می‌دهد تا کمتر از فضای ذخیره‌سازی خوانده شود. ممکن است عبارت‌بندی پاسخ‌ها کمی و گاهی کیفیت آن‌ها تغییر کند. به‌طور پیش‌فرض خاموش است.</string>
-    <string name="settings_npu">استفاده از NPU</string>
-    <string name="settings_npu_desc">هر جا مفید باشد از پردازندهٔ هوش مصنوعی گوشی (Snapdragon Hexagon) استفاده می‌کند: پرامپت را سریع‌تر و کمی دقیق‌تر می‌خواند و روی Snapdragon 8 Elite بخشی از خبره‌های مدل 35B را هم برعهده می‌گیرد و مدل سبک را کامل اجرا می‌کند. اگر نباشد یا در بررسی رد شود، GPU و CPU مثل قبل کار می‌کنند.</string>
     <string name="settings_word_experts">تعداد کارشناس‌ها برای هر کلمه</string>
     <string name="settings_word_experts_desc">۸ (پیش‌فرض): همهٔ کارشناس‌هایی که مدل انتخاب می‌کند، یعنی کیفیت کامل. ۶ یا ۴: اگر یکی از ۲ یا ۴ کارشناس آخرِ انتخاب‌شده در حافظه نباشد، به‌جای خواندن از آن صرف‌نظر می‌شود. وقتی مدل در حافظه جا نمی‌شود سریع‌تر است، اما پاسخ‌های مدل کم‌دقت‌تر می‌شوند.</string>
     <string name="settings_gpu_share">سهم GPU از ردیف‌ها: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">فشرده‌سازی زمینه</string>
     <string name="chat_compressing">مدل در حال خلاصه کردن گفت‌وگو است…</string>
     <string name="chat_summary_title">زمینه فشرده شد</string>
+    <string name="chat_pruned">پیام‌های قدیمی‌تر پس از فشرده‌سازی زمینه حذف شدند: مدل از خلاصهٔ آن‌ها ادامه می‌دهد.</string>
     <string name="chat_summary_note">از اینجا به بعد مدل به‌جای پیام‌های بالا این خلاصه را می‌بیند.</string>
     <string name="settings_image_detail">جزئیات تصویر</string>
     <string name="settings_image_detail_fast">سریع</string>
     <string name="settings_image_detail_fine">دقیق</string>
     <string name="settings_image_detail_most">حداکثر</string>
     <string name="settings_image_detail_desc">مدل تصویر پیوست‌شده را با چه دقتی می‌بیند: تا 256، 576 یا 1024 توکن. دقت بیشتر متن ریز را بهتر می‌خواند اما شروع پاسخ را دیرتر می‌کند (تصویر روی هسته‌های گوشی کدگذاری می‌شود؛ وزن‌های آن تنها در همان زمان از حافظه خوانده می‌شوند).</string>
-    <string name="settings_auto_compress">فشرده‌سازی خودکار زمینه</string>
-    <string name="settings_auto_compress_desc">وقتی 90% زمینه پر شود، مدل گفت‌وگو را خلاصه می‌کند و از روی خلاصه ادامه می‌دهد (پاسخ پیش از 10% پایانی، که سهم خلاصه است، متوقف می‌شود).</string>
     <string name="answer_notif_title">Geode در حال پاسخ دادن است</string>
     <string name="answer_notif_text">وقتی برنامه در پس‌زمینه است، مدل به کارش ادامه می‌دهد.</string>
     <string name="answer_notif_stop">توقف</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">سپاسگزاریم، گزارش ارسال شد</string>
     <string name="report_queued">اتصال برقرار نیست: گزارش بعداً ارسال می‌شود</string>
     <string name="cpu_unsupported">پردازندهٔ این گوشی پشتیبانی نمی‌شود: Geode به یک پردازندهٔ ARM ۶۴ بیتی با دستورهای dot product نیاز دارد (ARMv8.2، بیشتر گوشی‌ها از ۲۰۱۹).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">حریم خصوصی</string>
+    <string name="lock_setting">قفل برنامه</string>
+    <string name="lock_setting_desc">یک PIN یا گذرواژه پیش از نمایش گفت‌وگوها: هنگام باز شدن برنامه و هنگام بازگشت به آن.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">گذرواژه</string>
+    <string name="lock_repeat">تکرار کنید</string>
+    <string name="lock_short_pin">دست‌کم ۴ رقم</string>
+    <string name="lock_short_password">دست‌کم ۴ نویسه</string>
+    <string name="lock_mismatch">این دو یکسان نیستند</string>
+    <string name="lock_enter_pin">PIN شما</string>
+    <string name="lock_enter_password">گذرواژهٔ شما</string>
+    <string name="lock_wrong">نادرست است، دوباره تلاش کنید</string>
+    <string name="lock_wait">تلاش‌های بیش از حد: تلاش بعدی تا %1$s دیگر</string>
+    <string name="lock_unlock">باز کردن قفل</string>
+    <string name="lock_title">Geode قفل است</string>
+    <string name="lock_fingerprint">باز کردن قفل با اثر انگشت</string>
+    <string name="lock_fingerprint_desc">به‌جای کد. اثر انگشتی که بعداً به گوشی اضافه شود این گزینه را خاموش می‌کند.</string>
+    <string name="lock_fingerprint_none">ابتدا در تنظیمات گوشی یک اثر انگشت اضافه کنید.</string>
+    <string name="lock_fingerprint_changed">اثرهای انگشت گوشی تغییر کرده‌اند، بنابراین اثر انگشت خاموش شد: با کد قفل را باز کنید و آن را دوباره در تنظیمات روشن کنید.</string>
+    <string name="lock_prompt_title">باز کردن قفل Geode</string>
+    <string name="lock_prompt_code">استفاده از کد</string>
+    <string name="lock_after">قفل پس از خروج از برنامه</string>
+    <string name="lock_after_now">بی‌درنگ</string>
+    <string name="lock_after_min">%1$d دقیقه</string>
+    <string name="lock_change">تغییر PIN یا گذرواژه</string>
+    <string name="lock_off">خاموش کردن قفل</string>
+    <string name="lock_now">همین حالا قفل شود</string>
+    <string name="lock_note">تا وقتی قفل روشن است، پیش‌نمایش برنامه در برنامه‌های اخیر پنهان می‌ماند. گفت‌وگوی وب و API در شبکه گذرواژه و کلید خود را دارند.</string>
+    <string name="lock_forgot">کد را فراموش کرده‌اید؟</string>
+    <string name="lock_forgot_title">همهٔ گفت‌وگوها حذف شود؟</string>
+    <string name="lock_forgot_text">بدون کد راه دیگری برای ورود نیست: همهٔ گفت‌وگوها با عکس‌ها، صداها و فایل‌های عامل حذف می‌شوند و سپس قفل. مدل‌ها می‌مانند.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">اندازهٔ متن گفت‌وگو: %1$d%%</string>
+    <string name="settings_chat_text_desc">پیام‌ها و کادر نوشتن در گفت‌وگو. با دو انگشت روی گفت‌وگو هم می‌شود آن را تغییر داد.</string>
+    <string name="models_search">جست‌وجوی مدل‌ها</string>
+    <string name="models_cap_photos">عکس</string>
+    <string name="models_cap_video">ویدیو</string>
+    <string name="models_cap_sound">صدا</string>
+    <string name="models_cap_reasoning">استدلال</string>
+    <string name="models_no_match">هیچ مدلی مطابقت ندارد</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">صفحه</string>
+    <string name="screen_keep">روشن نگه داشتن صفحه</string>
+    <string name="screen_keep_off">نه: طبق زمان خاموشی گوشی</string>
+    <string name="screen_keep_answering">وقتی Geode پاسخ می‌دهد</string>
+    <string name="screen_keep_always">همیشه، تا وقتی Geode باز است</string>
+    <string name="screen_black_after">صفحه سیاه پس از %1$d دقیقه بدون لمس</string>
+    <string name="screen_black_never">صفحه سیاه: هرگز</string>
+    <string name="screen_black_desc">در برابر سوختگی: روی صفحه OLED، بخش‌هایی از تصویر که هرگز حرکت نمی‌کنند (نوارها، کادر نوشتن) ممکن است پس از چند ساعت روی صفحه بسوزند. صفحه سیاه قفل نیست: گوشی باز می‌ماند و کافی است صفحه را لمس کنید تا Geode برگردد.</string>
+    <string name="screen_black_off_warning">بدون صفحه سیاه، تصویری که ساعت‌ها ثابت می‌ماند ممکن است برای همیشه روی صفحه OLED بسوزد.</string>
+    <string name="screen_black_hint">برای بازگشت، صفحه را لمس کنید</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">روی پردازنده اجرا می‌شود (در صورت وجود، NPU پرامپت را می‌خواند)، روی گوشی‌هایی با ۸ گیگابایت RAM یا بیشتر</string>
+    <string name="models_catalog_ram_short">%1$s حافظه: برای این مدل کم است (۸ گیگابایت لازم دارد)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">صدا</string>
+    <string name="voice_read_aloud">خواندن پاسخ‌ها با صدای بلند</string>
+    <string name="voice_read_aloud_desc">جمله به جمله هم‌زمان با نوشته شدن پاسخ. بلندگوی زیر پاسخ دوباره آن را می‌خواند.</string>
+    <string name="voice_rate">سرعت گفتار: %1$d%%</string>
+    <string name="voice_none">این گوشی موتور تبدیل متن به گفتار ندارد: یکی را در تنظیمات سیستم نصب کنید (مثلاً خدمات گفتار Google).</string>
+    <string name="chat_speak">خواندن با صدای بلند</string>
+    <string name="chat_speak_stop">توقف خواندن</string>
+    <string name="nav_model_settings">تنظیمات مدل</string>
+    <string name="model_settings_selected">مدل انتخاب‌شده: %1$s</string>
+    <string name="model_settings_none">هنوز مدلی انتخاب نشده است: این تنظیمات برای مدلی است که انتخاب می‌کنید.</string>
+    <string name="chat_take_photo">گرفتن عکس</string>
+    <string name="chat_record_video">ضبط ویدیو</string>
+    <string name="chat_camera_denied">Geode بدون اجازهٔ دوربین نمی‌تواند عکس یا ویدیو بگیرد</string>
+    <string name="chat_camera_none">هیچ برنامهٔ دوربینی روی این گوشی نیست</string>
+    <string name="voice_voice">صدا</string>
+    <string name="voice_auto">خودکار: صدای پیش‌فرض هر زبان</string>
+    <string name="voice_voice_desc">صدای انتخاب‌شده زبان خودش را می‌خواند؛ زبان‌های دیگر صدای پیش‌فرض خود را نگه می‌دارند.</string>
+    <string name="voice_pitch">زیر و بمی صدا: %1$d%%</string>
+    <string name="voice_listen">شنیدن</string>
+    <string name="voice_sample">پاسخ‌ها این‌گونه شنیده می‌شوند.</string>
+    <string name="voice_engine_settings">تنظیمات تبدیل متن به گفتار</string>
+    <string name="voice_network">به اینترنت نیاز دارد</string>
+    <string name="chat_read_aloud_on">پاسخ‌ها با صدای بلند خوانده می‌شوند</string>
+    <string name="chat_read_aloud_off">پاسخ‌ها با صدای بلند خوانده نمی‌شوند</string>
+    <string name="voice_engine">چه چیزی بلند می‌خواند</string>
+    <string name="voice_engine_system">تبدیل متن به گفتار گوشی</string>
+    <string name="voice_engine_geode">صدای خود Geode</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: ‏31 زبان روی همین گوشی خوانده می‌شود، از جمله اوکراینی، روسی و انگلیسی؛ زبان‌های دیگر را تبدیل متن به گفتار گوشی می‌خواند. روی حافظهٔ ذخیره‌سازی می‌ماند و فقط هنگام خواندن حدود 300 مگابایت حافظه می‌گیرد.</string>
+    <string name="voice_download">بارگیری صدا (%1$s)</string>
+    <string name="voice_downloading">در حال بارگیری صدا: %1$d%%</string>
+    <string name="voice_delete">حذف صدا</string>
+    <string name="voice_download_failed">صدا بارگیری نشد: %1$s</string>
+    <string name="voice_female">صدای زن %1$d</string>
+    <string name="voice_male">صدای مرد %1$d</string>
+    <string name="voice_license">مجوز صدا</string>
+    <string name="voice_license_note">Supertonic 3 از Supertone، با مجوز Open RAIL-M: محدودیت‌های استفادهٔ آن دربارهٔ آنچه می‌خواند صدق می‌کند. با sherpa-onnx اجرا می‌شود.</string>
+    <string name="agent_folders">پوشه‌های گوشی</string>
+    <string name="agent_folders_desc">پوشه‌هایی از این گوشی که عامل هر گفت‌وگو می‌تواند با آن‌ها کار کند: در Linux او در ‎/phone هستند. عامل روی رونوشتی از هر پوشه کار می‌کند که پیش از هر پیام به‌روز می‌شود؛ تغییرات عامل در پوشهٔ خواندنی و نوشتنی، وقتی کارش تمام شود به گوشی برمی‌گردد. پس گرفتن یک پوشه فقط رونوشت را پاک می‌کند.</string>
+    <string name="agent_folders_none">هنوز پوشه‌ای داده نشده است.</string>
+    <string name="agent_folders_add">دادن یک پوشه</string>
+    <string name="agent_folder_read">فقط خواندن</string>
+    <string name="agent_folder_write">خواندن و نوشتن</string>
+    <string name="agent_folder_remove">پس گرفتن</string>
+    <string name="agent_folder_files">فایل‌ها: %1$d · %2$s</string>
+    <string name="agent_folder_copying">در حال رونوشت‌برداری…</string>
+    <string name="agent_folder_skipped">رونوشت‌برداری‌نشده: %1$d (هر رونوشت حداکثر 10٬000 فایل و %2$s جا دارد)</string>
+    <string name="agent_folder_error">پوشه خوانده نمی‌شود: %1$s</string>
+    <string name="agent_folder_add_failed">پوشه به عامل داده نشد</string>
+    <string name="models_services">مدل‌های سرویس‌ها</string>
+    <string name="models_services_desc">مدل سرویسی که کلیدش را دارید می‌تواند به‌جای مدل گوشی در گفتگوها پاسخ دهد: DeepSeek، OpenRouter، OpenAI، Anthropic یا هر سرویسی که با API آن‌ها کار می‌کند. آنچه گفتگوها می‌فرستند به آن سرویس می‌رود؛ لینوکس عامل و فایل‌هایش روی گوشی می‌مانند.</string>
+    <string name="models_service_add">افزودن سرویس</string>
+    <string name="models_service_edit">ویرایش</string>
+    <string name="service_name">نام</string>
+    <string name="service_url">نشانی API</string>
+    <string name="service_protocol">پروتکل</string>
+    <string name="service_key">کلید API</string>
+    <string name="service_key_kept">روی این گوشی به‌صورت رمزشده نگه داشته می‌شود. برای جایگزینی، کلید تازه‌ای بنویسید.</string>
+    <string name="service_model">مدل</string>
+    <string name="service_list">فهرست مدل‌هایش</string>
+    <string name="service_list_failed">فهرست مدل‌ها دریافت نشد: %1$s</string>
+    <string name="service_vision">مدل تصویر می‌خواند</string>
+    <string name="service_context">زمینه، توکن</string>
+    <string name="service_max">بلندترین پاسخ، توکن</string>
+    <string name="service_leaves">گفتگوها با این مدل به %1$s فرستاده می‌شوند و طبق شرایط آن پردازش می‌شوند. کلید روی این گوشی رمزشده می‌ماند.</string>
+    <string name="chat_empty_remote">هر چه می‌خواهید بپرسید. پاسخ‌ها از %1$s (%2$s) می‌آیند: آنچه می‌فرستید از گوشی خارج می‌شود.</string>
+    <string name="chat_info_service">گفتگو به %1$s فرستاده می‌شود</string>
+    <string name="settings_about_services">و وقتی مدل یک سرویس را در صفحهٔ مدل‌ها انتخاب می‌کنید، گفتگوهایش به آن سرویس فرستاده می‌شوند.</string>
 </resources>

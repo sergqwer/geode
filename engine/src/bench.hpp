@@ -38,4 +38,8 @@ std::string gpu_check(const std::string &step_file);
 // read speed and the decode products from tile8. step_file as gpu_check's.
 std::string npu_check(const std::string &step_file);
 
+// The units that can run a model here, for the run-mode choice (npu_check.cpp): {"cpu", "gpu" (an Adreno 6xx+),
+// "gpu_name", "adreno", "npu" (Geode's module opens, Hexagon v73+), "hexagon", and the reasons where one cannot}
+std::string units();
+
 }  // namespace geode::bench

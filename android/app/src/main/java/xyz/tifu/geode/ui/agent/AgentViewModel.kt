@@ -11,7 +11,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import xyz.tifu.geode.GeodeApp
+import xyz.tifu.geode.agent.FolderState
 import xyz.tifu.geode.agent.McpServer
+import xyz.tifu.geode.agent.PhoneFolder
 import xyz.tifu.geode.agent.Skill
 
 /** The agent's Linux as the screen shows it: there or not, the image this build ships or an older one, unpacking. */
@@ -23,6 +25,8 @@ class AgentViewModel(private val app: GeodeApp) : ViewModel() {
     private val config = app.agentConfig
     val servers: StateFlow<List<McpServer>> = config.servers
     val skills: StateFlow<List<Skill>> = config.skills
+    val folders: StateFlow<List<PhoneFolder>> = app.phoneFolders.folders
+    val folderStates: StateFlow<Map<String, FolderState>> = app.phoneFolders.states
     private val _linux = MutableStateFlow(LinuxState())
     val linux: StateFlow<LinuxState> = _linux.asStateFlow()
 
@@ -35,6 +39,7 @@ class AgentViewModel(private val app: GeodeApp) : ViewModel() {
             val (ready, old) = withContext(Dispatchers.IO) { app.agent.ready to app.agent.outdated }
             _linux.update { it.copy(installed = ready, outdated = old) }
             withContext(Dispatchers.IO) { config.refreshSkills() }
+            app.phoneFolders.refresh()
         }
     }
 
@@ -63,6 +68,25 @@ class AgentViewModel(private val app: GeodeApp) : ViewModel() {
             val name = withContext(Dispatchers.IO) { runCatching { config.importSkill(app, uri, tree) }.getOrNull() }
             done(name)
         }
+    }
+
+    /**
+     * A folder of the phone given to the agent (read-only at first) and copied in - in the app's scope: the copy goes
+     * on when the screen is left. [done]: false when it could not be kept.
+     */
+    fun addFolder(uri: Uri, done: (Boolean) -> Unit) {
+        app.appScope.launch {
+            val ok = app.phoneFolders.add(uri, write = false) != null
+            withContext(Dispatchers.Main) { done(ok) }
+        }
+    }
+
+    fun setFolderWrite(name: String, write: Boolean) {
+        app.appScope.launch { app.phoneFolders.setWrite(name, write) }
+    }
+
+    fun removeFolder(name: String) {
+        app.appScope.launch { app.phoneFolders.remove(name) }
     }
 
     /** A skill's instructions, to read. */

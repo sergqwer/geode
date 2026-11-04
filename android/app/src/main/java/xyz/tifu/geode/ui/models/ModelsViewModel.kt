@@ -32,6 +32,8 @@ data class ModelsUiState(
     val installed: List<InstalledModel> = emptyList(),
     val partials: List<PartialModel> = emptyList(),
     val selected: String = "",
+    /** The service whose model the chats use ("": the phone's, [selected]). */
+    val remote: String = "",
     val freeBytes: Long = 0,
     val token: String = "",
     val searching: Boolean = false,
@@ -65,7 +67,9 @@ class ModelsViewModel(private val app: GeodeApp) : ViewModel() {
         _state.update { it.copy(ramBytes = Device.ramBytes(app), gpuPath = Device.gpuPath()) }
         loadCatalog()
         viewModelScope.launch {
-            app.settings.flow.collect { s -> _state.update { it.copy(selected = s.selectedModel, token = s.hfToken) } }
+            app.settings.flow.collect { s ->
+                _state.update { it.copy(selected = s.selectedModel, remote = s.selectedRemote, token = s.hfToken) }
+            }
         }
         viewModelScope.launch { app.engine.run.collect { r -> _state.update { it.copy(run = r) } } }
         viewModelScope.launch {
@@ -151,8 +155,40 @@ class ModelsViewModel(private val app: GeodeApp) : ViewModel() {
     fun dismissTransfer() = Transfers.dismiss()
 
     fun select(m: InstalledModel) {
-        viewModelScope.launch { app.settings.setSelectedModel(m.id) }
+        viewModelScope.launch {
+            app.settings.setSelectedModel(m.id)
+            // the phone's own model answers again
+            app.settings.setSelectedRemote("")
+        }
     }
+
+    // ---- outside services' models
+
+    val providers: StateFlow<List<xyz.tifu.geode.models.Provider>> = app.providers.list
+
+    fun useProvider(p: xyz.tifu.geode.models.Provider) {
+        viewModelScope.launch { app.settings.setSelectedRemote(p.id) }
+    }
+
+    fun hasKey(p: xyz.tifu.geode.models.Provider): Boolean = app.providers.hasKey(p.id)
+
+    /** [p] saved with [key] (null: the kept one stays); [use]: its model answers the chats from now. */
+    fun saveProvider(p: xyz.tifu.geode.models.Provider, key: String?, use: Boolean) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { app.providers.save(p, key) }
+            if (use) app.settings.setSelectedRemote(p.id)
+        }
+    }
+
+    fun deleteProvider(p: xyz.tifu.geode.models.Provider) {
+        viewModelScope.launch {
+            if (_state.value.remote == p.id) app.settings.setSelectedRemote("")
+            withContext(Dispatchers.IO) { app.providers.delete(p.id) }
+        }
+    }
+
+    suspend fun listModels(p: xyz.tifu.geode.models.Provider, key: String?): Result<List<String>> =
+        runCatching { app.providers.models(p, key) }
 
     /** The model out of memory now (an answer running is stopped, not waited for); nothing in the background loads it
      *  again. */

@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">Sohbet</string>
     <string name="nav_models">Modeller</string>
-    <string name="nav_settings">Ayarlar</string>
+    <string name="nav_settings">Uygulama ayarları</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Mesaj</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">Boş alan: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Ayarlar</string>
+    <string name="settings_title">Uygulama ayarları</string>
     <string name="settings_section_memory">Bellek</string>
     <string name="settings_memory_budget">Model için bellek</string>
     <string name="settings_memory_budget_value">%1$s (önerilen %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">En uzun bağlam: %1$d token</string>
     <string name="settings_context_desc">Bağlam önceden ayrılmaz: sohbet ilerledikçe parça parça büyür ve her parça belleğini uzman önbelleğinden (en az kullanılan uzmanlarından) alır; bu yüzden uzun bir bağlam üretimi yavaşlatır. Yeni bir sohbet hepsini geri verir.</string>
+    <string name="settings_context_desc_dense">Bağlam baştan ayrılmaz: sohbet ilerledikçe parça parça büyür; uzun bir bağlam daha çok bellek kaplar ve üretimi yavaşlatır. Yeni bir sohbet hepsini geri verir.</string>
     <string name="settings_context_memory">Bağlam (KV önbelleği, int8): %2$d tokende %1$s (1000 token başına %3$s) · uzman önbelleğinde o zaman %4$s kalır</string>
     <string name="settings_context_capped">Bu bellek bütçesi en fazla %1$d tokene yeter: konuşma orada durur.</string>
     <string name="settings_section_performance">Performans</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">Örnekleme · akıl yürütmeyle</string>
     <string name="settings_sampling_plain">Örnekleme · akıl yürütmesiz</string>
     <string name="settings_presence">Varlık cezası: %1$.2f</string>
-    <string name="settings_presence_desc">Yanıtta zaten bulunan tokenlerin olasılığını düşürür, böylece uzun bir akıl yürütme kısır döngüye girmez. Qwen 1.5 önerir.</string>
-    <string name="settings_sampling_reset">Qwen\'in önerdiği değerler</string>
+    <string name="settings_presence_desc">Yanıtta zaten bulunan tokenlerin olasılığını düşürür, böylece uzun bir akıl yürütme kısır döngüye girmez.</string>
+    <string name="settings_sampling_reset">Modelin önerdiği değerler</string>
+    <string name="settings_section_features">Modelin kabul ettiği girdiler</string>
+    <string name="settings_feature_images">Görseller</string>
+    <string name="settings_feature_images_desc">Sohbetteki fotoğraflar ve görseller. Kapalı: görsel kodlayıcı yüklenmez, böylece bellekten tasarruf edilir.</string>
+    <string name="settings_feature_video">Video</string>
+    <string name="settings_feature_video_desc">Sohbetteki videolar: model karelerini izler ve seslerini dinler.</string>
+    <string name="settings_feature_audio">Ses</string>
+    <string name="settings_feature_audio_desc">Sesli mesajlar ve ses dosyaları. Kapalı: ses kodlayıcı yüklenmez, böylece bellekten tasarruf edilir.</string>
+    <string name="settings_feature_draft">Spekülatif kod çözme</string>
+    <string name="settings_feature_draft_desc_mtp">Modelin MTP katmanı sonraki kelimeyi taslak olarak üretir ve model iki kelimeyi birden denetler: aynı metinle daha hızlı yanıtlar. Kapalı: her seferinde bir kelime.</string>
+    <string name="settings_feature_draft_desc_drafter">Gemma\'nın küçük yardımcı modeli sonraki kelimeleri tahmin eder ve ana model bunları bir kerede denetler: aynı metinle daha hızlı yanıtlar. Kapalı: her seferinde bir kelime ve yardımcı modelin belleğinden tasarruf.</string>
+    <string name="settings_sampling_recommended">Bu modda %1$s için önerilen değerler: sıcaklık %2$.2f, top-p %3$.2f, top-k %4$d, varlık cezası %5$.1f.</string>
+    <string name="settings_context_model_max">Bu model, %1$d tokene kadar bağlam için eğitilmiştir.</string>
     <string name="settings_think_budget">Akıl yürütme bütçesi: %1$s</string>
     <string name="settings_think_budget_desc">Bu kadar akıl yürütme tokeninden sonra modele hemen yanıt vermesi söylenir.</string>
     <string name="settings_max_answer">En uzun yanıt: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">Uzun istemlerde küçük çekirdekler büyüklere katılır. Redmi Note 9 Pro\'da istemleri yavaşlattılar.</string>
     <string name="settings_prefetch">Önden okuma</string>
     <string name="settings_prefetch_desc">Bir katman hesaplanırken, bir sonrakinin ihtiyaç duyacağı tahmin edilen uzmanları okur.</string>
-    <string name="settings_gpu">GPU\'yu kullan</string>
-    <string name="settings_gpu_desc">Mümkün olduğunda modeli telefonun grafik çipinde çalıştırır: Adreno 7xx veya daha yenisinde yanıtın tamamını; Adreno 618\'de bir istemin büyük çarpımlarının bir kısmını.</string>
+    <string name="settings_runs_on">Çalıştığı birim</string>
+    <string name="settings_runs_on_desc">Modeli telefonun hangi işlemcilerinin çalıştıracağı. İki tane olduğunda ilki istemleri okur, ikincisi yanıtı yazar. Yalnızca bu telefonda olanlar listelenir; varsayılan NPU + GPU, ikisinin de olduğu yerde en hızlısıdır.</string>
     <string name="settings_route_prior">Model belleğe sığmadığında daha hızlı yanıtlar</string>
     <string name="settings_route_prior_desc">Zaten bellekte olan uzmanları tercih eder, böylece depolamadan daha az okunur. Yanıtların ifadesi biraz, bazen de kalitesi değişebilir. Varsayılan olarak kapalı.</string>
-    <string name="settings_npu">NPU\'yu kullan</string>
-    <string name="settings_npu_desc">Telefonun yapay zekâ işlemcisini (Snapdragon Hexagon) işe yaradığı yerde kullanır: istemleri daha hızlı ve biraz daha doğru okur, Snapdragon 8 Elite\'te ayrıca 35B modelin uzmanlarının bir kısmını üstlenir ve hafif modeli tamamen çalıştırır. Yoksa ya da denetimi geçemezse GPU ve CPU eskisi gibi çalışır.</string>
     <string name="settings_word_experts">Kelime başına uzman</string>
     <string name="settings_word_experts_desc">8 (varsayılan): modelin seçtiği tüm uzmanlar, tam kalitesi. 6 veya 4: seçilen son 2 veya 4 uzmandan biri bellekte değilse okunmak yerine atlanır. Model belleğe sığmadığında daha hızlıdır, ancak modelin yanıtları daha az doğru olur.</string>
     <string name="settings_gpu_share">GPU\'nun satır payı: %%%1$d</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">Bağlamı sıkıştır</string>
     <string name="chat_compressing">Model konuşmayı özetliyor…</string>
     <string name="chat_summary_title">Bağlam sıkıştırıldı</string>
+    <string name="chat_pruned">Bağlam sıkıştırıldıktan sonra eski mesajlar kaldırıldı: model, onların özetinden devam ediyor.</string>
     <string name="chat_summary_note">Bundan sonra model, üstteki mesajlar yerine bu özeti görür.</string>
     <string name="settings_image_detail">Görsel ayrıntısı</string>
     <string name="settings_image_detail_fast">Hızlı</string>
     <string name="settings_image_detail_fine">Ayrıntılı</string>
     <string name="settings_image_detail_most">En yüksek</string>
     <string name="settings_image_detail_desc">Modelin eklenen bir görseli ne kadar ince gördüğü: en fazla 256, 576 veya 1024 tokeni. Daha ince ayrıntı küçük metni daha iyi okur ancak yanıtın başlaması daha uzun sürer (görsel telefonun çekirdeklerinde kodlanır; ağırlıkları ancak o zaman depolamadan okunur).</string>
-    <string name="settings_auto_compress">Bağlamı otomatik sıkıştır</string>
-    <string name="settings_auto_compress_desc">Bağlam %90 dolduğunda model konuşmayı özetler ve özetten devam eder (bir yanıt, özetin kullandığı son %10\'luk kısımdan önce durur).</string>
     <string name="answer_notif_title">Geode yanıtlıyor</string>
     <string name="answer_notif_text">Uygulama arka plandayken model çalışmaya devam eder.</string>
     <string name="answer_notif_stop">Durdur</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">Teşekkürler, rapor gönderildi</string>
     <string name="report_queued">Bağlantı yok: rapor daha sonra gönderilecek</string>
     <string name="cpu_unsupported">Bu telefonun işlemcisi desteklenmiyor: Geode, dot product komutlarına sahip 64 bit bir ARM işlemci gerektirir (ARMv8.2, 2019’dan beri çoğu telefon).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Gizlilik</string>
+    <string name="lock_setting">Uygulamayı kilitle</string>
+    <string name="lock_setting_desc">Sohbetler görünmeden önce bir PIN veya parola: uygulama açılırken ve ona geri döndüğünüzde.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">Parola</string>
+    <string name="lock_repeat">Tekrar girin</string>
+    <string name="lock_short_pin">En az 4 rakam</string>
+    <string name="lock_short_password">En az 4 karakter</string>
+    <string name="lock_mismatch">İkisi aynı değil</string>
+    <string name="lock_enter_pin">PIN\'iniz</string>
+    <string name="lock_enter_password">Parolanız</string>
+    <string name="lock_wrong">Yanlış, tekrar deneyin</string>
+    <string name="lock_wait">Çok fazla deneme: sonraki deneme %1$s sonra</string>
+    <string name="lock_unlock">Kilidi aç</string>
+    <string name="lock_title">Geode kilitli</string>
+    <string name="lock_fingerprint">Parmak iziyle kilidi aç</string>
+    <string name="lock_fingerprint_desc">Kodun yerine. Telefona sonradan eklenen bir parmak izi bunu kapatır.</string>
+    <string name="lock_fingerprint_none">Önce telefonun ayarlarından bir parmak izi ekleyin.</string>
+    <string name="lock_fingerprint_changed">Telefondaki parmak izleri değişti, bu yüzden parmak izi kapalı: kodla kilidi açın ve Ayarlar\'da yeniden açın.</string>
+    <string name="lock_prompt_title">Geode kilidini aç</string>
+    <string name="lock_prompt_code">Kodu kullan</string>
+    <string name="lock_after">Uygulamadan çıkınca kilitle</string>
+    <string name="lock_after_now">Hemen</string>
+    <string name="lock_after_min">%1$d dk</string>
+    <string name="lock_change">PIN\'i veya parolayı değiştir</string>
+    <string name="lock_off">Kilidi kapat</string>
+    <string name="lock_now">Şimdi kilitle</string>
+    <string name="lock_note">Kilit etkinken uygulamanın son uygulamalardaki önizlemesi gizlenir. Web sohbeti ve ağdaki API kendi parolasını ve anahtarını korur.</string>
+    <string name="lock_forgot">Kodu mu unuttunuz?</string>
+    <string name="lock_forgot_title">Tüm sohbetler silinsin mi?</string>
+    <string name="lock_forgot_text">Kod olmadan içeri girmenin başka yolu yok: tüm sohbetler fotoğrafları, sesleri ve ajanın dosyalarıyla silinir, ardından kilit kalkar. Modeller kalır.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Sohbet metni boyutu: %%%1$d</string>
+    <string name="settings_chat_text_desc">Sohbetteki mesajlar ve yazma alanı. Sohbet üzerinde iki parmakla da değiştirilebilir.</string>
+    <string name="models_search">Model ara</string>
+    <string name="models_cap_photos">Fotoğraf</string>
+    <string name="models_cap_video">Video</string>
+    <string name="models_cap_sound">Ses</string>
+    <string name="models_cap_reasoning">Akıl yürütme</string>
+    <string name="models_no_match">Eşleşen model yok</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Ekran</string>
+    <string name="screen_keep">Ekranı açık tut</string>
+    <string name="screen_keep_off">Hayır: telefonun kendi zaman aşımı</string>
+    <string name="screen_keep_answering">Geode yanıt verirken</string>
+    <string name="screen_keep_always">Her zaman, Geode açıkken</string>
+    <string name="screen_black_after">Dokunulmadan %1$d dk sonra siyah ekran</string>
+    <string name="screen_black_never">Siyah ekran: asla</string>
+    <string name="screen_black_desc">Ekran yanmasına karşı: OLED ekranda hiç hareket etmeyen kısımlar (çubuklar, yazma alanı) saatler içinde ekrana yanabilir. Siyah ekran bir kilit değildir: telefon kilitsiz kalır, ekrana dokunmak Geode\'u geri getirir.</string>
+    <string name="screen_black_off_warning">Siyah ekran kapalıyken saatlerce değişmeyen bir görüntü OLED ekrana kalıcı olarak yanabilir.</string>
+    <string name="screen_black_hint">Geri dönmek için ekrana dokunun</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">İşlemcide çalışır (varsa istemleri NPU okur), 8 GB veya daha fazla RAM\'li telefonlarda</string>
+    <string name="models_catalog_ram_short">%1$s RAM: bu model için az (8 GB gerekir)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Ses</string>
+    <string name="voice_read_aloud">Yanıtları sesli oku</string>
+    <string name="voice_read_aloud_desc">Yanıt yazılırken cümle cümle. Yanıtın altındaki hoparlör onu yeniden okur.</string>
+    <string name="voice_rate">Konuşma hızı: %%%1$d</string>
+    <string name="voice_none">Bu telefonda metin okuma motoru yok: sistem ayarlarından bir tane yükleyin (örneğin Google Konuşma Hizmetleri).</string>
+    <string name="chat_speak">Sesli oku</string>
+    <string name="chat_speak_stop">Okumayı durdur</string>
+    <string name="nav_model_settings">Model ayarları</string>
+    <string name="model_settings_selected">Seçili model: %1$s</string>
+    <string name="model_settings_none">Henüz model seçilmedi: bu ayarlar seçeceğiniz modele uygulanır.</string>
+    <string name="chat_take_photo">Fotoğraf çek</string>
+    <string name="chat_record_video">Video kaydet</string>
+    <string name="chat_camera_denied">Kamera izni olmadan Geode fotoğraf veya video çekemez</string>
+    <string name="chat_camera_none">Bu telefonda kamera uygulaması yok</string>
+    <string name="voice_voice">Ses</string>
+    <string name="voice_auto">Otomatik: her dilin varsayılan sesi</string>
+    <string name="voice_voice_desc">Seçilen ses kendi dilini okur; diğer diller varsayılan seslerini korur.</string>
+    <string name="voice_pitch">Ses perdesi: %%%1$d</string>
+    <string name="voice_listen">Dinle</string>
+    <string name="voice_sample">Yanıtlar böyle duyulacak.</string>
+    <string name="voice_engine_settings">Metin okuma ayarları</string>
+    <string name="voice_network">internet gerekir</string>
+    <string name="chat_read_aloud_on">Yanıtlar sesli okunuyor</string>
+    <string name="chat_read_aloud_off">Yanıtlar sesli okunmuyor</string>
+    <string name="voice_engine">Sesli okuyan</string>
+    <string name="voice_engine_system">Telefonun metin okuma özelliği</string>
+    <string name="voice_engine_geode">Geode\'un kendi sesi</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: aralarında Ukraynaca, Rusça ve İngilizcenin de bulunduğu 31 dil bu telefonda okunur; diğer dilleri telefonun metin okuma özelliği okur. Depolamada durur ve yalnızca okurken yaklaşık 300 MB bellek kullanır.</string>
+    <string name="voice_download">Sesi indir (%1$s)</string>
+    <string name="voice_downloading">Ses indiriliyor: %%%1$d</string>
+    <string name="voice_delete">Sesi sil</string>
+    <string name="voice_download_failed">Ses indirilemedi: %1$s</string>
+    <string name="voice_female">Kadın sesi %1$d</string>
+    <string name="voice_male">Erkek sesi %1$d</string>
+    <string name="voice_license">Sesin lisansı</string>
+    <string name="voice_license_note">Supertone\'un Supertonic 3\'ü, Open RAIL-M lisansıyla: kullanım kısıtlamaları okuduğu her şey için geçerlidir. sherpa-onnx ile çalışır.</string>
+    <string name="agent_folders">Telefon klasörleri</string>
+    <string name="agent_folders_desc">Her sohbetin ajanının çalışabileceği bu telefonun klasörleri: ajanın Linux\'unda /phone altındadır. Ajan her birinin, her mesajdan önce güncellenen bir kopyası üzerinde çalışır; okuma ve yazma izinli bir klasöre ajanın değişiklikleri, işi bitince geri aktarılır. Bir klasörü geri almak yalnızca kopyayı siler.</string>
+    <string name="agent_folders_none">Henüz klasör verilmedi.</string>
+    <string name="agent_folders_add">Klasör ver</string>
+    <string name="agent_folder_read">Yalnızca okuma</string>
+    <string name="agent_folder_write">Okuma ve yazma</string>
+    <string name="agent_folder_remove">Geri al</string>
+    <string name="agent_folder_files">Dosya: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Kopyalanıyor…</string>
+    <string name="agent_folder_skipped">Kopyalanmayan: %1$d (bir kopya en fazla 10.000 dosya ve %2$s alır)</string>
+    <string name="agent_folder_error">Klasör okunamıyor: %1$s</string>
+    <string name="agent_folder_add_failed">Klasör ajana verilemedi</string>
+    <string name="models_services">Hizmet modelleri</string>
+    <string name="models_services_desc">Anahtarınız olan bir hizmetin modeli, sohbetlerde telefonun modeli yerine yanıt verebilir: DeepSeek, OpenRouter, OpenAI, Anthropic veya onların API\'lerini konuşan herhangi bir hizmet. Sohbetlerin gönderdikleri o hizmete gider; ajanın Linux\'u ve dosyaları telefonda kalır.</string>
+    <string name="models_service_add">Hizmet ekle</string>
+    <string name="models_service_edit">Düzenle</string>
+    <string name="service_name">Ad</string>
+    <string name="service_url">API adresi</string>
+    <string name="service_protocol">Protokol</string>
+    <string name="service_key">API anahtarı</string>
+    <string name="service_key_kept">Bu telefonda şifreli olarak saklanır. Değiştirmek için yenisini yazın.</string>
+    <string name="service_model">Model</string>
+    <string name="service_list">Modellerini listele</string>
+    <string name="service_list_failed">Modeller listelenemedi: %1$s</string>
+    <string name="service_vision">Model görselleri okur</string>
+    <string name="service_context">Bağlam, token</string>
+    <string name="service_max">En uzun yanıt, token</string>
+    <string name="service_leaves">Bu modelle yapılan sohbetler %1$s adresine gönderilir ve onun koşullarına göre işlenir. Anahtar bu telefonda şifreli kalır.</string>
+    <string name="chat_empty_remote">Ne isterseniz sorun. Yanıtlar %1$s (%2$s) üzerinden gelir: gönderdikleriniz telefondan çıkar.</string>
+    <string name="chat_info_service">Sohbet %1$s adresine gönderilir</string>
+    <string name="settings_about_services">Ve Modeller ekranında bir hizmetin modelini seçtiğinizde, onun sohbetleri o hizmete gönderilir.</string>
 </resources>

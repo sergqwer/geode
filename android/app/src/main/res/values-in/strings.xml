@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">Chat</string>
     <string name="nav_models">Model</string>
-    <string name="nav_settings">Setelan</string>
+    <string name="nav_settings">Setelan aplikasi</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Pesan</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">Ruang kosong: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Setelan</string>
+    <string name="settings_title">Setelan aplikasi</string>
     <string name="settings_section_memory">Memori</string>
     <string name="settings_memory_budget">Memori untuk model</string>
     <string name="settings_memory_budget_value">%1$s (disarankan %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">Konteks terpanjang: %1$d token</string>
     <string name="settings_context_desc">Konteks tidak dipesan di awal: konteks bertambah sedikit demi sedikit seiring chat berjalan, dan setiap bagian mengambil memorinya dari cache expert (expert yang paling jarang dipakai) - konteks panjang membuat generasi lebih lambat. Chat baru mengembalikan semuanya.</string>
+    <string name="settings_context_desc_dense">Konteks tidak dipesan di awal: konteks bertambah per bagian seiring obrolan berjalan, dan konteks yang panjang memakan lebih banyak memori serta memperlambat pembuatan. Obrolan baru mengembalikan semuanya.</string>
     <string name="settings_context_memory">Konteks (cache KV, int8): %1$s pada %2$d token (%3$s per 1000) · cache expert lalu menyimpan %4$s</string>
     <string name="settings_context_capped">Anggaran memori ini muat paling banyak %1$d token: percakapan berhenti di sana.</string>
     <string name="settings_section_performance">Performa</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">Sampling · dengan penalaran</string>
     <string name="settings_sampling_plain">Sampling · tanpa penalaran</string>
     <string name="settings_presence">Penalti kehadiran (presence): %1$.2f</string>
-    <string name="settings_presence_desc">Menurunkan peluang token yang sudah ada di jawaban, agar penalaran panjang tidak berputar-putar. Qwen menyarankan 1.5.</string>
-    <string name="settings_sampling_reset">Nilai yang disarankan Qwen</string>
+    <string name="settings_presence_desc">Menurunkan peluang token yang sudah ada di jawaban, agar penalaran panjang tidak berputar-putar.</string>
+    <string name="settings_sampling_reset">Nilai yang disarankan model</string>
+    <string name="settings_section_features">Input yang diterima model</string>
+    <string name="settings_feature_images">Gambar</string>
+    <string name="settings_feature_images_desc">Foto dan gambar dalam chat. Nonaktif: encoder visual tidak dimuat, sehingga menghemat memori.</string>
+    <string name="settings_feature_video">Video</string>
+    <string name="settings_feature_video_desc">Video dalam chat: model melihat bingkai videonya dan mendengar suaranya.</string>
+    <string name="settings_feature_audio">Audio</string>
+    <string name="settings_feature_audio_desc">Pesan suara dan file audio. Nonaktif: encoder audio tidak dimuat, sehingga menghemat memori.</string>
+    <string name="settings_feature_draft">Dekode spekulatif</string>
+    <string name="settings_feature_draft_desc_mtp">Lapisan MTP model menyusun draf kata berikutnya dan model memeriksa dua kata sekaligus: jawaban lebih cepat dengan teks yang sama. Nonaktif: satu kata setiap kali.</string>
+    <string name="settings_feature_draft_desc_drafter">Model pembantu kecil Gemma memprediksi kata-kata berikutnya dan model utama memeriksanya sekaligus: jawaban lebih cepat dengan teks yang sama. Nonaktif: satu kata setiap kali, dan memori model pembantu dihemat.</string>
+    <string name="settings_sampling_recommended">Disarankan untuk %1$s dalam mode ini: temperatur %2$.2f, top-p %3$.2f, top-k %4$d, penalti kehadiran (presence) %5$.1f.</string>
+    <string name="settings_context_model_max">Model ini dilatih untuk konteks hingga %1$d token.</string>
     <string name="settings_think_budget">Anggaran penalaran: %1$s</string>
     <string name="settings_think_budget_desc">Setelah token penalaran sebanyak ini, model diminta untuk langsung menjawab.</string>
     <string name="settings_max_answer">Jawaban terpanjang: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">Inti kecil membantu inti besar pada prompt panjang. Di Redmi Note 9 Pro, prompt justru jadi lebih lambat.</string>
     <string name="settings_prefetch">Baca lebih dulu</string>
     <string name="settings_prefetch_desc">Selagi satu layer dihitung, membaca expert yang diperkirakan dibutuhkan layer berikutnya.</string>
-    <string name="settings_gpu">Gunakan GPU</string>
-    <string name="settings_gpu_desc">Menjalankan model di chip grafis ponsel jika memungkinkan: seluruh jawaban di Adreno 7xx atau yang lebih baru; di Adreno 618, sebagian perkalian besar dari prompt.</string>
+    <string name="settings_runs_on">Berjalan di</string>
+    <string name="settings_runs_on_desc">Prosesor ponsel mana yang menjalankan model. Jika dua, yang pertama membaca prompt dan yang kedua menulis jawaban. Hanya yang dimiliki ponsel ini yang ditampilkan; bawaannya NPU + GPU, tercepat bila keduanya ada.</string>
     <string name="settings_route_prior">Jawaban lebih cepat saat model tidak muat di memori</string>
     <string name="settings_route_prior_desc">Mengutamakan expert yang sudah ada di memori sehingga lebih sedikit yang dibaca dari penyimpanan. Susunan kata jawaban bisa sedikit berubah, kadang juga kualitasnya. Nonaktif secara default.</string>
-    <string name="settings_npu">Gunakan NPU</string>
-    <string name="settings_npu_desc">Memakai prosesor AI ponsel (Snapdragon Hexagon) di bagian yang terbantu: membaca prompt lebih cepat dan sedikit lebih akurat, dan di Snapdragon 8 Elite juga mengambil sebagian expert model 35B serta menjalankan model ringan sepenuhnya. Jika tidak ada atau gagal pemeriksaan, GPU dan CPU bekerja seperti sebelumnya.</string>
     <string name="settings_word_experts">Expert per kata</string>
     <string name="settings_word_experts_desc">8 (bawaan): semua expert yang dipilih model, kualitas penuhnya. 6 atau 4: jika salah satu dari 2 atau 4 expert terakhir yang dipilih tidak ada di memori, expert itu dilewati, bukan dibaca. Lebih cepat saat model tidak muat di memori, tetapi jawaban model menjadi kurang akurat.</string>
     <string name="settings_gpu_share">Porsi baris untuk GPU: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">Kompres konteks</string>
     <string name="chat_compressing">Model sedang merangkum percakapan…</string>
     <string name="chat_summary_title">Konteks dikompres</string>
+    <string name="chat_pruned">Pesan-pesan lama dihapus setelah konteks dipadatkan: model melanjutkan dari ringkasannya.</string>
     <string name="chat_summary_note">Mulai dari sini model melihat ringkasan ini, bukan pesan-pesan di atasnya.</string>
     <string name="settings_image_detail">Detail gambar</string>
     <string name="settings_image_detail_fast">Cepat</string>
     <string name="settings_image_detail_fine">Detail</string>
     <string name="settings_image_detail_most">Maksimum</string>
     <string name="settings_image_detail_desc">Seberapa rinci model melihat gambar yang dilampirkan: hingga 256, 576, atau 1024 token. Lebih rinci berarti teks kecil terbaca lebih baik, tetapi jawaban mulai lebih lama (gambar dienkode di inti ponsel; bobotnya baru dibaca dari penyimpanan saat itu).</string>
-    <string name="settings_auto_compress">Kompres konteks secara otomatis</string>
-    <string name="settings_auto_compress_desc">Saat konteks 90% penuh, model merangkum percakapan dan melanjutkan dari ringkasan itu (jawaban berhenti sebelum 10% terakhir, yang dipakai untuk ringkasan).</string>
     <string name="answer_notif_title">Geode sedang menjawab</string>
     <string name="answer_notif_text">Model tetap bekerja saat aplikasi berada di latar belakang.</string>
     <string name="answer_notif_stop">Berhenti</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">Terima kasih, laporan telah dikirim</string>
     <string name="report_queued">Tidak ada koneksi: laporan akan dikirim nanti</string>
     <string name="cpu_unsupported">Prosesor ponsel ini tidak didukung: Geode memerlukan prosesor ARM 64-bit dengan instruksi dot product (ARMv8.2, sebagian besar ponsel sejak 2019).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Privasi</string>
+    <string name="lock_setting">Kunci aplikasi</string>
+    <string name="lock_setting_desc">PIN atau sandi sebelum chat ditampilkan: saat aplikasi dibuka dan saat Anda kembali ke aplikasi.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">Sandi</string>
+    <string name="lock_repeat">Ulangi</string>
+    <string name="lock_short_pin">Minimal 4 angka</string>
+    <string name="lock_short_password">Minimal 4 karakter</string>
+    <string name="lock_mismatch">Keduanya tidak sama</string>
+    <string name="lock_enter_pin">PIN Anda</string>
+    <string name="lock_enter_password">Sandi Anda</string>
+    <string name="lock_wrong">Salah, coba lagi</string>
+    <string name="lock_wait">Terlalu banyak percobaan: berikutnya dalam %1$s</string>
+    <string name="lock_unlock">Buka kunci</string>
+    <string name="lock_title">Geode terkunci</string>
+    <string name="lock_fingerprint">Buka kunci dengan sidik jari</string>
+    <string name="lock_fingerprint_desc">Sebagai pengganti kode. Sidik jari yang ditambahkan ke ponsel nanti akan menonaktifkan ini.</string>
+    <string name="lock_fingerprint_none">Tambahkan sidik jari di setelan ponsel terlebih dahulu.</string>
+    <string name="lock_fingerprint_changed">Sidik jari di ponsel berubah, jadi sidik jari dinonaktifkan: buka kunci dengan kode lalu aktifkan lagi di Setelan.</string>
+    <string name="lock_prompt_title">Buka kunci Geode</string>
+    <string name="lock_prompt_code">Gunakan kode</string>
+    <string name="lock_after">Kunci setelah keluar dari aplikasi</string>
+    <string name="lock_after_now">Segera</string>
+    <string name="lock_after_min">%1$d mnt</string>
+    <string name="lock_change">Ganti PIN atau sandi</string>
+    <string name="lock_off">Matikan kunci</string>
+    <string name="lock_now">Kunci sekarang</string>
+    <string name="lock_note">Selama kunci aktif, pratinjau aplikasi di aplikasi terbaru disembunyikan. Chat web dan API di jaringan tetap memakai sandi dan kuncinya sendiri.</string>
+    <string name="lock_forgot">Lupa kode?</string>
+    <string name="lock_forgot_title">Hapus semua chat?</string>
+    <string name="lock_forgot_text">Tanpa kode tidak ada cara lain untuk masuk: semua chat dihapus beserta foto, suara, dan file agen, lalu kuncinya. Model tetap ada.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Ukuran teks chat: %1$d%%</string>
+    <string name="settings_chat_text_desc">Pesan dan kolom ketik di chat. Bisa juga diubah dengan dua jari langsung di percakapan.</string>
+    <string name="models_search">Cari model</string>
+    <string name="models_cap_photos">Foto</string>
+    <string name="models_cap_video">Video</string>
+    <string name="models_cap_sound">Suara</string>
+    <string name="models_cap_reasoning">Penalaran</string>
+    <string name="models_no_match">Tidak ada model yang cocok</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Layar</string>
+    <string name="screen_keep">Biarkan layar menyala</string>
+    <string name="screen_keep_off">Tidak: batas waktu ponsel</string>
+    <string name="screen_keep_answering">Selama Geode menjawab</string>
+    <string name="screen_keep_always">Selalu, selama Geode terbuka</string>
+    <string name="screen_black_after">Layar hitam setelah %1$d mnt tanpa sentuhan</string>
+    <string name="screen_black_never">Layar hitam: tidak pernah</string>
+    <string name="screen_black_desc">Mencegah burn-in: pada layar OLED, bagian gambar yang tidak pernah bergerak (bilah, kolom ketik) bisa membekas setelah berjam-jam. Layar hitam bukan kunci: ponsel tetap tidak terkunci, dan cukup sentuh layar agar Geode kembali.</string>
+    <string name="screen_black_off_warning">Tanpa layar hitam, gambar yang diam berjam-jam bisa membekas permanen di layar OLED.</string>
+    <string name="screen_black_hint">Sentuh layar untuk kembali</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">Berjalan di prosesor (NPU membaca prompt jika ada), di ponsel dengan RAM 8 GB atau lebih</string>
+    <string name="models_catalog_ram_short">RAM %1$s: terlalu kecil untuk model ini (butuh 8 GB)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Suara</string>
+    <string name="voice_read_aloud">Bacakan jawaban</string>
+    <string name="voice_read_aloud_desc">Kalimat demi kalimat saat jawaban ditulis. Speaker di bawah jawaban membacanya lagi.</string>
+    <string name="voice_rate">Kecepatan bicara: %1$d%%</string>
+    <string name="voice_none">Ponsel ini tidak punya mesin teks-ke-ucapan: pasang satu (misalnya Layanan Ucapan oleh Google) di setelan sistem.</string>
+    <string name="chat_speak">Bacakan</string>
+    <string name="chat_speak_stop">Hentikan pembacaan</string>
+    <string name="nav_model_settings">Setelan model</string>
+    <string name="model_settings_selected">Model terpilih: %1$s</string>
+    <string name="model_settings_none">Belum ada model yang dipilih: setelan ini berlaku untuk model yang Anda pilih.</string>
+    <string name="chat_take_photo">Ambil foto</string>
+    <string name="chat_record_video">Rekam video</string>
+    <string name="chat_camera_denied">Geode tidak dapat mengambil foto atau video tanpa izin kamera</string>
+    <string name="chat_camera_none">Tidak ada aplikasi kamera di ponsel ini</string>
+    <string name="voice_voice">Suara</string>
+    <string name="voice_auto">Otomatis: suara bawaan setiap bahasa</string>
+    <string name="voice_voice_desc">Suara yang dipilih membacakan bahasanya sendiri; bahasa lain tetap memakai suara bawaannya.</string>
+    <string name="voice_pitch">Nada suara: %1$d%%</string>
+    <string name="voice_listen">Dengarkan</string>
+    <string name="voice_sample">Seperti inilah jawaban akan terdengar.</string>
+    <string name="voice_engine_settings">Setelan teks ke ucapan</string>
+    <string name="voice_network">perlu internet</string>
+    <string name="chat_read_aloud_on">Jawaban dibacakan</string>
+    <string name="chat_read_aloud_off">Jawaban tidak dibacakan</string>
+    <string name="voice_engine">Apa yang membaca dengan suara</string>
+    <string name="voice_engine_system">Teks-ke-ucapan ponsel</string>
+    <string name="voice_engine_geode">Suara milik Geode sendiri</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: 31 bahasa dibacakan di ponsel ini, termasuk Ukraina, Rusia, dan Inggris; bahasa lain dibacakan oleh teks-ke-ucapan ponsel. Suara ini tetap di penyimpanan dan hanya memakai sekitar 300 MB memori saat membaca.</string>
+    <string name="voice_download">Unduh suara (%1$s)</string>
+    <string name="voice_downloading">Mengunduh suara: %1$d%%</string>
+    <string name="voice_delete">Hapus suara</string>
+    <string name="voice_download_failed">Suara tidak terunduh: %1$s</string>
+    <string name="voice_female">Suara perempuan %1$d</string>
+    <string name="voice_male">Suara laki-laki %1$d</string>
+    <string name="voice_license">Lisensi suara</string>
+    <string name="voice_license_note">Supertonic 3 dari Supertone, dengan lisensi Open RAIL-M: batasan penggunaannya berlaku untuk apa yang dibacanya. Berjalan dengan sherpa-onnx.</string>
+    <string name="agent_folders">Folder ponsel</string>
+    <string name="agent_folders_desc">Folder di ponsel ini yang dapat digunakan agen setiap chat: di Linux-nya, folder itu ada di /phone. Agen bekerja pada salinan setiap folder, yang diperbarui sebelum setiap pesan; folder baca-tulis menerima kembali perubahan agen setelah agen selesai. Mencabut folder hanya menghapus salinannya.</string>
+    <string name="agent_folders_none">Belum ada folder yang diberikan.</string>
+    <string name="agent_folders_add">Berikan folder</string>
+    <string name="agent_folder_read">Hanya baca</string>
+    <string name="agent_folder_write">Baca dan tulis</string>
+    <string name="agent_folder_remove">Cabut</string>
+    <string name="agent_folder_files">File: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Menyalin…</string>
+    <string name="agent_folder_skipped">Tidak disalin: %1$d (salinan memuat paling banyak 10.000 file dan %2$s)</string>
+    <string name="agent_folder_error">Folder tidak dapat dibaca: %1$s</string>
+    <string name="agent_folder_add_failed">Folder tidak dapat diberikan kepada agen</string>
+    <string name="models_services">Model layanan</string>
+    <string name="models_services_desc">Model dari layanan yang kuncinya Anda miliki dapat menjawab di obrolan sebagai pengganti model di ponsel: DeepSeek, OpenRouter, OpenAI, Anthropic, atau layanan apa pun yang memakai API mereka. Apa yang dikirim obrolan pergi ke layanan itu; Linux agen dan berkasnya tetap di ponsel.</string>
+    <string name="models_service_add">Tambah layanan</string>
+    <string name="models_service_edit">Ubah</string>
+    <string name="service_name">Nama</string>
+    <string name="service_url">Alamat API</string>
+    <string name="service_protocol">Protokol</string>
+    <string name="service_key">Kunci API</string>
+    <string name="service_key_kept">Disimpan di ponsel ini dalam bentuk terenkripsi. Ketik kunci baru untuk menggantinya.</string>
+    <string name="service_model">Model</string>
+    <string name="service_list">Tampilkan modelnya</string>
+    <string name="service_list_failed">Model tidak dapat ditampilkan: %1$s</string>
+    <string name="service_vision">Model membaca gambar</string>
+    <string name="service_context">Konteks, token</string>
+    <string name="service_max">Jawaban terpanjang, token</string>
+    <string name="service_leaves">Obrolan dengan model ini dikirim ke %1$s dan ditangani menurut ketentuannya. Kunci tetap di ponsel ini dalam bentuk terenkripsi.</string>
+    <string name="chat_empty_remote">Tanyakan apa saja. Jawaban datang dari %1$s (%2$s): yang Anda kirim keluar dari ponsel.</string>
+    <string name="chat_info_service">Obrolan dikirim ke %1$s</string>
+    <string name="settings_about_services">Dan saat Anda memilih model sebuah layanan di layar Model, obrolannya dikirim ke layanan itu.</string>
 </resources>

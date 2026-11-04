@@ -183,6 +183,8 @@ public:
     bool dec_experts(const DecodeLayer &L, const QView *gu, const QView *dn, const std::vector<int> &ks, bool shared,
                      std::string &err);
     bool dec_combine(const uint32_t *skip, const uint64_t *um, bool renorm, std::string &err);
+    // a dense model (no experts): x += its MLP, which dec_experts computed as the shared slot
+    bool dec_mlp_add(std::string &err);
     // the final norm and lm_head into logits (vocab floats a token); waits
     bool dec_head(const float *final_norm, const QView &lm_head, float *logits, std::string &err);
     // enqueued: bytes from src to dst, both in shared memory (a rejected draft's states back)
@@ -205,6 +207,48 @@ public:
                  const float *h, float *mix, std::string &err);
     std::string dec_profile() const;   // with GEODE_GPU8_PROF=1: the one-token kernels' time by kernel
     void dec_selftest(const QView &m, int reps);   // measuring: m's one-token product reps times, alone
+
+    // ---- Gemma 4's answer on the GPU (Model::setup_gemma_gpu; the programs built for q4i, every matrix adopted):
+    // T tokens (1, or a verified batch's 2 .. max_tokens: set_tokens) through every layer on the one-token queue, then
+    // the final norm, lm_head and the soft-cap. The CPU writes each token's scaled embedding (gemma_x) and its row of
+    // the per-layer table (gemma_ple, as Pack::read_row gives it); the KV cache is the CPU's (int8: Model::kv_scale) in
+    // shared memory; the norms and the rotary frequencies in the dec_params piece. Each token's arithmetic is the
+    // one-token pass's, in the same order (a verified token's bits are a generated one's).
+    struct GemmaShape {
+        int hidden = 0, vocab = 0, nh = 0, nkv = 0, hd_max = 0, ffn_max = 0, ple = 0, n_layers = 0, window = 0;
+        int n_attn = 0, kv_chunk = 0, kv_row = 0, max_ctx = 0, max_tokens = 1;
+        float eps = 1e-6f, softcap = 0.0f, ple_proj = 1.0f, ple_tok = 1.0f;   // (the per-layer inputs' scales)
+    };
+    struct GemmaLayer {
+        bool full = false, own_kv = false;
+        int slot = 0, hd = 0, ffn = 0, pairs = 0;   // slot: its K / V in the cache, its own or the layer's it shares
+        float scalar = 1.0f;
+        // in the dec_params piece
+        const float *in_norm = nullptr, *post_attn = nullptr, *pre_ff = nullptr, *post_ff = nullptr,
+                    *ple_norm = nullptr, *q_norm = nullptr, *k_norm = nullptr, *freq = nullptr;
+        QView q, k, v, o, gate, up, down, ple_gate, ple_proj;
+    };
+    bool setup_gemma(const GemmaShape &s, std::string &err);
+    float *gemma_x();     // max_tokens rows of hidden floats
+    float *gemma_ple();   // max_tokens rows of layers x ple floats
+    // pos: the first token's position (its KV row); logits: the rows of tokens first .. T - 1 (vocab floats each), or
+    // nullptr; hidden: every token's state after the final norm (hidden floats each), or nullptr. Waits.
+    bool gemma_step(const std::vector<GemmaLayer> &layers, const QView &ple_model, const float *ple_proj_norm,
+                    const float *final_norm, const QView &lm_head, int pos, const std::vector<uint8_t *> &kv,
+                    float *logits, int first, float *hidden, std::string &err);
+
+    // ---- A Gemma prompt's layers on the GPU (Model::gemma_chunk with the prompt on the GPU; setup_gemma done): n
+    // tokens' rows through every layer on the one-token queue - the batch program's products (tiles of 8 tokens), its
+    // norms and GELUs writing their rows' int8 tiles as the products read them (XAT), the heads' norms and rotary,
+    // the int8 KV cache (written as gemma_step writes it), the attention (g_attn_small within two chunks and 2048
+    // positions, else chunk by chunk and joined), the per-layer inputs. The host writes x's rows (gemma_prompt_x: n x
+    // hidden, the scaled embeddings or a medium's features) and the per-layer inputs (gemma_prompt_ple: n x layers x
+    // ple, Model's ple_), and reads x back. n <= the cap setup_gemma_prompt took. Waits.
+    bool setup_gemma_prompt(int cap, std::string &err);
+    float *gemma_prompt_x();
+    float *gemma_prompt_ple();
+    bool gemma_prompt(const std::vector<GemmaLayer> &layers, int pos, int n, const std::vector<uint8_t *> &kv,
+                      std::string &err);
 
 private:
     struct Impl;

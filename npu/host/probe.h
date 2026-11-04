@@ -14,3 +14,11 @@ int npu_bench(remote_handle64 h, int reps, npu_say_fn out, void *ctx);
 int npu_gemm_check(remote_handle64 h, int m, int k, int n, int reps, npu_say_fn out, void *ctx);
 // the engine's interface (npu_api.h) on a rows x cols matrix in the pack's q4 layout times n rows; 0 when right
 int npu_api_check(int rows, int cols, int n, npu_say_fn out, void *ctx);
+// one copy (gnpu_adopt_t8): a rows x cols q4i matrix (in `parts` column parts) adopted as hmx4 copies and as tile8
+// in shared memory, times n rows both ways: their results compared and their DSP times; 0 when they agree
+int npu_t8_check(const char *skel_dir, int rows, int cols, int n, int parts, npu_say_fn out, void *ctx);
+// fp16 weights from the host (gnpu_pack_f16 / gnpu_gemm_f16): a random rows x cols q8 matrix times n rows against a
+// double sum; 0 when within 4e-3 of the largest result
+int npu_f16_check(const char *skel_dir, int rows, int cols, int n, npu_say_fn out, void *ctx);
+// the same for an MLP (gnpu_mlp: hidden H, middle ff, down in n_down parts)
+int npu_t8_mlp_check(const char *skel_dir, int H, int ff, int n, int n_down, npu_say_fn out, void *ctx);

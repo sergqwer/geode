@@ -330,6 +330,8 @@ void ThreadPool::parallel_for(int64_t n, const std::function<void(int64_t, int64
         // min_chunk
         const int per = nwide > 0 ? 8 : 4;
         chunk = std::max<int64_t>(min_chunk, (n + threads * per - 1) / (threads * per));
+        // a whole number of min_chunk (a product's 16 rows: a chunk of 86 split a quad, both threads computing it)
+        chunk = (chunk + min_chunk - 1) / min_chunk * min_chunk;
     }
     if (threads == 1 || (weighted ? pieces <= 1 : n <= chunk)) {
         if (first) (*first)();

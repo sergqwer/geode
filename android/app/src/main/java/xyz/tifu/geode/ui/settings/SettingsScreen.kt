@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -45,17 +45,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import xyz.tifu.geode.R
-import xyz.tifu.geode.util.formatBytes
-import xyz.tifu.geode.util.formatMb
 
+/**
+ * The app's own settings (the drawer's "App settings"): appearance, the screen, answers read aloud, the language,
+ * the lock, about. How the models work is ModelSettingsScreen's.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(vm: SettingsViewModel, openDrawer: () -> Unit) {
     val s by vm.settings.collectAsStateWithLifecycle()
-    val test by vm.test.collectAsStateWithLifecycle()
-    val shape by vm.shape.collectAsStateWithLifecycle()
-    val gpuStatus by vm.gpuStatus.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(title = { Text(stringResource(R.string.settings_title)) }, navigationIcon = {
@@ -64,207 +64,6 @@ fun SettingsScreen(vm: SettingsViewModel, openDrawer: () -> Unit) {
             }
         })
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-
-            // ---- memory ----
-            Section(stringResource(R.string.settings_section_memory))
-            val maxMb = maxOf(s.limitMb, s.recommendedMb, (vm.totalMemBytes * 85 / 100 shr 20).toInt())
-            var budget by remember(s.effectiveBudgetMb) { mutableFloatStateOf(s.effectiveBudgetMb.toFloat()) }
-            val budgetMb = (budget / STEP_MB).roundToInt() * STEP_MB
-            Text(stringResource(R.string.settings_memory_budget), style = MaterialTheme.typography.bodyLarge)
-            Text(
-                if (s.recommendedMb > 0) stringResource(R.string.settings_memory_budget_value, formatMb(budgetMb),
-                    formatMb(s.recommendedMb))
-                else stringResource(R.string.settings_memory_budget_value_untested, formatMb(budgetMb)),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Slider(
-                value = budget.coerceIn(MIN_MB.toFloat(), maxMb.toFloat()),
-                onValueChange = { budget = it },
-                // the state now, not this composition's: a tap changes and finishes before it recomposes
-                onValueChangeFinished = { vm.setMemoryBudget((budget / STEP_MB).roundToInt() * STEP_MB) },
-                valueRange = MIN_MB.toFloat()..maxMb.toFloat(),
-            )
-            if (s.recommendedMb > 0 && budgetMb > s.recommendedMb) {
-                Text(stringResource(R.string.settings_memory_warning), color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall)
-            }
-            val split = shape?.let { vm.split(budgetMb, s.contextLength, it) }
-            if (split != null) {
-                Text(stringResource(R.string.settings_memory_split, formatBytes(split.weights),
-                    formatBytes(split.cacheStart)), style = MaterialTheme.typography.bodySmall,
-                    color = if (split.cacheStart > 0) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.error)
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(stringResource(R.string.settings_memory_test_desc), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = vm::runMemoryTest, enabled = !test.running) {
-                    Text(stringResource(R.string.settings_memory_test))
-                }
-                if (test.running) {
-                    CircularProgressIndicator(Modifier.padding(start = 12.dp).size(18.dp), strokeWidth = 2.dp)
-                    Text(stringResource(R.string.settings_memory_test_running, formatBytes(test.heldBytes)),
-                        Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            if (!test.running && s.limitMb > 0) {
-                Text(stringResource(R.string.settings_memory_test_result, formatMb(s.recommendedMb), formatMb(s.limitMb)),
-                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
-                if (s.memoryBudgetMb > 0 && s.memoryBudgetMb != s.recommendedMb) {
-                    TextButton(onClick = { vm.setMemoryBudget(0) }) {
-                        Text(stringResource(R.string.settings_memory_use_recommended))
-                    }
-                }
-            }
-            test.error?.let {
-                Text(stringResource(R.string.settings_memory_test_failed, it), color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall)
-            }
-
-            // ---- generation ----
-            Section(stringResource(R.string.settings_section_generation))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.settings_thinking), style = MaterialTheme.typography.bodyLarge)
-                    Text(stringResource(R.string.settings_thinking_desc), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = s.thinking, onCheckedChange = vm::setThinking)
-            }
-            // the sampling of the mode the switch is in: Qwen3.6 recommends different values for each
-            Text(stringResource(if (s.thinking) R.string.settings_sampling_think else R.string.settings_sampling_plain),
-                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 8.dp))
-            if (s.thinking) {
-                FloatSlider(s.thinkTemperature, 0f..1.5f, 0.05f, { stringResource(R.string.settings_temperature, it) },
-                    vm::setThinkTemperature)
-                FloatSlider(s.thinkTopP, 0.05f..1f, 0.05f, { stringResource(R.string.settings_top_p, it) },
-                    vm::setThinkTopP)
-                FloatSlider(s.thinkTopK.toFloat(), 0f..100f, 1f,
-                    { stringResource(R.string.settings_top_k, it.roundToInt()) }) { vm.setThinkTopK(it.roundToInt()) }
-            } else {
-                FloatSlider(s.temperature, 0f..1.5f, 0.05f, { stringResource(R.string.settings_temperature, it) },
-                    vm::setTemperature)
-                FloatSlider(s.topP, 0.05f..1f, 0.05f, { stringResource(R.string.settings_top_p, it) }, vm::setTopP)
-                FloatSlider(s.topK.toFloat(), 0f..100f, 1f, { stringResource(R.string.settings_top_k, it.roundToInt()) }) {
-                    vm.setTopK(it.roundToInt())
-                }
-            }
-            FloatSlider(s.presencePenalty, 0f..2f, 0.1f, { stringResource(R.string.settings_presence, it) },
-                vm::setPresencePenalty)
-            Text(stringResource(R.string.settings_presence_desc), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = vm::resetSampling) { Text(stringResource(R.string.settings_sampling_reset)) }
-            if (s.thinking) {
-                Choices(SettingsViewModel.THINK_BUDGETS, s.thinkBudget,
-                    { stringResource(R.string.settings_think_budget, tokens(it)) }, vm::setThinkBudget)
-                Text(stringResource(R.string.settings_think_budget_desc), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Choices(SettingsViewModel.ANSWER_LIMITS, s.maxAnswer,
-                { stringResource(R.string.settings_max_answer, tokens(it)) }, vm::setMaxAnswer)
-            val ctxIndex = SettingsViewModel.CONTEXT_CHOICES.indexOf(s.contextLength).coerceAtLeast(0)
-            FloatSlider(ctxIndex.toFloat(), 0f..(SettingsViewModel.CONTEXT_CHOICES.size - 1).toFloat(), 1f,
-                { stringResource(R.string.settings_context, SettingsViewModel.CONTEXT_CHOICES[it.roundToInt()]) }) {
-                vm.setContextLength(SettingsViewModel.CONTEXT_CHOICES[it.roundToInt()])
-            }
-            Text(stringResource(R.string.settings_context_desc), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (split != null) {
-                if (split.maxContext < s.contextLength) {
-                    Text(stringResource(R.string.settings_context_capped, split.maxContext),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
-                // what the context takes at its longest (int8 KV), and what the expert cache keeps then
-                Text(stringResource(R.string.settings_context_memory, formatBytes(split.kvAtMax), split.maxContext,
-                    formatBytes(split.kvPerThousand), formatBytes(split.cacheAtMax)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (split.cacheAtMax > 0) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.error)
-            }
-            Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.settings_auto_compress), style = MaterialTheme.typography.bodyLarge)
-                    Text(stringResource(R.string.settings_auto_compress_desc), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = s.autoCompress, onCheckedChange = vm::setAutoCompress)
-            }
-
-            // ---- the conversations kept on the storage ----
-            val cacheBytes by vm.cacheBytes.collectAsStateWithLifecycle()
-            androidx.compose.runtime.LaunchedEffect(Unit) { vm.refreshCache() }
-            Text(stringResource(R.string.settings_state_cache), style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 12.dp))
-            Choices(CACHE_MB, s.stateCacheMb, { mb ->
-                if (mb == 0) stringResource(R.string.settings_state_cache_off)
-                else xyz.tifu.geode.util.formatBytes(mb.toLong() shl 20)
-            }, vm::setStateCacheMb)
-            Text(stringResource(R.string.settings_state_cache_desc, xyz.tifu.geode.util.formatBytes(cacheBytes)),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (cacheBytes > 0) {
-                androidx.compose.material3.TextButton(onClick = vm::clearCache) {
-                    Text(stringResource(R.string.settings_state_cache_clear))
-                }
-            }
-
-            // ---- images ----
-            Text(stringResource(R.string.settings_image_detail), style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 12.dp))
-            Choice(listOf(stringResource(R.string.settings_image_detail_fast),
-                stringResource(R.string.settings_image_detail_fine),
-                stringResource(R.string.settings_image_detail_most)), s.imageDetail, vm::setImageDetail)
-            Text(stringResource(R.string.settings_image_detail_desc), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-            // ---- performance ----
-            Section(stringResource(R.string.settings_section_performance))
-            FloatSlider(s.computeThreads.toFloat(), 0f..8f, 1f, {
-                val n = it.roundToInt()
-                stringResource(R.string.settings_threads,
-                    if (n == 0) stringResource(R.string.settings_threads_auto) else n.toString())
-            }) { vm.setComputeThreads(it.roundToInt()) }
-            FloatSlider(s.ioThreads.toFloat(), 0f..6f, 1f, {
-                val n = it.roundToInt()
-                stringResource(R.string.settings_io_threads,
-                    if (n == 0) stringResource(R.string.settings_threads_auto) else n.toString())
-            }) { vm.setIoThreads(it.roundToInt()) }
-            FloatSlider(s.helperThreads.toFloat(), 0f..6f, 1f, {
-                val n = it.roundToInt()
-                stringResource(R.string.settings_helpers,
-                    if (n == 0) stringResource(R.string.settings_helpers_none) else n.toString())
-            }) { vm.setHelperThreads(it.roundToInt()) }
-            Text(stringResource(R.string.settings_helpers_desc), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SwitchRow(stringResource(R.string.settings_prefetch), stringResource(R.string.settings_prefetch_desc),
-                s.prefetch, vm::setPrefetch)
-            SwitchRow(stringResource(R.string.settings_gpu), stringResource(R.string.settings_gpu_desc), s.gpu,
-                vm::setGpu)
-            // the share splits a prompt's rows on the Adreno 618's path only (its status "... of their rows",
-            // model.cpp); the Adreno 7xx+ int8 path takes whole products and a dense model has no GPU path: there the
-            // slider would change nothing
-            if (s.gpu && gpuStatus?.endsWith("of their rows") == true) {
-                FloatSlider(s.gpuShare, 0.1f..0.6f, 0.05f,
-                    { stringResource(R.string.settings_gpu_share, (it * 100).roundToInt()) }, vm::setGpuShare)
-            }
-            gpuStatus?.let {
-                Text(stringResource(R.string.settings_gpu_status, it), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            SwitchRow(stringResource(R.string.settings_npu), stringResource(R.string.settings_npu_desc), s.npu, vm::setNpu)
-            SwitchRow(stringResource(R.string.settings_route_prior), stringResource(R.string.settings_route_prior_desc),
-                s.routePrior, vm::setRoutePrior)
-            // experts for each word: 8 the model's own; fewer (left out when not in memory) said to cost accuracy
-            Text(stringResource(R.string.settings_word_experts), style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 8.dp))
-            Choice(WORD_EXPERTS.map { it.toString() }, WORD_EXPERTS.indexOf(s.wordExperts).coerceAtLeast(0)) {
-                vm.setWordExperts(WORD_EXPERTS[it])
-            }
-            Text(stringResource(R.string.settings_word_experts_desc), style = MaterialTheme.typography.bodySmall,
-                color = if (s.wordExperts < 8) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(stringResource(R.string.settings_engine_reopen), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
 
             // ---- appearance ----
             Section(stringResource(R.string.settings_section_appearance))
@@ -278,9 +77,25 @@ fun SettingsScreen(vm: SettingsViewModel, openDrawer: () -> Unit) {
                 SwitchRow(stringResource(R.string.settings_dynamic_color),
                     stringResource(R.string.settings_dynamic_color_desc), s.dynamicColor, vm::setDynamicColor)
             }
+            FloatSlider(s.chatTextScale, CHAT_TEXT_MIN..CHAT_TEXT_MAX, 0.05f,
+                { stringResource(R.string.settings_chat_text, (it * 100).roundToInt()) }, vm::setChatTextScale)
+            Text(stringResource(R.string.settings_chat_text_desc), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            // ---- the screen: kept on, and black after a while without a touch ----
+            Section(stringResource(R.string.settings_section_screen))
+            ScreenRows(s, vm)
+
+            // ---- answers read aloud ----
+            Section(stringResource(R.string.settings_section_voice))
+            VoiceRows(s, vm)
 
             Section(stringResource(R.string.settings_section_language))
             LanguageRow(vm)
+
+            // ---- the app's lock ----
+            Section(stringResource(R.string.settings_section_privacy))
+            LockSection(vm.lock)
 
             // ---- about ----
             Section(stringResource(R.string.settings_section_about))
@@ -289,6 +104,9 @@ fun SettingsScreen(vm: SettingsViewModel, openDrawer: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(stringResource(R.string.settings_about_desc), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+            // the one way the chats leave the phone, when the user takes it
+            Text(stringResource(R.string.settings_about_services), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -296,12 +114,12 @@ fun SettingsScreen(vm: SettingsViewModel, openDrawer: () -> Unit) {
 
 /** "no limit" for 0, else "N tokens". */
 @Composable
-private fun tokens(n: Int): String =
+internal fun tokens(n: Int): String =
     if (n == 0) stringResource(R.string.settings_no_limit) else stringResource(R.string.settings_tokens, n)
 
 /** A slider over a list of values (the label shows the one under the finger; written when it lifts). */
 @Composable
-private fun Choices(values: List<Int>, value: Int, label: @Composable (Int) -> String, onCommit: (Int) -> Unit) {
+internal fun Choices(values: List<Int>, value: Int, label: @Composable (Int) -> String, onCommit: (Int) -> Unit) {
     val index = values.indexOf(value).coerceAtLeast(0)
     FloatSlider(index.toFloat(), 0f..(values.size - 1).toFloat(), 1f, { label(values[it.roundToInt()]) }) {
         onCommit(values[it.roundToInt()])
@@ -309,23 +127,27 @@ private fun Choices(values: List<Int>, value: Int, label: @Composable (Int) -> S
 }
 
 @Composable
-private fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (Boolean) -> Unit,
+                       enabled: Boolean = true) {
     Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
 }
 
-private const val MIN_MB = 1024
+internal const val MIN_MB = 1024
+/** The chat's text size, as a share of the system's (the chat's pinch keeps to the same range). */
+const val CHAT_TEXT_MIN = 0.7f
+const val CHAT_TEXT_MAX = 2f
 /** The storage the saved conversations may take (MB; 0: none kept). */
-private val CACHE_MB = listOf(0, 1024, 2048, 4096, 8192, 16384)
-private const val STEP_MB = 64
+internal val CACHE_MB = listOf(0, 1024, 2048, 4096, 8192, 16384)
+internal const val STEP_MB = 64
 
 @Composable
-private fun Section(title: String) {
+internal fun Section(title: String) {
     HorizontalDivider(Modifier.padding(top = 16.dp))
     Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
@@ -333,7 +155,7 @@ private fun Section(title: String) {
 
 /** A slider that writes its value once the finger lifts (DataStore writes are not for every frame). */
 @Composable
-private fun FloatSlider(
+internal fun FloatSlider(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     step: Float,
@@ -351,6 +173,208 @@ private fun FloatSlider(
         valueRange = range,
     )
 }
+
+/**
+ * Whether Geode keeps the screen on (never, while it answers, all the time it is open), and then the black screen against
+ * burn-in: its minutes, or never - which is warned about. The black screen is no lock, and the text says so.
+ */
+@Composable
+private fun ScreenRows(s: xyz.tifu.geode.data.AppSettings, vm: SettingsViewModel) {
+    Text(stringResource(R.string.screen_keep), style = MaterialTheme.typography.bodyLarge)
+    listOf(
+        xyz.tifu.geode.data.AppSettings.KEEP_OFF to R.string.screen_keep_off,
+        xyz.tifu.geode.data.AppSettings.KEEP_ANSWERING to R.string.screen_keep_answering,
+        xyz.tifu.geode.data.AppSettings.KEEP_ALWAYS to R.string.screen_keep_always,
+    ).forEach { (mode, label) ->
+        LanguageOption(stringResource(label), s.keepScreen == mode) { vm.setKeepScreen(mode) }
+    }
+    if (s.keepScreen == xyz.tifu.geode.data.AppSettings.KEEP_OFF) return
+    Choices(BLACK_MIN, s.blackScreenMin, { m ->
+        if (m == 0) stringResource(R.string.screen_black_never) else stringResource(R.string.screen_black_after, m)
+    }, vm::setBlackScreenMin)
+    Text(stringResource(R.string.screen_black_desc), style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (s.blackScreenMin == 0) {
+        Text(stringResource(R.string.screen_black_off_warning), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+/**
+ * Answers read aloud as they are written; what reads them (the phone's text-to-speech, or Geode's own voice: downloaded
+ * here, deleted here, its licence shown); the voice (each language's default or one of the engine's for its language;
+ * of Geode's voice one of its ten), how fast and how high, an example to hear them by, and the system's text-to-speech
+ * settings (the engine, its downloaded voices). A phone without a text-to-speech engine is told so.
+ */
+@Composable
+private fun VoiceRows(s: xyz.tifu.geode.data.AppSettings, vm: SettingsViewModel) {
+    val available by vm.speakerAvailable.collectAsState()
+    val voices by vm.voices.collectAsState()
+    val installed by vm.neuralInstalled.collectAsState()
+    val download by vm.neuralDownload.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var picking by remember { mutableStateOf(false) }
+    var licence by remember { mutableStateOf<String?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    SwitchRow(stringResource(R.string.voice_read_aloud), stringResource(R.string.voice_read_aloud_desc), s.readAloud,
+        vm::setReadAloud)
+    // ---- what reads: the phone's engine or Geode's own voice ----
+    Text(stringResource(R.string.voice_engine), style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier.padding(top = 8.dp))
+    LanguageOption(stringResource(R.string.voice_engine_system), s.speechEngine == 0) { vm.setSpeechEngine(0) }
+    LanguageOption(stringResource(R.string.voice_engine_geode), s.speechEngine == 1) { vm.setSpeechEngine(1) }
+    val geode = s.speechEngine == 1
+    if (geode) {
+        Text(stringResource(R.string.voice_engine_geode_desc), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        when {
+            installed -> Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = vm::deleteNeural) { Text(stringResource(R.string.voice_delete)) }
+                TextButton(onClick = { scope.launch { licence = vm.neuralLicence() } }) {
+                    Text(stringResource(R.string.voice_license))
+                }
+            }
+            download.running -> {
+                val f = if (download.total > 0) download.done.toFloat() / download.total else 0f
+                androidx.compose.material3.LinearProgressIndicator(progress = { f },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.voice_downloading, (f * 100).roundToInt()),
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = vm::cancelNeural) { Text(stringResource(R.string.chat_cancel)) }
+                }
+            }
+            else -> {
+                OutlinedButton(onClick = vm::downloadNeural, modifier = Modifier.padding(top = 4.dp)) {
+                    Text(stringResource(R.string.voice_download,
+                        xyz.tifu.geode.util.formatBytes(xyz.tifu.geode.media.NeuralVoice.TOTAL)))
+                }
+                download.error?.let {
+                    Text(stringResource(R.string.voice_download_failed, it), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+        Text(stringResource(R.string.voice_license_note), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    val picked = voices.firstOrNull { it.name == s.speechVoice }
+    Column(Modifier.fillMaxWidth().clickable {
+        if (!geode) vm.prepareVoices()
+        picking = true
+    }.padding(vertical = 8.dp)) {
+        Text(stringResource(R.string.voice_voice), style = MaterialTheme.typography.bodyLarge)
+        Text(if (geode) neuralLabel(s.neuralVoice)
+            else if (s.speechVoice.isEmpty()) stringResource(R.string.voice_auto)
+            else picked?.let { voiceLabel(it) } ?: s.speechVoice,
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+    }
+    FloatSlider(s.speechRate, 0.5f..2f, 0.1f, { stringResource(R.string.voice_rate, (it * 100).roundToInt()) },
+        vm::setSpeechRate)
+    FloatSlider(s.speechPitch, 0.5f..2f, 0.1f, { stringResource(R.string.voice_pitch, (it * 100).roundToInt()) },
+        vm::setSpeechPitch)
+    val sample = stringResource(R.string.voice_sample)
+    Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { vm.sampleVoice(sample) }) { Text(stringResource(R.string.voice_listen)) }
+        TextButton(onClick = {
+            // the system's text-to-speech page: the engine, its voices to download (not on every phone)
+            runCatching {
+                context.startActivity(android.content.Intent("com.android.settings.TTS_SETTINGS")
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        }) { Text(stringResource(R.string.voice_engine_settings)) }
+    }
+    if (available == false) {
+        Text(stringResource(R.string.voice_none), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error)
+    }
+    licence?.let { text ->
+        AlertDialog(
+            onDismissRequest = { licence = null },
+            title = { Text(stringResource(R.string.voice_license)) },
+            text = {
+                Text(text, style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.verticalScroll(rememberScrollState()))
+            },
+            confirmButton = { TextButton(onClick = { licence = null }) { Text(stringResource(android.R.string.ok)) } },
+        )
+    }
+    if (!picking) return
+    if (geode) {
+        // Geode's voice: its ten styles, each reading every language it speaks
+        AlertDialog(
+            onDismissRequest = { picking = false },
+            title = { Text(stringResource(R.string.voice_voice)) },
+            text = {
+                LazyColumn {
+                    items((0 until xyz.tifu.geode.media.NeuralVoice.VOICES).toList()) { v ->
+                        LanguageOption(neuralLabel(v), s.neuralVoice == v) {
+                            vm.setNeuralVoice(v)
+                            picking = false
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { picking = false }) { Text(stringResource(R.string.chat_cancel)) } },
+        )
+        return
+    }
+    AlertDialog(
+        onDismissRequest = { picking = false },
+        title = { Text(stringResource(R.string.voice_voice)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.voice_voice_desc), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (available == false) {
+                    Text(stringResource(R.string.voice_none), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+                } else if (voices.isEmpty()) {
+                    CircularProgressIndicatorSmall()
+                }
+                LazyColumn(Modifier.padding(top = 8.dp)) {
+                    item {
+                        LanguageOption(stringResource(R.string.voice_auto), s.speechVoice.isEmpty()) {
+                            vm.setSpeechVoice("")
+                            picking = false
+                        }
+                    }
+                    items(voices) { v ->
+                        LanguageOption(voiceLabel(v), s.speechVoice == v.name) {
+                            vm.setSpeechVoice(v.name)
+                            picking = false
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { picking = false }) { Text(stringResource(R.string.chat_cancel)) } },
+    )
+}
+
+/** One of Geode's voice's styles: 0-4 the female voices, 5-9 the male ones. */
+@Composable
+private fun neuralLabel(v: Int): String =
+    if (v < 5) stringResource(R.string.voice_female, v + 1) else stringResource(R.string.voice_male, v - 4)
+
+/** A voice as the list shows it: its language, the engine's name for it, and whether it needs the internet. */
+@Composable
+private fun voiceLabel(v: xyz.tifu.geode.media.Speaker.VoiceInfo): String {
+    val lang = v.locale.getDisplayName(java.util.Locale.getDefault()).replaceFirstChar { it.titlecase() }
+    // the engine's names (en-us-x-iol-local) say more than the language alone; their language part is repeated
+    val name = v.name.removePrefix(v.locale.toLanguageTag().lowercase() + "-").removePrefix("x-")
+    return "$lang · $name" + if (v.network) " (" + stringResource(R.string.voice_network) + ")" else ""
+}
+
+@Composable
+private fun CircularProgressIndicatorSmall() {
+    androidx.compose.material3.CircularProgressIndicator(Modifier.padding(top = 8.dp).size(18.dp), strokeWidth = 2.dp)
+}
+
+/** The black screen's minutes without a touch; 0 = never (last on the slider). */
+private val BLACK_MIN = listOf(1, 2, 5, 10, 15, 30, 0)
 
 /**
  * The app's language: the phone's by default (English where Geode has no translation), or one picked from the list
@@ -399,11 +423,11 @@ private fun LanguageOption(name: String, selected: Boolean, onClick: () -> Unit)
 }
 
 /** Experts read for each word: the model's own 8, or the last 2 / 4 left out when not in memory */
-private val WORD_EXPERTS = listOf(8, 6, 4)
+internal val WORD_EXPERTS = listOf(8, 6, 4)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Choice(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+internal fun Choice(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         labels.forEachIndexed { i, l ->
             SegmentedButton(

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- What other apps may be handed (a share, an "open with"): the agents' folders only -->
+<!-- What other apps may be handed: the agents' folders (a share, an "open with"), and the cache's camera/ the
+     phone's camera app writes a photo or a video into for the chat (ChatScreen) -->
 <paths>
     <files-path name="agents" path="agents/" />
+    <cache-path name="camera" path="camera/" />
 </paths>

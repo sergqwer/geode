@@ -50,7 +50,17 @@ class StateCache(context: Context) {
     suspend fun save(engine: EngineClient, key: String, lineage: String, meta: Map<String, Any?>): Int {
         val old = meta(key)
         val append = old != null && old["lineage"] == lineage
-        val pos = runCatching { engine.saveState(stateFile(key).path, append) }.getOrDefault(-1)
+        val pos = try {
+            engine.saveState(stateFile(key).path, append)
+        } catch (e: xyz.tifu.geode.engine.EngineStateException) {
+            // nothing written (no model open - its process died and came back since the answer -, or images not
+            // taken yet): what the entry holds is still whole, and stays
+            if (e.code == xyz.tifu.geode.engine.GeodeNative.E_ARG) return -1
+            -1
+        } catch (e: Exception) {
+            -1
+        }
+        // a write that failed may have left the file half appended: the entry goes
         if (pos < 0) {
             delete(key)
             return -1

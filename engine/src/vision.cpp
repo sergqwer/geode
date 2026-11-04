@@ -3,8 +3,10 @@
 #include "vision.hpp"
 
 #include "media.hpp"
+#include "../../npu/attn_cfg.h"   // the encoder's attention on HMX (ATTN_ENCODER)
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -341,14 +343,14 @@ bool Vision::read(const Range &r, AlignedBuffer &buf, size_t &cap, uint64_t &bas
 }
 
 bool Vision::encode(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vector<float> &out, std::string &err,
-                    Gpu8 *gpu) {
+                    Gpu8 *gpu, const MediaNpu *npu) {
     const auto &s = s_;
     const int P = s.patch, M = s.merge, D = s.hidden, NH = s.heads, HD = D / NH, F = s.ff, G = s.pos_grid;
     if (!ok_) {
         err = "the pack has no vision encoder";
         return false;
     }
-    if (s.gemma) return encode_gemma(rgb, w, h, pool, out, err);
+    if (s.gemma) return encode_gemma(rgb, w, h, pool, out, err, npu);
     if (!rgb || w <= 0 || h <= 0 || w % (P * M) || h % (P * M)) {
         err = "an image's sides must be multiples of " + std::to_string(P * M);
         return false;
@@ -828,7 +830,8 @@ bool Vision::open_gemma(const Pack &pack, bool direct, std::string &err) {
     return true;
 }
 
-bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vector<float> &out, std::string &err) {
+bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vector<float> &out, std::string &err,
+                          const MediaNpu *npu) {
     const auto &s = s_;
     const int P = s.patch, M = s.merge, D = s.hidden, NH = s.heads, HD = s.head_dim, QW = NH * HD, F = s.ff;
     if (!rgb || w <= 0 || h <= 0 || w % (P * M) || h % (P * M)) {
@@ -874,7 +877,60 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
         for (const auto &n : mats(i)) mmla = mmla && pack_->find(n)->type == DType::Q8 && pack_->find(n)->rows % 8 == 0;
     mmla = mmla && pack_->find("vision.patch.weight")->type == DType::Q8;
 
-    // the layers come in one ahead of the arithmetic, two buffers in turn (repacked for SMMLA there too)
+    // The NPU's HMX (MediaNpu; GEODE_VISION_NPU=0: not): every matrix q8 with rows and columns in 32s, turned into
+    // fp16 blocks in one of two shared buffers as its layer comes in; the buffers made here, on the NPU's own thread,
+    // once (a larger need: new ones; the old stay until the NPU closes). The CPU's SMMLA repack is skipped then: a
+    // failure on the DSP finishes the image on the plain int8 kernels.
+    using F16 = media::F16;
+    constexpr int kMats = 7;
+    bool on_npu = npu && npu->usable() && !(std::getenv("GEODE_VISION_NPU") && std::atoi(std::getenv("GEODE_VISION_NPU")) == 0);
+    {
+        const auto f16_of = [&](const std::string &n) -> size_t {
+            const Tensor *t = pack_->find(n);
+            if (!t || t->type != DType::Q8 || t->rows % 32 || t->cols % 32) return 0;
+            return (npu->f16_bytes(t->rows, t->cols) + 127) / 128 * 128;
+        };
+        size_t need = 0;
+        for (int i = 0; i <= s.depth && on_npu; ++i) {
+            size_t sum = 0;
+            for (const auto &n : mats(i)) {
+                const size_t b = f16_of(n);
+                on_npu = on_npu && b > 0;
+                sum += b;
+            }
+            need = std::max(need, sum);
+        }
+        if (on_npu) {
+            const size_t b = f16_of("vision.patch.weight");
+            on_npu = b > 0;
+            need = std::max(need, b);
+        }
+        if (on_npu && (npu_g_ != npu->g || npu_cap_ < need)) {
+            npu_g_ = npu->g;
+            npu_cap_ = 0;
+            for (int k = 0; k < 2 && on_npu; ++k) {
+                npu_buf_[k] = static_cast<uint8_t *>(npu->shared(npu->g, need, 1, &npu_fd_[k]));
+                on_npu = npu_buf_[k] != nullptr;
+            }
+            if (on_npu) npu_cap_ = need;
+        }
+    }
+    if (on_npu) mmla = false;
+    // the products (media.hpp: on HMX while it is live - a failed call: that one and the rest on the CPU)
+    media::Products prod;
+    prod.use_npu(on_npu ? npu : nullptr);
+    std::array<F16, kMats> f16d[2];
+    bool f16ok[2] = {false, false};
+    // a matrix of buffer k's into its fp16 blocks at *at (moved past them); false when it is not one HMX takes
+    const auto pack_f16 = [this, npu](const QView &v, int k, uint64_t &at, F16 &f) {
+        f.fd = npu_fd_[k];
+        f.off = at;
+        at += (npu->f16_bytes(v.rows, v.cols) + 127) / 128 * 128;
+        return at <= npu_cap_ && npu->pack_f16(v.data, v.rows, v.cols, v.row_bytes, v.global, npu_buf_[k] + f.off, &f.shift) == 0;
+    };
+
+    // the layers come in one ahead of the arithmetic, two buffers in turn (repacked for SMMLA there too, or into
+    // the NPU's fp16 blocks)
     AlignedBuffer bb[2];
     size_t bcap[2] = {0, 0};
     uint64_t bbase[2] = {0, 0};
@@ -883,12 +939,17 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
     const auto start = [&](int i) {
         const Range *r = i < s.depth ? &blocks_[static_cast<size_t>(i)] : &merger_;
         const int k = i & 1;
-        return std::async(std::launch::async, [this, r, &bb, &bcap, &bbase, &berr, &bpk, &at, k, mmla, names = mats(i)] {
+        return std::async(std::launch::async, [this, r, &bb, &bcap, &bbase, &berr, &bpk, &at, &f16d, &f16ok, &pack_f16,
+                                               k, mmla, on_npu, names = mats(i)] {
             if (!read(*r, bb[k], bcap[k], bbase[k], berr[k])) return false;
             if (mmla) {
                 bpk[k].resize(names.size());
                 for (size_t j = 0; j < names.size(); ++j) pack_q8(at(names[j], bb[k].get(), bbase[k]), bpk[k][j]);
             }
+            f16ok[k] = on_npu && names.size() <= static_cast<size_t>(kMats);
+            uint64_t o = 0;
+            for (size_t j = 0; j < names.size() && f16ok[k]; ++j)
+                f16ok[k] = pack_f16(at(names[j], bb[k].get(), bbase[k]), k, o, f16d[k][j]);
             return true;
         });
     };
@@ -906,53 +967,16 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
 
     std::vector<float> x(static_cast<size_t>(N) * D), hn(static_cast<size_t>(N) * std::max({D, K, QW})),
         y(static_cast<size_t>(N) * D), q(static_cast<size_t>(N) * QW), k(static_cast<size_t>(N) * QW),
-        vv(static_cast<size_t>(N) * QW), g(static_cast<size_t>(N) * F), u(static_cast<size_t>(N) * F),
-        cl(static_cast<size_t>(N) * std::max({D, F, K, QW}));
+        vv(static_cast<size_t>(N) * QW), g(static_cast<size_t>(N) * F), u(static_cast<size_t>(N) * F);
     std::vector<float> kt(static_cast<size_t>(NH) * HD * npad, 0.0f), vh(static_cast<size_t>(NH) * N * HD);
-    std::vector<QAct> qa(static_cast<size_t>(N));
-    std::vector<const QAct *> qp(static_cast<size_t>(N));
-    std::vector<float *> ys(static_cast<size_t>(N));
-    std::vector<int8_t> aq;
-    std::vector<float> as;
-    // y rows (ystride apart) = m . x rows (xstride apart), n tokens; pk: m repacked for SMMLA
+    // y rows (ystride apart) = m . x rows (xstride apart), n tokens; pk: m repacked for SMMLA; f: m's fp16 blocks for
+    // the NPU
     const auto mm = [&](const QView &m, const Packed *pk, const float *xs, size_t xstride, float *yo, size_t ystride,
-                        int n) {
-        if (pk) {
-            const int64_t C = m.cols, nb = C / kBlock, np = (n + 1) / 2;
-            aq.resize(static_cast<size_t>(np * 2 * C));
-            as.resize(static_cast<size_t>(np * nb * 2));
-            pool.parallel_for(np, [&](int64_t a, int64_t b) {
-                for (int64_t t = a; t < b; ++t)
-                    quant_pair(xs + static_cast<size_t>(2 * t) * xstride,
-                               2 * t + 1 < n ? xs + static_cast<size_t>(2 * t + 1) * xstride : nullptr, C,
-                               aq.data() + static_cast<size_t>(t * 2 * C), as.data() + static_cast<size_t>(t * nb * 2));
-            }, 4, true);
-            pool.parallel_for(m.rows / 8, [&](int64_t a, int64_t b) { mmla_rows(*pk, a, b, aq.data(), as.data(), n, yo, ystride); },
-                              1, true);
-            return;
-        }
-        pool.parallel_for(n, [&](int64_t a, int64_t b) {
-            for (int64_t t = a; t < b; ++t) {
-                quantize_activation(xs + static_cast<size_t>(t) * xstride, m.cols, qa[static_cast<size_t>(t)]);
-                qp[static_cast<size_t>(t)] = &qa[static_cast<size_t>(t)];
-                ys[static_cast<size_t>(t)] = yo + static_cast<size_t>(t) * ystride;
-            }
-        }, 8, true);
-        pool.parallel_for(m.rows, [&](int64_t a, int64_t b) { matvec_rows_q_multi(m, qp.data(), n, ys.data(), a, b); },
-                          16, true);
-    };
+                        int n, const F16 *f = nullptr) { prod.mm(pool, m, pk, xs, xstride, yo, ystride, n, f); };
     // a clipped linear (Gemma4ClippableLinear): its input clamped to [clip 0, clip 1], the product, its output
     // clamped to [clip 2, clip 3]; xs rows of m.cols, yo rows of m.rows
-    const auto clipped = [&](const QView &m, const Packed *pk, const float *clip, const float *xs, float *yo, int n) {
-        const int64_t C = m.cols, R = m.rows;
-        pool.parallel_for(static_cast<int64_t>(n) * C, [&](int64_t a, int64_t b) {
-            for (int64_t i = a; i < b; ++i) cl[static_cast<size_t>(i)] = std::clamp(xs[static_cast<size_t>(i)], clip[0], clip[1]);
-        }, 4096, true);
-        mm(m, pk, cl.data(), static_cast<size_t>(C), yo, static_cast<size_t>(R), n);
-        pool.parallel_for(static_cast<int64_t>(n) * R, [&](int64_t a, int64_t b) {
-            for (int64_t i = a; i < b; ++i) yo[static_cast<size_t>(i)] = std::clamp(yo[static_cast<size_t>(i)], clip[2], clip[3]);
-        }, 4096, true);
-    };
+    const auto clipped = [&](const QView &m, const Packed *pk, const float *clip, const float *xs, float *yo, int n,
+                             const F16 *f) { prod.clipped(pool, m, pk, clip, xs, yo, n, f); };
 
     // the patches (row-major; a patch's pixels row by row, R G B) as 2 x - 1, the embedding, plus the position tables'
     // rows of the patch's column and row
@@ -966,8 +990,14 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
             }
         }
     }, 8, true);
-    mm(at("vision.patch.weight", hbuf.get(), hbase), mmla ? &pe : nullptr, hn.data(), static_cast<size_t>(K), x.data(),
-       static_cast<size_t>(D), N);
+    {   // (on the NPU from buffer 1: layer 0 comes into buffer 0 meanwhile, layer 1 into this one only after it)
+        F16 fp;
+        uint64_t o = 0;
+        const QView pm = at("vision.patch.weight", hbuf.get(), hbase);
+        const bool pf = on_npu && pack_f16(pm, 1, o, fp);
+        mm(pm, mmla ? &pe : nullptr, hn.data(), static_cast<size_t>(K), x.data(), static_cast<size_t>(D), N,
+           pf ? &fp : nullptr);
+    }
     {
         std::vector<float> px(static_cast<size_t>(gw) * D), py(static_cast<size_t>(gh) * D);
         const QView tx = at("vision.pos_x.weight", hbuf.get(), hbase), ty = at("vision.pos_y.weight", hbuf.get(), hbase);
@@ -1000,6 +1030,40 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
             }
     }
 
+    // The attention on HMX too (npu/attn_cfg.h ATTN_ENCODER; GEODE_VISION_NPU_ATTN=0: not): q_proj's output straight
+    // into the NPU's query buffer, the keys and values as fp16 blocks in two shared buffers (made on this thread, kept,
+    // grown with the images) as they are normed and turned, the output in the NPU's buffer; a failed call: that layer
+    // and the rest on the CPU. (aarch64 only: the phone's.)
+    const size_t nblk = static_cast<size_t>(N + 31) / 32, dgs = static_cast<size_t>(HD) / 32;
+    const size_t qbytes = static_cast<size_t>(N) * QW * sizeof(float);
+#if defined(__aarch64__)
+    bool att_npu = prod.npu_live() && npu->attn && npu->attn_buf && HD % 32 == 0 &&
+                   !(std::getenv("GEODE_VISION_NPU_ATTN") && std::atoi(std::getenv("GEODE_VISION_NPU_ATTN")) == 0);
+#else
+    bool att_npu = false;
+#endif
+    float *qb = nullptr, *ob = nullptr;
+    if (att_npu) {
+        qb = npu->attn_buf(npu->g, 0, qbytes);
+        ob = npu->attn_buf(npu->g, 1, qbytes);
+        const size_t kvb = static_cast<size_t>(NH) * nblk * dgs * 2048u;
+        if (qb && ob && (npu_kv_g_ != npu->g || npu_kv_cap_ < kvb)) {
+            npu_kv_g_ = npu->g;
+            npu_kv_cap_ = 0;
+            for (int j = 0; j < 2 && qb; ++j)
+                if (!(npu_kv_[j] = static_cast<uint8_t *>(npu->shared(npu->g, kvb, 1, &npu_kv_fd_[j])))) qb = nullptr;
+            if (qb) npu_kv_cap_ = kvb;
+        }
+        att_npu = qb && ob;
+        if (att_npu && N % 32)   // the last block's positions past N: zero keys and values (the loop never writes them)
+            for (int hh = 0; hh < NH; ++hh) {
+                std::memset(npu_kv_[0] + (static_cast<size_t>(hh) * nblk + nblk - 1) * dgs * 2048u, 0, dgs * 2048u);
+                for (size_t dg = 0; dg < dgs; ++dg)
+                    std::memset(npu_kv_[1] + ((static_cast<size_t>(hh) * dgs + dg) * nblk + nblk - 1) * 2048u, 0, 2048u);
+            }
+    }
+    prof_.att_npu = att_npu;
+
     for (int i = 0; i < s.depth; ++i) {
         if (!next.get()) {
             err = berr[i & 1];
@@ -1011,6 +1075,7 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
         lap(prof_.wait);
         const std::string b = "vision.layers." + std::to_string(i) + ".";
         const Packed *pk = mmla ? bpk[i & 1].data() : nullptr;
+        const F16 *fl = f16ok[i & 1] ? f16d[i & 1].data() : nullptr;
         const auto lin = [&](int j) { return at(b + kLinears[j] + std::string(".weight"), buf, base); };
         const auto clip = [&](int j) { return vec(b + kLinears[j] + std::string(".clip"), buf, base); };
         const auto rms = [&](const char *name, const float *src, float *dst) {
@@ -1024,16 +1089,25 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
         // attention
         rms("input_layernorm", x.data(), hn.data());
         lap(prof_.other);
-        clipped(lin(0), pk ? pk + 0 : nullptr, clip(0), hn.data(), q.data(), N);
-        clipped(lin(1), pk ? pk + 1 : nullptr, clip(1), hn.data(), k.data(), N);
-        clipped(lin(2), pk ? pk + 2 : nullptr, clip(2), hn.data(), vv.data(), N);
+        float *const qd = att_npu ? qb : q.data();   // the queries (in the NPU's buffer when it attends)
+        clipped(lin(0), pk ? pk + 0 : nullptr, clip(0), hn.data(), qd, N, fl ? fl + 0 : nullptr);
+        clipped(lin(1), pk ? pk + 1 : nullptr, clip(1), hn.data(), k.data(), N, fl ? fl + 1 : nullptr);
+        clipped(lin(2), pk ? pk + 2 : nullptr, clip(2), hn.data(), vv.data(), N, fl ? fl + 2 : nullptr);
         lap(prof_.matmul);
         const float *qn = vec(b + "self_attn.q_norm.weight", buf, base), *kn = vec(b + "self_attn.k_norm.weight", buf, base);
+        // the CPU's keys (transposed) and values from the normed and turned rows
+        const auto cpu_kv = [&](int64_t n, int hh) {
+            const float *kh = k.data() + static_cast<size_t>(n) * QW + hh * HD, *vr = vv.data() + static_cast<size_t>(n) * QW + hh * HD;
+            float *kth = kt.data() + static_cast<size_t>(hh) * HD * npad;
+            for (int d = 0; d < HD; ++d) kth[static_cast<size_t>(d) * npad + n] = kh[d];
+            std::copy(vr, vr + HD, vh.data() + (static_cast<size_t>(hh) * N + n) * HD);
+        };
+        const bool blocks = att_npu;
         pool.parallel_for(N, [&](int64_t a, int64_t e) {
             for (int64_t n = a; n < e; ++n) {
                 const float *cs = cosv.data() + static_cast<size_t>(n) * half, *sn = sinv.data() + static_cast<size_t>(n) * half;
                 for (int hh = 0; hh < NH; ++hh) {
-                    float *qh = q.data() + static_cast<size_t>(n) * QW + hh * HD, *kh = k.data() + static_cast<size_t>(n) * QW + hh * HD;
+                    float *qh = qd + static_cast<size_t>(n) * QW + hh * HD, *kh = k.data() + static_cast<size_t>(n) * QW + hh * HD;
                     float *vr = vv.data() + static_cast<size_t>(n) * QW + hh * HD;
                     rmsnorm(qh, qn, qh, HD, s.eps, false);
                     rmsnorm(kh, kn, kh, HD, s.eps, false);
@@ -1047,15 +1121,58 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
                             kh[d0] = k1 * cs[ci] - k2 * sn[ci];
                             kh[d1] = k2 * cs[ci] + k1 * sn[ci];
                         }
-                    float *kth = kt.data() + static_cast<size_t>(hh) * HD * npad;
-                    for (int d = 0; d < HD; ++d) kth[static_cast<size_t>(d) * npad + n] = kh[d];
-                    std::copy(vr, vr + HD, vh.data() + (static_cast<size_t>(hh) * N + n) * HD);
+#if defined(__aarch64__)
+                    if (blocks) {   // into the ATTN_ENCODER blocks (attn_cfg.h): the position p of its block bn
+                        const size_t p = static_cast<size_t>(n) % 32, bn = static_cast<size_t>(n) / 32;
+                        __fp16 *kb = reinterpret_cast<__fp16 *>(npu_kv_[0]) + (static_cast<size_t>(hh) * nblk + bn) * dgs * 1024u;
+                        __fp16 *vb = reinterpret_cast<__fp16 *>(npu_kv_[1]);
+                        for (int d = 0; d < HD; d += 2) {
+                            __fp16 *o = kb + static_cast<size_t>(d / 32) * 1024u + static_cast<size_t>((d % 32) / 2) * 64u + p * 2u;
+                            o[0] = static_cast<__fp16>(kh[d]);
+                            o[1] = static_cast<__fp16>(kh[d + 1]);
+                        }
+                        for (int d = 0; d < HD; ++d)
+                            vb[((static_cast<size_t>(hh) * dgs + static_cast<size_t>(d / 32)) * nblk + bn) * 1024u + (p / 2) * 64u +
+                               static_cast<size_t>(d % 32) * 2u + p % 2] = static_cast<__fp16>(vr[d]);
+                        continue;
+                    }
+#endif
+                    cpu_kv(n, hh);
                 }
             }
         }, 8, true);
-        attend_all(pool, NH, HD, N, npad, q.data(), static_cast<size_t>(QW), kt.data(), vh.data(), hn.data(), static_cast<size_t>(QW));   // scale 1
+        const float *ao = hn.data();   // the attention's output rows
+        bool attended = false;
+        if (att_npu) {
+            attn_desc_t ad;
+            std::memset(&ad, 0, sizeof ad);
+            ad.version = ATTN_VERSION;
+            ad.n = N, ad.apos = 0, ad.nh = NH, ad.nkv = NH, ad.hd = HD, ad.window = 0;
+            ad.n_attn = 1, ad.kv_chunk = 32, ad.n_chunks = 2;
+            // (GEODE_VISION_ATTN_FLAGS: more attn_cfg.h flags, testing - ATTN_MAX_SB for the superblocks' joins)
+            static const uint32_t more = std::getenv("GEODE_VISION_ATTN_FLAGS")
+                                             ? static_cast<uint32_t>(std::strtoul(std::getenv("GEODE_VISION_ATTN_FLAGS"), nullptr, 0))
+                                             : 0u;
+            ad.q_stride = QW, ad.o_stride = QW, ad.flags = static_cast<int32_t>(ATTN_ENCODER | more);
+            ad.kv_fd[0] = npu_kv_fd_[0], ad.kv_fd[1] = npu_kv_fd_[1];
+            double ds = 0;
+            if (npu->attn(npu->g, &ad, static_cast<int>(sizeof ad), qb, qbytes, ob, qbytes, &ds) == 0) {
+                ao = ob;
+                attended = true;
+                prof_.att_dsp += ds;
+            } else {   // this layer's keys and values for the CPU after all, and the rest there
+                att_npu = false;
+                prof_.att_npu = false;
+                pool.parallel_for(N, [&](int64_t a, int64_t e) {
+                    for (int64_t n = a; n < e; ++n)
+                        for (int hh = 0; hh < NH; ++hh) cpu_kv(n, hh);
+                }, 8, true);
+            }
+        }
+        if (!attended)
+            attend_all(pool, NH, HD, N, npad, qd, static_cast<size_t>(QW), kt.data(), vh.data(), hn.data(), static_cast<size_t>(QW));   // scale 1
         lap(prof_.attention);
-        clipped(lin(3), pk ? pk + 3 : nullptr, clip(3), hn.data(), y.data(), N);
+        clipped(lin(3), pk ? pk + 3 : nullptr, clip(3), ao, y.data(), N, fl ? fl + 3 : nullptr);
         lap(prof_.matmul);
         rms("post_attention_layernorm", y.data(), y.data());
         pool.parallel_for(static_cast<int64_t>(N) * D, [&](int64_t a, int64_t e) {
@@ -1065,14 +1182,14 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
         lap(prof_.other);
 
         // the MLP: down(gelu(gate) * up)
-        clipped(lin(4), pk ? pk + 4 : nullptr, clip(4), hn.data(), g.data(), N);
-        clipped(lin(5), pk ? pk + 5 : nullptr, clip(5), hn.data(), u.data(), N);
+        clipped(lin(4), pk ? pk + 4 : nullptr, clip(4), hn.data(), g.data(), N, fl ? fl + 4 : nullptr);
+        clipped(lin(5), pk ? pk + 5 : nullptr, clip(5), hn.data(), u.data(), N, fl ? fl + 5 : nullptr);
         lap(prof_.matmul);
         pool.parallel_for(static_cast<int64_t>(N) * F, [&](int64_t a, int64_t e) {
             for (int64_t j = a; j < e; ++j) g[static_cast<size_t>(j)] = gelu_tanh(g[static_cast<size_t>(j)]) * u[static_cast<size_t>(j)];
         }, 4096, true);
         lap(prof_.other);
-        clipped(lin(6), pk ? pk + 6 : nullptr, clip(6), g.data(), y.data(), N);
+        clipped(lin(6), pk ? pk + 6 : nullptr, clip(6), g.data(), y.data(), N, fl ? fl + 6 : nullptr);
         lap(prof_.matmul);
         rms("post_feedforward_layernorm", y.data(), y.data());
         pool.parallel_for(static_cast<int64_t>(N) * D, [&](int64_t a, int64_t e) {
@@ -1108,8 +1225,8 @@ bool Vision::encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, st
     }, 4, true);
     out.assign(static_cast<size_t>(T) * s.out_hidden, 0.0f);
     mm(at("vision.embed.weight", buf, base), mmla ? bpk[s.depth & 1].data() : nullptr, tok.data(), static_cast<size_t>(D),
-       out.data(), static_cast<size_t>(s.out_hidden), T);
-    prof_.where = mmla ? "CPU SMMLA" : "CPU";
+       out.data(), static_cast<size_t>(s.out_hidden), T, f16ok[s.depth & 1] ? f16d[s.depth & 1].data() : nullptr);
+    prof_.where = on_npu ? (prod.npu_live() ? "NPU HMX" : "NPU HMX, then the CPU") : mmla ? "CPU SMMLA" : "CPU";
     lap(prof_.matmul);
     prof_.total = now_seconds() - t0;
     return true;
@@ -1180,10 +1297,10 @@ bool Vision::save_features(const std::string &path, int w, int h, const std::vec
 std::string Vision::profile() const {
     char b[320];
     std::snprintf(b, sizeof b,
-                  "vision: %d patches %.2f s (reads waited %.2f, embedding %.2f, products %.2f on the %s, attention %.2f, "
+                  "vision: %d patches %.2f s (reads waited %.2f, embedding %.2f, products %.2f on the %s, attention %.2f%s, "
                   "other %.2f)",
                   prof_.patches, prof_.total, prof_.wait, prof_.embed, prof_.matmul, prof_.where, prof_.attention,
-                  prof_.other);
+                  prof_.att_npu ? " on HMX" : "", prof_.other);
     return b;
 }
 

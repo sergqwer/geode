@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.Lan
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,10 +32,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,18 +57,21 @@ import xyz.tifu.geode.ui.bench.BenchScreen
 import xyz.tifu.geode.ui.bench.BenchViewModel
 import xyz.tifu.geode.ui.chat.ChatScreen
 import xyz.tifu.geode.ui.chat.ChatViewModel
+import xyz.tifu.geode.ui.lock.LockScreen
 import xyz.tifu.geode.ui.models.ModelsScreen
 import xyz.tifu.geode.ui.models.ModelsViewModel
 import xyz.tifu.geode.server.QrLogins
 import xyz.tifu.geode.ui.server.QrApproval
 import xyz.tifu.geode.ui.server.ServerScreen
 import xyz.tifu.geode.ui.server.ServerViewModel
+import xyz.tifu.geode.ui.settings.ModelSettingsScreen
 import xyz.tifu.geode.ui.settings.SettingsScreen
 import xyz.tifu.geode.ui.settings.SettingsViewModel
 
 private enum class Screen(val label: Int, val icon: ImageVector) {
     CHAT(R.string.nav_chat, Icons.AutoMirrored.Outlined.Chat),
     MODELS(R.string.nav_models, Icons.Outlined.Inventory2),
+    MODEL_SETTINGS(R.string.nav_model_settings, Icons.Outlined.Tune),
     BENCH(R.string.nav_bench, Icons.Outlined.Speed),
     SERVER(R.string.nav_server, Icons.Outlined.Lan),
     AGENT(R.string.nav_agent, Icons.Outlined.Terminal),
@@ -79,22 +85,39 @@ private enum class Screen(val label: Int, val icon: ImageVector) {
  */
 @Composable
 fun GeodeRoot(app: GeodeApp) {
-    var screen by rememberSaveable { mutableIntStateOf(Screen.CHAT.ordinal) }
     val chat: ChatViewModel = viewModel { ChatViewModel(app) }
-    val models: ModelsViewModel = viewModel { ModelsViewModel(app) }
-    val settings: SettingsViewModel = viewModel { SettingsViewModel(app) }
-    val bench: BenchViewModel = viewModel { BenchViewModel(app) }
+    // locked, nothing of the app is composed - its dialogs (windows of their own) included, and a web chat sign-in
+    // asked about only once it is open; what its screens keep across the lock is saved here meanwhile
+    val locked by app.lock.locked.collectAsState()
+    val saved = rememberSaveableStateHolder()
+    // the screen kept on and its black screen, the lock screen's time included
+    ScreenGuard(app, chat)
+    if (locked) {
+        LockScreen(app.lock, onForgot = {
+            chat.deleteAll()
+            app.lock.clear()
+        })
+    } else {
+        saved.SaveableStateProvider("app") { App(app, chat) }
+    }
+}
+
+@Composable
+private fun App(app: GeodeApp, chat: ChatViewModel) {
+    var screen by rememberSaveable { mutableIntStateOf(Screen.CHAT.ordinal) }
+    // the screens' view models made when their screen is first opened (the activity keeps them from then on), not
+    // at the start: the models' catalog asked of Hugging Face, the speed estimates worked out, the agent's files
+    // looked at only by the screens that show them
     // the device check adb started (MainActivity, DeviceReport.ACTION_CHECK): the Benchmark, every test, a file only
     val checkAsked by xyz.tifu.geode.bench.DeviceReport.requested.collectAsStateWithLifecycle()
-    LaunchedEffect(checkAsked) {
-        if (checkAsked) {
-            xyz.tifu.geode.bench.DeviceReport.requested.value = false
+    if (checkAsked) {
+        val bench: BenchViewModel = viewModel { BenchViewModel(app) }
+        LaunchedEffect(Unit) {
             screen = Screen.BENCH.ordinal
             bench.checkAndSend(send = false)
+            xyz.tifu.geode.bench.DeviceReport.requested.value = false
         }
     }
-    val server: ServerViewModel = viewModel { ServerViewModel(app) }
-    val agent: AgentViewModel = viewModel { AgentViewModel(app) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val openDrawer: () -> Unit = { scope.launch { drawer.open() } }
@@ -134,11 +157,12 @@ fun GeodeRoot(app: GeodeApp) {
             Box(Modifier.fillMaxSize().navigationBarsPadding()) {
                 when (Screen.entries[screen]) {
                     Screen.CHAT -> ChatScreen(chat, openModels = { screen = Screen.MODELS.ordinal }, openDrawer = openDrawer)
-                    Screen.MODELS -> ModelsScreen(models, openDrawer)
-                    Screen.BENCH -> BenchScreen(bench, openDrawer)
-                    Screen.SERVER -> ServerScreen(server, openDrawer)
-                    Screen.AGENT -> AgentScreen(agent, openDrawer)
-                    Screen.SETTINGS -> SettingsScreen(settings, openDrawer)
+                    Screen.MODELS -> ModelsScreen(viewModel { ModelsViewModel(app) }, openDrawer)
+                    Screen.MODEL_SETTINGS -> ModelSettingsScreen(viewModel { SettingsViewModel(app) }, openDrawer)
+                    Screen.BENCH -> BenchScreen(viewModel { BenchViewModel(app) }, openDrawer)
+                    Screen.SERVER -> ServerScreen(viewModel { ServerViewModel(app) }, openDrawer)
+                    Screen.AGENT -> AgentScreen(viewModel { AgentViewModel(app) }, openDrawer)
+                    Screen.SETTINGS -> SettingsScreen(viewModel { SettingsViewModel(app) }, openDrawer)
                 }
             }
         }

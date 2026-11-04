@@ -93,6 +93,26 @@ class LinuxDebugReceiver : BroadcastReceiver() {
                         xyz.tifu.geode.util.DebugHooks.attachVideo.tryEmit(android.net.Uri.fromFile(src))
                         "attaching ${src.name} (${src.length()} bytes)"
                     }
+                    // an outside service's model saved and chosen for the chats (as the Models screen's dialog would),
+                    // or the phone's own chosen again (provider_off)
+                    "provider" -> {
+                        val g = app as xyz.tifu.geode.GeodeApp
+                        val p = xyz.tifu.geode.models.Provider(
+                            id = intent.getStringExtra("id") ?: "pdebug",
+                            name = intent.getStringExtra("name") ?: "Debug",
+                            baseUrl = intent.getStringExtra("url") ?: "http://127.0.0.1:18080/v1",
+                            protocol = xyz.tifu.geode.models.Protocol.valueOf(intent.getStringExtra("protocol") ?: "OPENAI"),
+                            model = intent.getStringExtra("model") ?: "mock",
+                            vision = intent.getBooleanExtra("vision", false),
+                        )
+                        g.providers.save(p, intent.getStringExtra("key"))
+                        g.settings.setSelectedRemote(p.id)
+                        "provider ${p.id} chosen (key kept: ${g.providers.hasKey(p.id)})"
+                    }
+                    "provider_off" -> {
+                        (app as xyz.tifu.geode.GeodeApp).settings.setSelectedRemote("")
+                        "the phone's model chosen"
+                    }
                     "kvtest" -> kvTest(app as xyz.tifu.geode.GeodeApp) { s -> log.writeText("running kvtest\n$s") }
                     "speed" -> speedTest(app as xyz.tifu.geode.GeodeApp) { s -> log.writeText("running speed\n$s") }
                     "prompt" -> promptTest(app as xyz.tifu.geode.GeodeApp, intent.getIntExtra("words", 1500)) { s ->

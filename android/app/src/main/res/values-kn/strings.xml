@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">ಚಾಟ್</string>
     <string name="nav_models">ಮಾಡೆಲ್‌ಗಳು</string>
-    <string name="nav_settings">ಸೆಟ್ಟಿಂಗ್‌ಗಳು</string>
+    <string name="nav_settings">ಆ್ಯಪ್ ಸೆಟ್ಟಿಂಗ್‌ಗಳು</string>
 
     <!-- chat -->
     <string name="chat_input_hint">ಸಂದೇಶ</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">ಖಾಲಿ ಸ್ಥಳ: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">ಸೆಟ್ಟಿಂಗ್‌ಗಳು</string>
+    <string name="settings_title">ಆ್ಯಪ್ ಸೆಟ್ಟಿಂಗ್‌ಗಳು</string>
     <string name="settings_section_memory">ಮೆಮೊರಿ</string>
     <string name="settings_memory_budget">ಮಾಡೆಲ್‌ಗಾಗಿ ಮೆಮೊರಿ</string>
     <string name="settings_memory_budget_value">%1$s (ಶಿಫಾರಸು %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">ಗರಿಷ್ಠ ಕಾಂಟೆಕ್ಸ್ಟ್: %1$d ಟೋಕನ್‌ಗಳು</string>
     <string name="settings_context_desc">ಕಾಂಟೆಕ್ಸ್ಟ್ ಅನ್ನು ಮೊದಲೇ ಕಾಯ್ದಿರಿಸಲಾಗುವುದಿಲ್ಲ: ಚಾಟ್ ಮುಂದುವರಿದಂತೆ ಅದು ತುಂಡುಗಳಾಗಿ ಬೆಳೆಯುತ್ತದೆ, ಮತ್ತು ಪ್ರತಿ ತುಂಡು ತನ್ನ ಮೆಮೊರಿಯನ್ನು ಎಕ್ಸ್‌ಪರ್ಟ್ ಕ್ಯಾಶ್‌ನಿಂದ (ಅತಿ ಕಡಿಮೆ ಬಳಸಿದ ಎಕ್ಸ್‌ಪರ್ಟ್‌ಗಳಿಂದ) ಪಡೆಯುತ್ತದೆ - ಉದ್ದವಾದ ಕಾಂಟೆಕ್ಸ್ಟ್ ಜನರೇಶನ್ ಅನ್ನು ನಿಧಾನಗೊಳಿಸುತ್ತದೆ. ಹೊಸ ಚಾಟ್ ಎಲ್ಲವನ್ನೂ ಹಿಂದಿರುಗಿಸುತ್ತದೆ.</string>
+    <string name="settings_context_desc_dense">ಸಂದರ್ಭವನ್ನು ಮೊದಲೇ ಕಾಯ್ದಿರಿಸಲಾಗುವುದಿಲ್ಲ: ಚಾಟ್ ಮುಂದುವರಿದಂತೆ ಅದು ತುಂಡುಗಳಾಗಿ ಬೆಳೆಯುತ್ತದೆ, ಮತ್ತು ಉದ್ದವಾದ ಸಂದರ್ಭ ಹೆಚ್ಚು ಮೆಮೊರಿ ತೆಗೆದುಕೊಳ್ಳುತ್ತದೆ ಹಾಗೂ ಉತ್ಪಾದನೆಯನ್ನು ನಿಧಾನಗೊಳಿಸುತ್ತದೆ. ಹೊಸ ಚಾಟ್ ಎಲ್ಲವನ್ನೂ ಹಿಂತಿರುಗಿಸುತ್ತದೆ.</string>
     <string name="settings_context_memory">ಕಾಂಟೆಕ್ಸ್ಟ್ (KV ಕ್ಯಾಶ್, int8): %2$d ಟೋಕನ್‌ಗಳಲ್ಲಿ %1$s (1000 ಕ್ಕೆ %3$s) · ಆಗ ಎಕ್ಸ್‌ಪರ್ಟ್ ಕ್ಯಾಶ್‌ನಲ್ಲಿ %4$s ಉಳಿಯುತ್ತದೆ</string>
     <string name="settings_context_capped">ಈ ಮೆಮೊರಿ ಬಜೆಟ್‌ನಲ್ಲಿ ಗರಿಷ್ಠ %1$d ಟೋಕನ್‌ಗಳು ಹಿಡಿಸುತ್ತವೆ: ಸಂಭಾಷಣೆ ಅಲ್ಲಿಗೆ ನಿಲ್ಲುತ್ತದೆ.</string>
     <string name="settings_section_performance">ಕಾರ್ಯಕ್ಷಮತೆ</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">ಸ್ಯಾಂಪ್ಲಿಂಗ್ · ಆಲೋಚನೆಯೊಂದಿಗೆ</string>
     <string name="settings_sampling_plain">ಸ್ಯಾಂಪ್ಲಿಂಗ್ · ಆಲೋಚನೆ ಇಲ್ಲದೆ</string>
     <string name="settings_presence">ಪ್ರೆಸೆನ್ಸ್ ಪೆನಾಲ್ಟಿ: %1$.2f</string>
-    <string name="settings_presence_desc">ಉತ್ತರದಲ್ಲಿ ಈಗಾಗಲೇ ಇರುವ ಟೋಕನ್‌ಗಳ ಸಾಧ್ಯತೆಯನ್ನು ಕಡಿಮೆ ಮಾಡುತ್ತದೆ, ಇದರಿಂದ ಉದ್ದವಾದ ಆಲೋಚನೆ ಸುತ್ತಿ ಸುತ್ತಿ ತಿರುಗುವುದಿಲ್ಲ. Qwen 1.5 ಅನ್ನು ಶಿಫಾರಸು ಮಾಡುತ್ತದೆ.</string>
-    <string name="settings_sampling_reset">Qwen ಶಿಫಾರಸು ಮಾಡಿದ ಮೌಲ್ಯಗಳು</string>
+    <string name="settings_presence_desc">ಉತ್ತರದಲ್ಲಿ ಈಗಾಗಲೇ ಇರುವ ಟೋಕನ್‌ಗಳ ಸಾಧ್ಯತೆಯನ್ನು ಕಡಿಮೆ ಮಾಡುತ್ತದೆ, ಇದರಿಂದ ಉದ್ದವಾದ ಆಲೋಚನೆ ಸುತ್ತಿ ಸುತ್ತಿ ತಿರುಗುವುದಿಲ್ಲ.</string>
+    <string name="settings_sampling_reset">ಮಾದರಿಯ ಶಿಫಾರಸು ಮಾಡಿದ ಮೌಲ್ಯಗಳು</string>
+    <string name="settings_section_features">ಮಾದರಿ ಸ್ವೀಕರಿಸುವ ಇನ್‌ಪುಟ್‌ಗಳು</string>
+    <string name="settings_feature_images">ಚಿತ್ರಗಳು</string>
+    <string name="settings_feature_images_desc">ಚಾಟ್‌ನಲ್ಲಿ ಫೋಟೋಗಳು ಮತ್ತು ಚಿತ್ರಗಳು. ಆಫ್ ಮಾಡಿದಾಗ ದೃಶ್ಯ ಎನ್‌ಕೋಡರ್ ಲೋಡ್ ಆಗುವುದಿಲ್ಲ, ಇದರಿಂದ ಮೆಮೊರಿ ಉಳಿಯುತ್ತದೆ.</string>
+    <string name="settings_feature_video">ವೀಡಿಯೊ</string>
+    <string name="settings_feature_video_desc">ಚಾಟ್‌ನಲ್ಲಿ ವೀಡಿಯೊಗಳು: ಮಾದರಿ ಅವುಗಳ ಫ್ರೇಮ್‌ಗಳನ್ನು ನೋಡುತ್ತದೆ ಮತ್ತು ಧ್ವನಿಯನ್ನು ಕೇಳುತ್ತದೆ.</string>
+    <string name="settings_feature_audio">ಆಡಿಯೊ</string>
+    <string name="settings_feature_audio_desc">ಧ್ವನಿ ಸಂದೇಶಗಳು ಮತ್ತು ಆಡಿಯೊ ಫೈಲ್‌ಗಳು. ಆಫ್ ಮಾಡಿದಾಗ ಆಡಿಯೊ ಎನ್‌ಕೋಡರ್ ಲೋಡ್ ಆಗುವುದಿಲ್ಲ, ಇದರಿಂದ ಮೆಮೊರಿ ಉಳಿಯುತ್ತದೆ.</string>
+    <string name="settings_feature_draft">ಸ್ಪೆಕ್ಯುಲೇಟಿವ್ ಡಿಕೋಡಿಂಗ್</string>
+    <string name="settings_feature_draft_desc_mtp">ಮಾದರಿಯ MTP ಪದರ ಮುಂದಿನ ಪದದ ಕರಡು ರಚಿಸುತ್ತದೆ ಮತ್ತು ಮಾದರಿ ಎರಡು ಪದಗಳನ್ನು ಒಟ್ಟಿಗೆ ಪರಿಶೀಲಿಸುತ್ತದೆ: ಅದೇ ಪಠ್ಯ, ವೇಗವಾದ ಉತ್ತರಗಳು. ಆಫ್ ಮಾಡಿದಾಗ ಒಂದು ಬಾರಿಗೆ ಒಂದು ಪದ.</string>
+    <string name="settings_feature_draft_desc_drafter">Gemmaದ ಸಣ್ಣ ಸಹಾಯಕ ಮಾದರಿ ಮುಂದಿನ ಪದಗಳನ್ನು ಊಹಿಸುತ್ತದೆ ಮತ್ತು ಮುಖ್ಯ ಮಾದರಿ ಅವುಗಳನ್ನು ಒಟ್ಟಿಗೆ ಪರಿಶೀಲಿಸುತ್ತದೆ: ಅದೇ ಪಠ್ಯ, ವೇಗವಾದ ಉತ್ತರಗಳು. ಆಫ್ ಮಾಡಿದಾಗ ಒಂದು ಬಾರಿಗೆ ಒಂದು ಪದ, ಜೊತೆಗೆ ಸಹಾಯಕ ಮಾದರಿಯ ಮೆಮೊರಿ ಉಳಿಯುತ್ತದೆ.</string>
+    <string name="settings_sampling_recommended">ಈ ಮೋಡ್‌ನಲ್ಲಿ %1$sಗೆ ಶಿಫಾರಸು: ಟೆಂಪರೇಚರ್ %2$.2f, top-p %3$.2f, top-k %4$d, ಪ್ರೆಸೆನ್ಸ್ ಪೆನಾಲ್ಟಿ %5$.1f.</string>
+    <string name="settings_context_model_max">ಈ ಮಾದರಿಗೆ %1$d ಟೋಕನ್‌ಗಳವರೆಗಿನ ಕಾಂಟೆಕ್ಸ್ಟ್‌ಗಾಗಿ ತರಬೇತಿ ನೀಡಲಾಗಿದೆ.</string>
     <string name="settings_think_budget">ಆಲೋಚನೆ ಬಜೆಟ್: %1$s</string>
     <string name="settings_think_budget_desc">ಇಷ್ಟು ಆಲೋಚನೆ ಟೋಕನ್‌ಗಳ ನಂತರ ಈಗಲೇ ಉತ್ತರಿಸುವಂತೆ ಮಾಡೆಲ್‌ಗೆ ಹೇಳಲಾಗುತ್ತದೆ.</string>
     <string name="settings_max_answer">ಗರಿಷ್ಠ ಉತ್ತರ: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">ಉದ್ದವಾದ ಪ್ರಾಂಪ್ಟ್‌ಗಳಲ್ಲಿ ಸಣ್ಣ ಕೋರ್‌ಗಳು ದೊಡ್ಡವುಗಳೊಂದಿಗೆ ಸೇರುತ್ತವೆ. Redmi Note 9 Pro ನಲ್ಲಿ ಅವು ಪ್ರಾಂಪ್ಟ್‌ಗಳನ್ನು ನಿಧಾನಗೊಳಿಸಿದವು.</string>
     <string name="settings_prefetch">ಮುಂಚಿತವಾಗಿ ಓದಿ</string>
     <string name="settings_prefetch_desc">ಒಂದು ಲೇಯರ್ ಲೆಕ್ಕ ಹಾಕುತ್ತಿರುವಾಗ, ಮುಂದಿನ ಲೇಯರ್‌ಗೆ ಬೇಕಾಗಬಹುದೆಂದು ಊಹಿಸಲಾದ ಎಕ್ಸ್‌ಪರ್ಟ್‌ಗಳನ್ನು ಓದುತ್ತದೆ.</string>
-    <string name="settings_gpu">GPU ಬಳಸಿ</string>
-    <string name="settings_gpu_desc">ಸಾಧ್ಯವಿರುವಲ್ಲಿ ಮಾಡೆಲ್ ಅನ್ನು ಫೋನ್‌ನ ಗ್ರಾಫಿಕ್ಸ್ ಚಿಪ್‌ನಲ್ಲಿ ಚಲಾಯಿಸುತ್ತದೆ: Adreno 7xx ಅಥವಾ ಹೊಸದರಲ್ಲಿ ಸಂಪೂರ್ಣ ಉತ್ತರ; Adreno 618 ನಲ್ಲಿ, ಪ್ರಾಂಪ್ಟ್‌ನ ದೊಡ್ಡ ಗುಣಾಕಾರಗಳ ಒಂದು ಭಾಗ.</string>
+    <string name="settings_runs_on">ಯಾವುದರಲ್ಲಿ ಚಲಿಸುತ್ತದೆ</string>
+    <string name="settings_runs_on_desc">ಫೋನ್‌ನ ಯಾವ ಪ್ರೊಸೆಸರ್‌ಗಳು ಮಾದರಿಯನ್ನು ಚಲಾಯಿಸುತ್ತವೆ. ಎರಡಿದ್ದರೆ ಮೊದಲನೆಯದು ಪ್ರಾಂಪ್ಟ್‌ಗಳನ್ನು ಓದುತ್ತದೆ, ಎರಡನೆಯದು ಉತ್ತರ ಬರೆಯುತ್ತದೆ. ಈ ಫೋನ್‌ನಲ್ಲಿ ಇರುವವು ಮಾತ್ರ ಪಟ್ಟಿಯಲ್ಲಿವೆ; ಡೀಫಾಲ್ಟ್ NPU + GPU, ಎರಡೂ ಇರುವಲ್ಲಿ ಅತಿ ವೇಗ.</string>
     <string name="settings_route_prior">ಮಾದರಿ ಮೆಮೊರಿಯಲ್ಲಿ ಪೂರ್ತಿ ಹಿಡಿಸದಿದ್ದಾಗ ವೇಗದ ಉತ್ತರಗಳು</string>
     <string name="settings_route_prior_desc">ಈಗಾಗಲೇ ಮೆಮೊರಿಯಲ್ಲಿರುವ ಎಕ್ಸ್‌ಪರ್ಟ್‌ಗಳಿಗೆ ಆದ್ಯತೆ ನೀಡುತ್ತದೆ, ಹೀಗಾಗಿ ಸಂಗ್ರಹಣೆಯಿಂದ ಕಡಿಮೆ ಓದಬೇಕಾಗುತ್ತದೆ. ಉತ್ತರಗಳ ಪದಗಳು ಸ್ವಲ್ಪ ಬದಲಾಗಬಹುದು, ಕೆಲವೊಮ್ಮೆ ಗುಣಮಟ್ಟವೂ. ಡೀಫಾಲ್ಟ್ ಆಗಿ ಆಫ್.</string>
-    <string name="settings_npu">NPU ಬಳಸಿ</string>
-    <string name="settings_npu_desc">ಸಹಾಯವಾಗುವಲ್ಲಿ ಫೋನ್‌ನ AI ಪ್ರೊಸೆಸರ್ (Snapdragon Hexagon) ಬಳಸುತ್ತದೆ: ಪ್ರಾಂಪ್ಟ್ ಅನ್ನು ವೇಗವಾಗಿ ಮತ್ತು ಸ್ವಲ್ಪ ಹೆಚ್ಚು ನಿಖರವಾಗಿ ಓದುತ್ತದೆ, ಮತ್ತು Snapdragon 8 Elite ನಲ್ಲಿ 35B ಮಾದರಿಯ ಎಕ್ಸ್‌ಪರ್ಟ್‌ಗಳ ಒಂದು ಭಾಗವನ್ನೂ ನಿರ್ವಹಿಸಿ ಹಗುರ ಮಾದರಿಯನ್ನು ಪೂರ್ಣವಾಗಿ ಚಲಾಯಿಸುತ್ತದೆ. ಅದು ಇಲ್ಲದಿದ್ದರೆ ಅಥವಾ ಪರಿಶೀಲನೆಯಲ್ಲಿ ವಿಫಲವಾದರೆ GPU ಮತ್ತು CPU ಹಿಂದಿನಂತೆ ಕೆಲಸ ಮಾಡುತ್ತವೆ.</string>
     <string name="settings_word_experts">ಪ್ರತಿ ಪದಕ್ಕೆ ಎಕ್ಸ್‌ಪರ್ಟ್‌ಗಳು</string>
     <string name="settings_word_experts_desc">8 (ಡೀಫಾಲ್ಟ್): ಮಾಡೆಲ್ ಆಯ್ಕೆ ಮಾಡುವ ಎಲ್ಲಾ ಎಕ್ಸ್‌ಪರ್ಟ್‌ಗಳು, ಅಂದರೆ ಪೂರ್ಣ ಗುಣಮಟ್ಟ. 6 ಅಥವಾ 4: ಆಯ್ಕೆಯಾದ ಕೊನೆಯ 2 ಅಥವಾ 4 ಎಕ್ಸ್‌ಪರ್ಟ್‌ಗಳಲ್ಲಿ ಯಾವುದಾದರೂ ಮೆಮೊರಿಯಲ್ಲಿ ಇಲ್ಲದಿದ್ದರೆ, ಅದನ್ನು ಓದುವ ಬದಲು ಬಿಟ್ಟುಬಿಡಲಾಗುತ್ತದೆ. ಮಾಡೆಲ್ ಮೆಮೊರಿಯಲ್ಲಿ ಹಿಡಿಸದಿದ್ದಾಗ ಇದು ವೇಗವಾಗಿರುತ್ತದೆ, ಆದರೆ ಮಾಡೆಲ್‌ನ ಉತ್ತರಗಳು ಕಡಿಮೆ ನಿಖರವಾಗುತ್ತವೆ.</string>
     <string name="settings_gpu_share">ಸಾಲುಗಳಲ್ಲಿ GPU ನ ಪಾಲು: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">ಕಾಂಟೆಕ್ಸ್ಟ್ ಅನ್ನು ಸಂಕುಚಿಸಿ</string>
     <string name="chat_compressing">ಮಾಡೆಲ್ ಸಂಭಾಷಣೆಯ ಸಾರಾಂಶ ಮಾಡುತ್ತಿದೆ…</string>
     <string name="chat_summary_title">ಕಾಂಟೆಕ್ಸ್ಟ್ ಸಂಕುಚಿಸಲಾಗಿದೆ</string>
+    <string name="chat_pruned">ಸಂದರ್ಭವನ್ನು ಸಂಕುಚಿಸಿದ ನಂತರ ಹಳೆಯ ಸಂದೇಶಗಳನ್ನು ತೆಗೆದುಹಾಕಲಾಗಿದೆ: ಮಾದರಿ ಅವುಗಳ ಸಾರಾಂಶದಿಂದ ಮುಂದುವರಿಯುತ್ತದೆ.</string>
     <string name="chat_summary_note">ಇಲ್ಲಿಂದ ಮುಂದೆ ಮಾಡೆಲ್ ಮೇಲಿನ ಸಂದೇಶಗಳ ಬದಲು ಈ ಸಾರಾಂಶವನ್ನು ನೋಡುತ್ತದೆ.</string>
     <string name="settings_image_detail">ಚಿತ್ರದ ವಿವರ</string>
     <string name="settings_image_detail_fast">ವೇಗ</string>
     <string name="settings_image_detail_fine">ವಿವರವಾದ</string>
     <string name="settings_image_detail_most">ಗರಿಷ್ಠ</string>
     <string name="settings_image_detail_desc">ಲಗತ್ತಿಸಿದ ಚಿತ್ರವನ್ನು ಮಾಡೆಲ್ ಎಷ್ಟು ಸೂಕ್ಷ್ಮವಾಗಿ ನೋಡುತ್ತದೆ: ಅದರ 256, 576 ಅಥವಾ 1024 ಟೋಕನ್‌ಗಳವರೆಗೆ. ಹೆಚ್ಚು ಸೂಕ್ಷ್ಮವಾದರೆ ಸಣ್ಣ ಪಠ್ಯವನ್ನು ಉತ್ತಮವಾಗಿ ಓದುತ್ತದೆ, ಆದರೆ ಉತ್ತರ ಪ್ರಾರಂಭವಾಗಲು ಹೆಚ್ಚು ಸಮಯ ಹಿಡಿಯುತ್ತದೆ (ಚಿತ್ರವನ್ನು ಫೋನ್‌ನ ಕೋರ್‌ಗಳಲ್ಲಿ ಎನ್‌ಕೋಡ್ ಮಾಡಲಾಗುತ್ತದೆ; ಅದರ ವೇಟ್‌ಗಳನ್ನು ಆಗ ಮಾತ್ರ ಸಂಗ್ರಹಣೆಯಿಂದ ಓದಲಾಗುತ್ತದೆ).</string>
-    <string name="settings_auto_compress">ಕಾಂಟೆಕ್ಸ್ಟ್ ಅನ್ನು ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಸಂಕುಚಿಸಿ</string>
-    <string name="settings_auto_compress_desc">ಕಾಂಟೆಕ್ಸ್ಟ್ 90% ತುಂಬಿದಾಗ, ಮಾಡೆಲ್ ಸಂಭಾಷಣೆಯ ಸಾರಾಂಶ ಮಾಡಿ ಆ ಸಾರಾಂಶದಿಂದ ಮುಂದುವರಿಯುತ್ತದೆ (ಉತ್ತರವು ಕೊನೆಯ 10% ಗಿಂತ ಮೊದಲೇ ನಿಲ್ಲುತ್ತದೆ, ಅದನ್ನು ಸಾರಾಂಶ ಬಳಸುತ್ತದೆ).</string>
     <string name="answer_notif_title">Geode ಉತ್ತರಿಸುತ್ತಿದೆ</string>
     <string name="answer_notif_text">ಆ್ಯಪ್ ಹಿನ್ನೆಲೆಯಲ್ಲಿರುವಾಗಲೂ ಮಾಡೆಲ್ ಕೆಲಸ ಮುಂದುವರಿಸುತ್ತದೆ.</string>
     <string name="answer_notif_stop">ನಿಲ್ಲಿಸಿ</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">ಧನ್ಯವಾದಗಳು, ವರದಿಯನ್ನು ಕಳುಹಿಸಲಾಗಿದೆ</string>
     <string name="report_queued">ಸಂಪರ್ಕವಿಲ್ಲ: ವರದಿಯನ್ನು ನಂತರ ಕಳುಹಿಸಲಾಗುತ್ತದೆ</string>
     <string name="cpu_unsupported">ಈ ಫೋನ್‌ನ ಪ್ರೊಸೆಸರ್ ಬೆಂಬಲಿತವಾಗಿಲ್ಲ: Geode ಗೆ dot product ಸೂಚನೆಗಳಿರುವ 64-ಬಿಟ್ ARM ಪ್ರೊಸೆಸರ್ ಬೇಕು (ARMv8.2, 2019 ರಿಂದ ಬಹುತೇಕ ಫೋನ್‌ಗಳು).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">ಗೌಪ್ಯತೆ</string>
+    <string name="lock_setting">ಆ್ಯಪ್ ಲಾಕ್ ಮಾಡಿ</string>
+    <string name="lock_setting_desc">ಚಾಟ್‌ಗಳನ್ನು ತೋರಿಸುವ ಮೊದಲು PIN ಅಥವಾ ಪಾಸ್‌ವರ್ಡ್: ಆ್ಯಪ್ ಆರಂಭವಾದಾಗ ಮತ್ತು ನೀವು ಅದಕ್ಕೆ ಹಿಂತಿರುಗಿದಾಗ.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">ಪಾಸ್‌ವರ್ಡ್</string>
+    <string name="lock_repeat">ಮತ್ತೆ ನಮೂದಿಸಿ</string>
+    <string name="lock_short_pin">ಕನಿಷ್ಠ 4 ಅಂಕಿಗಳು</string>
+    <string name="lock_short_password">ಕನಿಷ್ಠ 4 ಅಕ್ಷರಗಳು</string>
+    <string name="lock_mismatch">ಎರಡೂ ಒಂದೇ ಆಗಿಲ್ಲ</string>
+    <string name="lock_enter_pin">ನಿಮ್ಮ PIN</string>
+    <string name="lock_enter_password">ನಿಮ್ಮ ಪಾಸ್‌ವರ್ಡ್</string>
+    <string name="lock_wrong">ತಪ್ಪಾಗಿದೆ, ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
+    <string name="lock_wait">ತುಂಬಾ ಪ್ರಯತ್ನಗಳು: ಮುಂದಿನ ಪ್ರಯತ್ನ %1$s ನಂತರ</string>
+    <string name="lock_unlock">ಅನ್‌ಲಾಕ್ ಮಾಡಿ</string>
+    <string name="lock_title">Geode ಲಾಕ್ ಆಗಿದೆ</string>
+    <string name="lock_fingerprint">ಫಿಂಗರ್‌ಪ್ರಿಂಟ್‌ನಿಂದ ಅನ್‌ಲಾಕ್ ಮಾಡಿ</string>
+    <string name="lock_fingerprint_desc">ಕೋಡ್‌ನ ಬದಲಿಗೆ. ನಂತರ ಫೋನ್‌ಗೆ ಸೇರಿಸಿದ ಫಿಂಗರ್‌ಪ್ರಿಂಟ್ ಇದನ್ನು ಆಫ್ ಮಾಡುತ್ತದೆ.</string>
+    <string name="lock_fingerprint_none">ಮೊದಲು ಫೋನ್‌ನ ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ ಫಿಂಗರ್‌ಪ್ರಿಂಟ್ ಸೇರಿಸಿ.</string>
+    <string name="lock_fingerprint_changed">ಫೋನ್‌ನ ಫಿಂಗರ್‌ಪ್ರಿಂಟ್‌ಗಳು ಬದಲಾಗಿವೆ, ಹಾಗಾಗಿ ಫಿಂಗರ್‌ಪ್ರಿಂಟ್ ಆಫ್ ಆಗಿದೆ: ಕೋಡ್‌ನಿಂದ ಅನ್‌ಲಾಕ್ ಮಾಡಿ ಮತ್ತು ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ ಮತ್ತೆ ಆನ್ ಮಾಡಿ.</string>
+    <string name="lock_prompt_title">Geode ಅನ್‌ಲಾಕ್ ಮಾಡಿ</string>
+    <string name="lock_prompt_code">ಕೋಡ್ ಬಳಸಿ</string>
+    <string name="lock_after">ಆ್ಯಪ್ ತೊರೆದ ನಂತರ ಲಾಕ್ ಮಾಡಿ</string>
+    <string name="lock_after_now">ತಕ್ಷಣ</string>
+    <string name="lock_after_min">%1$d ನಿಮಿ</string>
+    <string name="lock_change">PIN ಅಥವಾ ಪಾಸ್‌ವರ್ಡ್ ಬದಲಿಸಿ</string>
+    <string name="lock_off">ಲಾಕ್ ಆಫ್ ಮಾಡಿ</string>
+    <string name="lock_now">ಈಗಲೇ ಲಾಕ್ ಮಾಡಿ</string>
+    <string name="lock_note">ಲಾಕ್ ಆನ್ ಇರುವವರೆಗೆ, ಇತ್ತೀಚಿನ ಆ್ಯಪ್‌ಗಳಲ್ಲಿ ಆ್ಯಪ್‌ನ ಪೂರ್ವವೀಕ್ಷಣೆ ಮರೆಯಾಗಿರುತ್ತದೆ. ವೆಬ್ ಚಾಟ್ ಮತ್ತು ನೆಟ್‌ವರ್ಕ್‌ನಲ್ಲಿರುವ API ತಮ್ಮದೇ ಪಾಸ್‌ವರ್ಡ್ ಮತ್ತು ಕೀ ಇಟ್ಟುಕೊಳ್ಳುತ್ತವೆ.</string>
+    <string name="lock_forgot">ಕೋಡ್ ಮರೆತಿರಾ?</string>
+    <string name="lock_forgot_title">ಎಲ್ಲಾ ಚಾಟ್‌ಗಳನ್ನು ಅಳಿಸಬೇಕೆ?</string>
+    <string name="lock_forgot_text">ಕೋಡ್ ಇಲ್ಲದೆ ಒಳಗೆ ಬರಲು ಬೇರೆ ದಾರಿಯಿಲ್ಲ: ಎಲ್ಲಾ ಚಾಟ್‌ಗಳು ಅವುಗಳ ಫೋಟೋಗಳು, ಧ್ವನಿಗಳು ಮತ್ತು ಏಜೆಂಟ್‌ನ ಫೈಲ್‌ಗಳೊಂದಿಗೆ ಅಳಿಸಲ್ಪಡುತ್ತವೆ, ನಂತರ ಲಾಕ್. ಮಾಡೆಲ್‌ಗಳು ಉಳಿಯುತ್ತವೆ.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">ಚಾಟ್ ಪಠ್ಯದ ಗಾತ್ರ: %1$d%%</string>
+    <string name="settings_chat_text_desc">ಚಾಟ್‌ನ ಸಂದೇಶಗಳು ಮತ್ತು ಬರೆಯುವ ಜಾಗ. ಸಂಭಾಷಣೆಯ ಮೇಲೆ ಎರಡು ಬೆರಳುಗಳಿಂದಲೂ ಇದನ್ನು ಬದಲಿಸಬಹುದು.</string>
+    <string name="models_search">ಮಾಡೆಲ್‌ಗಳನ್ನು ಹುಡುಕಿ</string>
+    <string name="models_cap_photos">ಫೋಟೋಗಳು</string>
+    <string name="models_cap_video">ವೀಡಿಯೊ</string>
+    <string name="models_cap_sound">ಧ್ವನಿ</string>
+    <string name="models_cap_reasoning">ತಾರ್ಕಿಕತೆ</string>
+    <string name="models_no_match">ಯಾವುದೇ ಮಾಡೆಲ್ ಹೊಂದಿಕೆಯಾಗುತ್ತಿಲ್ಲ</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">ಪರದೆ</string>
+    <string name="screen_keep">ಪರದೆಯನ್ನು ಆನ್‌ನಲ್ಲಿ ಇಡಿ</string>
+    <string name="screen_keep_off">ಬೇಡ: ಫೋನ್‌ನ ಸ್ವಂತ ಟೈಮ್‌ಔಟ್ ಪ್ರಕಾರ</string>
+    <string name="screen_keep_answering">Geode ಉತ್ತರಿಸುತ್ತಿರುವಾಗ</string>
+    <string name="screen_keep_always">ಯಾವಾಗಲೂ, Geode ತೆರೆದಿರುವವರೆಗೆ</string>
+    <string name="screen_black_after">%1$d ನಿಮಿಷ ಮುಟ್ಟದಿದ್ದರೆ ಕಪ್ಪು ಪರದೆ</string>
+    <string name="screen_black_never">ಕಪ್ಪು ಪರದೆ: ಎಂದಿಗೂ ಬೇಡ</string>
+    <string name="screen_black_desc">ಬರ್ನ್-ಇನ್ ತಡೆ: OLED ಪರದೆಯಲ್ಲಿ ಎಂದಿಗೂ ಚಲಿಸದ ಚಿತ್ರದ ಭಾಗಗಳು (ಪಟ್ಟಿಗಳು, ಬರೆಯುವ ಜಾಗ) ಕೆಲವು ಗಂಟೆಗಳಲ್ಲಿ ಪರದೆಯ ಮೇಲೆ ಅಚ್ಚಾಗಬಹುದು. ಕಪ್ಪು ಪರದೆ ಲಾಕ್ ಅಲ್ಲ: ಫೋನ್ ಅನ್‌ಲಾಕ್ ಆಗಿಯೇ ಇರುತ್ತದೆ, ಪರದೆಯನ್ನು ಮುಟ್ಟಿದರೆ Geode ಮರಳಿ ಬರುತ್ತದೆ.</string>
+    <string name="screen_black_off_warning">ಕಪ್ಪು ಪರದೆ ಇಲ್ಲದೆ, ಗಂಟೆಗಟ್ಟಲೆ ಸ್ಥಿರವಾಗಿರುವ ಚಿತ್ರ OLED ಪರದೆಯ ಮೇಲೆ ಶಾಶ್ವತವಾಗಿ ಅಚ್ಚಾಗಬಹುದು.</string>
+    <string name="screen_black_hint">ಮರಳಲು ಪರದೆಯನ್ನು ಮುಟ್ಟಿ</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">ಪ್ರೊಸೆಸರ್‌ನಲ್ಲಿ ಚಲಿಸುತ್ತದೆ (NPU ಇದ್ದಲ್ಲಿ ಅದು ಪ್ರಾಂಪ್ಟ್ ಓದುತ್ತದೆ), 8 GB ಅಥವಾ ಹೆಚ್ಚು RAM ಇರುವ ಫೋನ್‌ಗಳಲ್ಲಿ</string>
+    <string name="models_catalog_ram_short">%1$s RAM: ಈ ಮಾಡೆಲ್‌ಗೆ ಸಾಲದು (ಇದಕ್ಕೆ 8 GB ಬೇಕು)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">ಧ್ವನಿ</string>
+    <string name="voice_read_aloud">ಉತ್ತರಗಳನ್ನು ಗಟ್ಟಿಯಾಗಿ ಓದಿ</string>
+    <string name="voice_read_aloud_desc">ಉತ್ತರ ಬರೆಯುತ್ತಿರುವಾಗಲೇ ವಾಕ್ಯ ವಾಕ್ಯವಾಗಿ. ಉತ್ತರದ ಕೆಳಗಿನ ಸ್ಪೀಕರ್ ಅದನ್ನು ಮತ್ತೆ ಓದುತ್ತದೆ.</string>
+    <string name="voice_rate">ಮಾತಿನ ವೇಗ: %1$d%%</string>
+    <string name="voice_none">ಈ ಫೋನ್‌ನಲ್ಲಿ ಪಠ್ಯದಿಂದ ಮಾತು ಎಂಜಿನ್ ಇಲ್ಲ: ಸಿಸ್ಟಂ ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ ಒಂದನ್ನು ಸ್ಥಾಪಿಸಿ (ಉದಾ. Google ಸ್ಪೀಚ್ ಸೇವೆಗಳು).</string>
+    <string name="chat_speak">ಗಟ್ಟಿಯಾಗಿ ಓದಿ</string>
+    <string name="chat_speak_stop">ಓದುವುದನ್ನು ನಿಲ್ಲಿಸಿ</string>
+    <string name="nav_model_settings">ಮಾದರಿಯ ಸೆಟ್ಟಿಂಗ್‌ಗಳು</string>
+    <string name="model_settings_selected">ಆಯ್ಕೆ ಮಾಡಿದ ಮಾದರಿ: %1$s</string>
+    <string name="model_settings_none">ಇನ್ನೂ ಯಾವುದೇ ಮಾದರಿಯನ್ನು ಆಯ್ಕೆ ಮಾಡಿಲ್ಲ: ಈ ಸೆಟ್ಟಿಂಗ್‌ಗಳು ನೀವು ಆಯ್ಕೆ ಮಾಡುವ ಮಾದರಿಗೆ ಅನ್ವಯಿಸುತ್ತವೆ.</string>
+    <string name="chat_take_photo">ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
+    <string name="chat_record_video">ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="chat_camera_denied">ಕ್ಯಾಮೆರಾ ಅನುಮತಿ ಇಲ್ಲದೆ Geode ಫೋಟೋ ಅಥವಾ ವೀಡಿಯೊ ತೆಗೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ</string>
+    <string name="chat_camera_none">ಈ ಫೋನ್‌ನಲ್ಲಿ ಯಾವುದೇ ಕ್ಯಾಮೆರಾ ಆ್ಯಪ್ ಇಲ್ಲ</string>
+    <string name="voice_voice">ಧ್ವನಿ</string>
+    <string name="voice_auto">ಸ್ವಯಂಚಾಲಿತ: ಪ್ರತಿ ಭಾಷೆಯ ಡೀಫಾಲ್ಟ್ ಧ್ವನಿ</string>
+    <string name="voice_voice_desc">ಆಯ್ಕೆ ಮಾಡಿದ ಧ್ವನಿ ತನ್ನ ಭಾಷೆಯನ್ನು ಓದುತ್ತದೆ; ಇತರ ಭಾಷೆಗಳು ತಮ್ಮ ಡೀಫಾಲ್ಟ್ ಧ್ವನಿಯನ್ನು ಉಳಿಸಿಕೊಳ್ಳುತ್ತವೆ.</string>
+    <string name="voice_pitch">ಧ್ವನಿಯ ಪಿಚ್: %1$d%%</string>
+    <string name="voice_listen">ಕೇಳಿ</string>
+    <string name="voice_sample">ಉತ್ತರಗಳು ಹೀಗೆ ಕೇಳಿಸುತ್ತವೆ.</string>
+    <string name="voice_engine_settings">ಪಠ್ಯದಿಂದ ಮಾತು ಸೆಟ್ಟಿಂಗ್‌ಗಳು</string>
+    <string name="voice_network">ಇಂಟರ್ನೆಟ್ ಬೇಕು</string>
+    <string name="chat_read_aloud_on">ಉತ್ತರಗಳನ್ನು ಗಟ್ಟಿಯಾಗಿ ಓದಲಾಗುತ್ತದೆ</string>
+    <string name="chat_read_aloud_off">ಉತ್ತರಗಳನ್ನು ಗಟ್ಟಿಯಾಗಿ ಓದಲಾಗುವುದಿಲ್ಲ</string>
+    <string name="voice_engine">ಯಾವುದು ಜೋರಾಗಿ ಓದುತ್ತದೆ</string>
+    <string name="voice_engine_system">ಫೋನ್‌ನ ಪಠ್ಯದಿಂದ ಧ್ವನಿ</string>
+    <string name="voice_engine_geode">Geode ನ ಸ್ವಂತ ಧ್ವನಿ</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: ಈ ಫೋನ್‌ನಲ್ಲಿ 31 ಭಾಷೆಗಳನ್ನು ಓದಲಾಗುತ್ತದೆ, ಅವುಗಳಲ್ಲಿ ಉಕ್ರೇನಿಯನ್, ರಷ್ಯನ್ ಮತ್ತು ಇಂಗ್ಲಿಷ್ ಸೇರಿವೆ; ಇತರ ಭಾಷೆಗಳನ್ನು ಫೋನ್‌ನ ಪಠ್ಯದಿಂದ ಧ್ವನಿ ಓದುತ್ತದೆ. ಇದು ಸ್ಟೋರೇಜ್‌ನಲ್ಲಿರುತ್ತದೆ ಮತ್ತು ಓದುವಾಗ ಮಾತ್ರ ಸುಮಾರು 300 MB ಮೆಮೊರಿ ತೆಗೆದುಕೊಳ್ಳುತ್ತದೆ.</string>
+    <string name="voice_download">ಧ್ವನಿಯನ್ನು ಡೌನ್‌ಲೋಡ್ ಮಾಡಿ (%1$s)</string>
+    <string name="voice_downloading">ಧ್ವನಿ ಡೌನ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ: %1$d%%</string>
+    <string name="voice_delete">ಧ್ವನಿಯನ್ನು ಅಳಿಸಿ</string>
+    <string name="voice_download_failed">ಧ್ವನಿ ಡೌನ್‌ಲೋಡ್ ಆಗಲಿಲ್ಲ: %1$s</string>
+    <string name="voice_female">ಮಹಿಳಾ ಧ್ವನಿ %1$d</string>
+    <string name="voice_male">ಪುರುಷ ಧ್ವನಿ %1$d</string>
+    <string name="voice_license">ಧ್ವನಿಯ ಪರವಾನಗಿ</string>
+    <string name="voice_license_note">Supertone ನ Supertonic 3, Open RAIL-M ಪರವಾನಗಿಯಡಿ: ಅದು ಓದುವುದಕ್ಕೆ ಅದರ ಬಳಕೆಯ ನಿರ್ಬಂಧಗಳು ಅನ್ವಯಿಸುತ್ತವೆ. sherpa-onnx ಮೂಲಕ ಚಲಿಸುತ್ತದೆ.</string>
+    <string name="agent_folders">ಫೋನ್‌ನ ಫೋಲ್ಡರ್‌ಗಳು</string>
+    <string name="agent_folders_desc">ಪ್ರತಿ ಚಾಟ್‌ನ ಏಜೆಂಟ್ ಕೆಲಸ ಮಾಡಬಹುದಾದ ಈ ಫೋನ್‌ನ ಫೋಲ್ಡರ್‌ಗಳು: ಅದರ Linux ನಲ್ಲಿ ಅವು /phone ನಲ್ಲಿರುತ್ತವೆ. ಏಜೆಂಟ್ ಪ್ರತಿಯೊಂದರ ಪ್ರತಿಯ ಮೇಲೆ ಕೆಲಸ ಮಾಡುತ್ತದೆ, ಅದು ಪ್ರತಿ ಸಂದೇಶದ ಮೊದಲು ನವೀಕರಿಸಲ್ಪಡುತ್ತದೆ; ಓದು-ಬರೆ ಫೋಲ್ಡರ್‌ಗೆ ಏಜೆಂಟ್‌ನ ಬದಲಾವಣೆಗಳು ಅದು ಮುಗಿಸಿದಾಗ ಹಿಂತಿರುಗುತ್ತವೆ. ಫೋಲ್ಡರ್ ಹಿಂಪಡೆದರೆ ಪ್ರತಿಯನ್ನು ಮಾತ್ರ ಅಳಿಸಲಾಗುತ್ತದೆ.</string>
+    <string name="agent_folders_none">ಇನ್ನೂ ಯಾವುದೇ ಫೋಲ್ಡರ್ ನೀಡಿಲ್ಲ.</string>
+    <string name="agent_folders_add">ಫೋಲ್ಡರ್ ನೀಡಿ</string>
+    <string name="agent_folder_read">ಓದಲು ಮಾತ್ರ</string>
+    <string name="agent_folder_write">ಓದು ಮತ್ತು ಬರೆ</string>
+    <string name="agent_folder_remove">ಹಿಂಪಡೆ</string>
+    <string name="agent_folder_files">ಫೈಲ್‌ಗಳು: %1$d · %2$s</string>
+    <string name="agent_folder_copying">ನಕಲಿಸಲಾಗುತ್ತಿದೆ…</string>
+    <string name="agent_folder_skipped">ನಕಲಿಸಿಲ್ಲ: %1$d (ಒಂದು ಪ್ರತಿಯಲ್ಲಿ ಗರಿಷ್ಠ 10,000 ಫೈಲ್‌ಗಳು ಮತ್ತು %2$s ಹಿಡಿಸುತ್ತದೆ)</string>
+    <string name="agent_folder_error">ಫೋಲ್ಡರ್ ಓದಲಾಗುತ್ತಿಲ್ಲ: %1$s</string>
+    <string name="agent_folder_add_failed">ಫೋಲ್ಡರ್ ಅನ್ನು ಏಜೆಂಟ್‌ಗೆ ನೀಡಲಾಗಲಿಲ್ಲ</string>
+    <string name="models_services">ಸೇವೆಗಳ ಮಾದರಿಗಳು</string>
+    <string name="models_services_desc">ನಿಮ್ಮ ಬಳಿ ಕೀ ಇರುವ ಸೇವೆಯ ಮಾದರಿ ಫೋನ್‌ನ ಮಾದರಿಯ ಬದಲು ಚಾಟ್‌ಗಳಲ್ಲಿ ಉತ್ತರಿಸಬಹುದು: DeepSeek, OpenRouter, OpenAI, Anthropic ಅಥವಾ ಅವುಗಳ API ಮಾತನಾಡುವ ಯಾವುದೇ ಸೇವೆ. ಚಾಟ್‌ಗಳು ಕಳುಹಿಸುವುದು ಆ ಸೇವೆಗೆ ಹೋಗುತ್ತದೆ; ಏಜೆಂಟ್‌ನ Linux ಮತ್ತು ಅದರ ಫೈಲ್‌ಗಳು ಫೋನ್‌ನಲ್ಲೇ ಉಳಿಯುತ್ತವೆ.</string>
+    <string name="models_service_add">ಸೇವೆಯನ್ನು ಸೇರಿಸಿ</string>
+    <string name="models_service_edit">ಬದಲಿಸಿ</string>
+    <string name="service_name">ಹೆಸರು</string>
+    <string name="service_url">API ವಿಳಾಸ</string>
+    <string name="service_protocol">ಪ್ರೋಟೋಕಾಲ್</string>
+    <string name="service_key">API ಕೀ</string>
+    <string name="service_key_kept">ಈ ಫೋನ್‌ನಲ್ಲಿ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಮಾಡಿ ಇಡಲಾಗಿದೆ. ಬದಲಿಸಲು ಹೊಸದನ್ನು ಬರೆಯಿರಿ.</string>
+    <string name="service_model">ಮಾದರಿ</string>
+    <string name="service_list">ಅದರ ಮಾದರಿಗಳನ್ನು ತೋರಿಸಿ</string>
+    <string name="service_list_failed">ಮಾದರಿಗಳನ್ನು ಪಡೆಯಲಾಗಲಿಲ್ಲ: %1$s</string>
+    <string name="service_vision">ಮಾದರಿ ಚಿತ್ರಗಳನ್ನು ಓದುತ್ತದೆ</string>
+    <string name="service_context">ಸಂದರ್ಭ, ಟೋಕನ್‌ಗಳು</string>
+    <string name="service_max">ಅತಿ ಉದ್ದದ ಉತ್ತರ, ಟೋಕನ್‌ಗಳು</string>
+    <string name="service_leaves">ಈ ಮಾದರಿಯ ಚಾಟ್‌ಗಳನ್ನು %1$s ಗೆ ಕಳುಹಿಸಲಾಗುತ್ತದೆ ಮತ್ತು ಅದರ ನಿಯಮಗಳಂತೆ ನಿರ್ವಹಿಸಲಾಗುತ್ತದೆ. ಕೀ ಈ ಫೋನ್‌ನಲ್ಲಿ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಆಗಿ ಉಳಿಯುತ್ತದೆ.</string>
+    <string name="chat_empty_remote">ಏನು ಬೇಕಾದರೂ ಕೇಳಿ. ಉತ್ತರಗಳು %1$s (%2$s) ನಿಂದ ಬರುತ್ತವೆ: ನೀವು ಕಳುಹಿಸುವುದು ಫೋನ್‌ನಿಂದ ಹೊರಹೋಗುತ್ತದೆ.</string>
+    <string name="chat_info_service">ಚಾಟ್ ಅನ್ನು %1$s ಗೆ ಕಳುಹಿಸಲಾಗುತ್ತದೆ</string>
+    <string name="settings_about_services">ಮಾದರಿಗಳ ಪರದೆಯಲ್ಲಿ ನೀವು ಸೇವೆಯ ಮಾದರಿಯನ್ನು ಆರಿಸಿದಾಗ, ಅದರ ಚಾಟ್‌ಗಳನ್ನು ಆ ಸೇವೆಗೆ ಕಳುಹಿಸಲಾಗುತ್ತದೆ.</string>
 </resources>

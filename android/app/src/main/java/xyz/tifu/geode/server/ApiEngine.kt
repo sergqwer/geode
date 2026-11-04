@@ -22,6 +22,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import xyz.tifu.geode.GeodeApp
 import xyz.tifu.geode.cache.StateCache
 import xyz.tifu.geode.data.AppSettings
+import xyz.tifu.geode.data.SamplingPrefs
 import xyz.tifu.geode.engine.EngineEvent
 import xyz.tifu.geode.engine.EngineMedia
 import xyz.tifu.geode.engine.GeodeNative
@@ -136,11 +137,18 @@ class ApiEngine(private val app: GeodeApp) {
     /** Every request's end: its counts and the engine's speeds (the agent's chat shows them as a chat's). */
     val results: SharedFlow<GenResult> = _results.asSharedFlow()
 
+    /** A request answered elsewhere (an outside service's model: RemoteApi), its counts shown as the engine's are. */
+    fun report(r: GenResult) {
+        _results.tryEmit(r)
+    }
+
     /** The model the app's chat has selected (the server answers with it). */
     suspend fun model(): InstalledModel {
         val s = app.settings.flow.first()
-        return withContext(Dispatchers.IO) { s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find) }
-            ?: throw ApiError(503, "No model is selected in Geode: open the app and choose one on the Models screen.")
+        // (as the user left its inputs and drafting: Model settings)
+        return withContext(Dispatchers.IO) {
+            s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find)?.copy(off = s.featuresOff)
+        } ?: throw ApiError(503, "No model is selected in Geode: open the app and choose one on the Models screen.")
     }
 
     suspend fun template(model: InstalledModel): ApiTemplate =
@@ -148,7 +156,8 @@ class ApiEngine(private val app: GeodeApp) {
 
     /** An image a request sent (its bytes) as the model will read it: stored, at the size the setting allows. */
     suspend fun image(model: InstalledModel, bytes: ByteArray): Part.Image {
-        if (!model.vision) throw ApiError(400, "The selected model reads no images (its pack has no vision encoder).")
+        if (!model.vision) throw ApiError(400, if (model.hasVision) "Images are turned off in Geode's Model settings."
+            else "The selected model reads no images (its pack has no vision encoder).")
         val s = app.settings.flow.first()
         return withContext(Dispatchers.IO) {
             val name = runCatching { images.importBytes(bytes) }.getOrElse { throw ApiError(400, "An image could not be read.") }
@@ -166,8 +175,11 @@ class ApiEngine(private val app: GeodeApp) {
      * A clip a request sent (its bytes, [format] as OpenAI's input_audio says it) as the model will hear it: 16 kHz
      * mono, its first 30 s, stored. A WAV is read here; any other format Android decodes (MP3, AAC, Ogg, FLAC).
      */
-    suspend fun audio(model: InstalledModel, bytes: ByteArray, format: String): Part.Audio {
-        if (!model.audio) throw ApiError(400, "The selected model hears no audio (its pack has no audio encoder).")
+    suspend fun audio(model: InstalledModel, bytes: ByteArray, format: String, ofVideo: Boolean = false): Part.Audio {
+        // (a video's sound goes with the video: the pack's encoder is enough, the audio switch is for clips)
+        if (!(if (ofVideo) model.hasAudio else model.audio))
+            throw ApiError(400, if (model.hasAudio) "Audio is turned off in Geode's Model settings."
+                else "The selected model hears no audio (its pack has no audio encoder).")
         return withContext(Dispatchers.IO) {
             val wav = bytes.size >= 12 && String(bytes, 0, 4, Charsets.US_ASCII) == "RIFF" &&
                 String(bytes, 8, 4, Charsets.US_ASCII) == "WAVE"
@@ -191,11 +203,13 @@ class ApiEngine(private val app: GeodeApp) {
      * it: the frames stored, each at Gemma 4's 70 tokens, the sound as [audio] reads a clip.
      */
     suspend fun video(model: InstalledModel, frames: List<Pair<ByteArray, Int>>, sound: Pair<ByteArray, String>?): Part.Video {
-        if (!model.video) throw ApiError(400, "The selected model watches no video (its pack is not Gemma 4's with vision).")
+        if (!model.video) throw ApiError(400, if (model.hasVideo) "Video is turned off in Geode's Model settings."
+            else "The selected model watches no video (its pack is not Gemma 4's with vision).")
         if (frames.isEmpty()) throw ApiError(400, "A video has no frames.")
         if (frames.size > xyz.tifu.geode.media.VideoDecoder.MAX_FRAMES)
             throw ApiError(400, "A video has more than ${xyz.tifu.geode.media.VideoDecoder.MAX_FRAMES} frames.")
-        val clip = sound?.let { (bytes, format) -> audio(model, bytes, format) }
+        // (a pack without the audio encoder watches the frames alone)
+        val clip = sound?.takeIf { model.hasAudio }?.let { (bytes, format) -> audio(model, bytes, format, ofVideo = true) }
         return withContext(Dispatchers.IO) {
             val turned = frames.map { (bytes, second) ->
                 val name = runCatching { images.importBytes(bytes) }.getOrElse { throw ApiError(400, "A video's frame could not be read.") }
@@ -274,7 +288,7 @@ class ApiEngine(private val app: GeodeApp) {
             heldStart = null
             if (background) readAheadHeld = false
             if (ensureOpen(model, s)) start = null
-            val limit = app.engine.openStats?.getOrNull(6)?.toInt()?.takeIf { it > 0 } ?: s.contextLength
+            val limit = app.engine.openStats?.getOrNull(6)?.toInt()?.takeIf { it > 0 } ?: s.contextFor(model)
             // the conversation the engine holds, when this request goes on from it; else one saved on the storage
             var from = held?.takeIf { h -> h.model == model.stateId && h.tools == toolsKey && goesOn(h.messages, req) }
                 ?: fromStorage(model, toolsKey, req, s)
@@ -337,7 +351,7 @@ class ApiEngine(private val app: GeodeApp) {
             }
             send(GenEvent.Started(used + p.size, used))
             val out = Output(req, tpl, tok.decode(intArrayOf(tpl.callStart)), p.reasoning, tok.StreamDecoder(), send)
-            val done = stream(tpl, p, mediaFiles, req, s, maxTokens, out, stopped)
+            val done = stream(tpl, p, mediaFiles, req, s, s.samplingOf(xyz.tifu.geode.data.ModelFamily.of(model)), maxTokens, out, stopped)
             out.end()
             val ok = done.code == GeodeNative.OK || (done.code == GeodeNative.E_STOPPED && out.received > 0)
             if (!ok) {
@@ -519,11 +533,11 @@ class ApiEngine(private val app: GeodeApp) {
         if (!background) app.gate.parked.value = false
         // the same folder with other weights (a pack replaced in place) is another model: opened anew
         if (app.engine.openModel.value == model.dir.path && openedId == model.stateId &&
-            app.engine.openOptions == app.engineOptions(s)) return false
+            app.engine.openOptions == app.engineOptions(s, model)) return false
         if (background && app.gate.parked.value) throw ApiError(503, "The model was unloaded: the next message opens it.")
         held = null
         openedId = null
-        val err = app.engine.open(model.dir.path, app.engineOptions(s))
+        val err = app.engine.open(model.dir.path, app.engineOptions(s, model))
         if (err != null) throw ApiError(503, "The model did not open: $err")
         openedId = model.stateId
         return true
@@ -548,18 +562,19 @@ class ApiEngine(private val app: GeodeApp) {
      * is cancelled (the client went away) the engine is stopped and waited for, so the next request finds it free.
      */
     private suspend fun stream(tpl: ApiTemplate, prompt: Prompt, mediaFiles: List<EngineMedia>,
-                               req: GenRequest, s: AppSettings, maxTokens: Int, out: Output,
+                               req: GenRequest, s: AppSettings, sp: SamplingPrefs, maxTokens: Int, out: Output,
                                stopped: () -> Boolean): EngineEvent.Done =
         coroutineScope {
             val events = Channel<EngineEvent>(Channel.UNLIMITED)
             // subscribed before the request goes out: the events have no replay
             val listener = launch(start = CoroutineStart.UNDISPATCHED) { app.engine.events.collect { events.send(it) } }
             fun sampling(n: Int) = Sampling(
-                temperature = req.temperature ?: if (req.thinking) s.thinkTemperature else s.temperature,
-                topP = req.topP ?: if (req.thinking) s.thinkTopP else s.topP,
-                topK = req.topK ?: if (req.thinking) s.thinkTopK else s.topK,
+                // the client's own values, else the model's family's (its model card's, as the user set them)
+                temperature = req.temperature ?: sp.temperature(req.thinking),
+                topP = req.topP ?: sp.topP(req.thinking),
+                topK = req.topK ?: sp.topK(req.thinking),
                 maxTokens = n,
-                presencePenalty = req.presencePenalty ?: s.presencePenalty,
+                presencePenalty = req.presencePenalty ?: sp.presence(req.thinking),
                 seed = req.seed ?: System.nanoTime(),
             )
             // a stop sequence the content met ends the generation itself (its tokens past it would only be dropped):
@@ -803,7 +818,9 @@ class ApiEngine(private val app: GeodeApp) {
         /** The end of the content not sent yet: trailing whitespace (a tool call may follow), or what may begin a stop
          *  sequence. */
         private fun holdBack(): Int {
-            var n = contentText.length - contentText.trimEnd().length
+            // the trailing whitespace counted in place (trimEnd() made a copy of the whole answer at every piece)
+            var n = 0
+            while (n < contentText.length && contentText[contentText.length - 1 - n].isWhitespace()) n++
             for (st in stops) for (k in minOf(st.length - 1, contentText.length) downTo 1)
                 if (contentText.endsWith(st.substring(0, k))) {
                     n = maxOf(n, k)

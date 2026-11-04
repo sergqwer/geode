@@ -249,13 +249,22 @@ bool Model::gemma_draft(int tok, const float *hidden, int &draft, float *prob, s
         const int hd = L.hd, half = hd / 2;
         rmsnorm(x, L.in_norm, h, D, g.eps, false);
         mm(L.q, h, g.q.data());
-        // the query heads normed and turned at the round's position (the main model's rotary for this type)
+        // the query heads normed and turned at the round's position (the main model's rotary for this type): the
+        // angles' cosines and sines once for all the heads (the same values: they were the same in every head)
         const float p = static_cast<float>(g.pos);
+        thread_local std::vector<float> rc, rs;
+        rc.resize(static_cast<size_t>(L.pairs));
+        rs.resize(static_cast<size_t>(L.pairs));
+        for (int i = 0; i < L.pairs; ++i) {
+            const float a = p * L.inv_freq[static_cast<size_t>(i)];
+            rc[static_cast<size_t>(i)] = std::cos(a);
+            rs[static_cast<size_t>(i)] = std::sin(a);
+        }
         for (int k = 0; k < g.heads; ++k) {
             float *q = g.q.data() + static_cast<size_t>(k) * hd;
             rmsnorm(q, L.q_norm, q, hd, g.eps, false);
             for (int i = 0; i < L.pairs; ++i) {
-                const float a = p * L.inv_freq[static_cast<size_t>(i)], cs = std::cos(a), sn = std::sin(a);
+                const float cs = rc[static_cast<size_t>(i)], sn = rs[static_cast<size_t>(i)];
                 const float x1 = q[i], x2 = q[i + half];
                 q[i] = x1 * cs - x2 * sn;
                 q[i + half] = x2 * cs + x1 * sn;
@@ -266,8 +275,15 @@ bool Model::gemma_draft(int tok, const float *hidden, int &draft, float *prob, s
         rmsnorm(f, L.attn_norm, f, D, g.eps, false);
         for (int i = 0; i < D; ++i) x[i] += f[i];
         rmsnorm(x, L.ff_norm, n, D, g.eps, false);
-        mm(L.gate, n, g.g.data());
-        mm(L.up, n, g.u.data());
+        {   // gate and up from one quantization of their input (each matmul made its own, the same), in one round
+            std::vector<float *> in1{n};
+            const QAct *const *qn = quantize_h(in1, D);
+            const float *xs[1] = {n};
+            float *yg[1] = {g.g.data()}, *yu[1] = {g.u.data()};
+            const QView *mats[2] = {&L.gate, &L.up};
+            float *const *outs[2] = {yg, yu};
+            matmul_many(mats, 2, 1, xs, outs, qn);
+        }
         for (int i = 0; i < g.ff; ++i) g.g[static_cast<size_t>(i)] = gelu_tanh(g.g[static_cast<size_t>(i)]) * g.u[static_cast<size_t>(i)];
         mm(L.down, g.g.data(), f);
         rmsnorm(f, L.ff_post_norm, f, D, g.eps, false);
@@ -286,13 +302,33 @@ bool Model::gemma_draft(int tok, const float *hidden, int &draft, float *prob, s
     });
     std::vector<float *> one{n};
     const QAct *const *qn = quantize_h(one, D);
-    for (int k = 0; k < g.top_k; ++k) {
+    const auto cluster = [&](int k) {
         QView v = g.head;
         v.rows = g.per;
         v.data = g.head.data + static_cast<size_t>(top[static_cast<size_t>(k)]) * g.per * g.head.row_bytes;
-        const float *xs[1] = {n};
-        float *ys[1] = {g.lg.data() + static_cast<size_t>(k) * g.per};
-        matmul(v, 1, xs, ys, qn);
+        return v;
+    };
+    if (!exact_ && !check_ && !gpu_ && qn) {
+        // every cluster's rows in one round of the pool (a matmul each was top_k rounds for a few hundred rows
+        // apiece); each row's kernel the same, so the same logits
+        const int64_t per = g.per, total = static_cast<int64_t>(g.top_k) * per;
+        pool_->parallel_for(total, [&](int64_t a, int64_t b) {
+            while (a < b) {
+                const int k = static_cast<int>(a / per);
+                const int64_t r0 = a % per, r1 = std::min(per, r0 + (b - a));
+                const QView v = cluster(k);
+                float *ys[1] = {g.lg.data() + static_cast<size_t>(k) * g.per};
+                matvec_rows_q_multi(v, qn, 1, ys, r0, r1);
+                a += r1 - r0;
+            }
+        }, 16);
+    } else {
+        for (int k = 0; k < g.top_k; ++k) {
+            const QView v = cluster(k);
+            const float *xs[1] = {n};
+            float *ys[1] = {g.lg.data() + static_cast<size_t>(k) * g.per};
+            matmul(v, 1, xs, ys, qn);
+        }
     }
     // the likeliest candidate that is no media token (one would take an image's or a clip's features)
     const int pads[3] = {vision_.available() ? vision_.shape().pad_token : -1,

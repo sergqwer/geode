@@ -100,6 +100,22 @@ inline float e4m3(uint b) { return (float)as_half((ushort)((b & 0xFFu) << 7)); }
 #define EACH(M) M(0) M(1) M(2) M(3) M(4) M(5) M(6) M(7)
 #endif
 #define DECL(t) float4 acc##t = 0.0f;
+#if T == 8
+// (a tile's 8 activation scales and offsets of a block: one load each, not 8 - the prompt's products ~5% faster)
+#undef STEP
+#define STEP(t)                                                                                       \
+    {                                                                                                 \
+        const uint4 x = Xb[t];                                                                        \
+        const int bias = xb8.s##t;                                                                    \
+        const int4 d = (int4)(ROW(s0), ROW(s1), ROW(s2), ROW(s3));                                    \
+        acc##t = mad(convert_float4(d), ws * xs8.s##t, acc##t);                                       \
+    }
+#define BLOCK_LOADS                                                                                   \
+    const float8 xs8 = vload8(0, XSb);                                                                \
+    const int8 xb8 = vload8(0, XBb);
+#else
+#define BLOCK_LOADS
+#endif
 
 // the product itself, from the job's matrix at W (a work item's quad q x the T tokens)
 #define GEMM_BODY                                                                                     \
@@ -117,6 +133,7 @@ inline float e4m3(uint b) { return (float)as_half((ushort)((b & 0xFFu) << 7)); }
         Wc += 16;                                                                                     \
         const float4 ws = (float4)(e4m3(sb), e4m3(sb >> 8), e4m3(sb >> 16), e4m3(sb >> 24));          \
         const uint4 e0 = lv_lo(w0), o0 = lv_hi(w0), e1 = lv_lo(w1), o1 = lv_hi(w1);                   \
+        BLOCK_LOADS                                                                                   \
         EACH(STEP)                                                                                    \
         Xb += T;                                                                                      \
         XBb += T;                                                                                     \
@@ -133,6 +150,46 @@ __kernel void gemm1(__global const uint4 *W, __global const int8 *jobs, __global
     if (4 * q >= job.s5) return;   // past this job's rows (a launch takes matrices of different heights)
     GEMM_BODY
 }
+
+#if T == 8
+// gemm1 with the activation tiles through the texture path (an image1d_buffer over X, a texel a token's block): the
+// weights from L2, the activations through the texture cache - two paths at once (Qualcomm's advice)
+#define STEPX(t)                                                                                      \
+    {                                                                                                 \
+        const uint4 x = read_imageui(XI, xi + (t));                                                   \
+        const int bias = xb8.s##t;                                                                    \
+        const int4 d = (int4)(ROW(s0), ROW(s1), ROW(s2), ROW(s3));                                    \
+        acc##t = mad(convert_float4(d), ws * xs8.s##t, acc##t);                                       \
+    }
+__kernel void gemm1x(__global const uint4 *W, __global const int8 *jobs, __read_only image1d_buffer_t XI,
+                     __global const float *XS, __global const int *XB, __global const int *ymap, __global float *Y,
+                     int cols, int ystride, int job0) {
+    const int8 job = jobs[job0 + get_global_id(0)];
+    const int q = get_global_id(1), tile = job.s1;
+    if (4 * q >= job.s5) return;
+    const float gscale = as_float(job.s3);
+    const int nch = cols >> 6, nb = cols >> 4;
+    __global const uint4 *Wc = W + job.s0 + (q >> 3) * (72 * nch) + (q & 7);
+    __global const uint *Sc = (__global const uint *)(Wc + 64 * nch);
+    int xi = tile * nb * T;
+    __global const int *XBb = XB + xi;
+    __global const float *XSb = XS + xi;
+    EACH(DECL)
+    for (int k = 0; k < nb; ++k) {
+        const uint4 w0 = Wc[0], w1 = Wc[8];
+        const uint sb = Sc[(k >> 2) * 32 + (k & 3)];
+        Wc += 16;
+        const float4 ws = (float4)(e4m3(sb), e4m3(sb >> 8), e4m3(sb >> 16), e4m3(sb >> 24));
+        const uint4 e0 = lv_lo(w0), o0 = lv_hi(w0), e1 = lv_lo(w1), o1 = lv_hi(w1);
+        BLOCK_LOADS
+        EACH(STEPX)
+        xi += T;
+        XBb += T;
+        XSb += T;
+    }
+    EACH(STORE)
+}
+#endif
 
 // the jobs' matrices in up to 16 buffers (job.s4 says which)
 #define WARGS(i) __global const uint4 *W##i,
@@ -219,6 +276,36 @@ __kernel void gemm8(__global const uint4 *W, int woff, int quads, int qn, int co
     EACH(STORE8)
 }
 
+// a work group's sum / max (its size a power of two, <= 256)
+// Local memory on this Adreno: a work group's waves can read a reduction's result (wg_sum / wg_max: tmp[0] after its
+// last barrier) after other waves have already written the buffer's next use - one buffer reused straight after a
+// reduction gave NaN in waves 2-3 of 256-item groups (a prompt's head norms). So a reduction's buffer is never written
+// again in the same kernel; the next phase or reduction takes a buffer of its own.
+inline float wg_sum(float v, __local float *tmp) {
+    const int l = get_local_id(0);
+    tmp[l] = v;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int s = (int)get_local_size(0) / 2; s > 0; s >>= 1) {
+        if (l < s) tmp[l] += tmp[l + s];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    const float r = tmp[0];
+    barrier(CLK_LOCAL_MEM_FENCE);
+    return r;
+}
+inline float wg_max(float v, __local float *tmp) {
+    const int l = get_local_id(0);
+    tmp[l] = v;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int s = (int)get_local_size(0) / 2; s > 0; s >>= 1) {
+        if (l < s) tmp[l] = fmax(tmp[l], tmp[l + s]);
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    const float r = tmp[0];
+    barrier(CLK_LOCAL_MEM_FENCE);
+    return r;
+}
+
 #if T <= 5   // the generating kernels (T > 1: a verified batch; the prompt's T = 8 program has no use for them)
 // One token, the columns split (generating): a work group = 64 quads x SPLIT waves, wave s taking blocks
 // s * nb / SPLIT .. of every quad (its activation loads one address, its weight loads 64 quads side by side), the
@@ -298,36 +385,6 @@ __kernel void gemvs(WARGS(0) WARGS(1) WARGS(2) WARGS(3) WARGS(4) WARGS(5) WARGS(
 
 inline float silu1(float x) { return x / (1.0f + exp(-x)); }
 inline float sigmoid1(float x) { return 1.0f / (1.0f + exp(-x)); }
-
-// a work group's sum / max (its size a power of two, <= 256)
-// Local memory on this Adreno: a work group's waves can read a reduction's result (wg_sum / wg_max: tmp[0] after its
-// last barrier) after other waves have already written the buffer's next use - one buffer reused straight after a
-// reduction gave NaN in waves 2-3 of 256-item groups (a prompt's head norms). So a reduction's buffer is never written
-// again in the same kernel; the next phase or reduction takes a buffer of its own.
-inline float wg_sum(float v, __local float *tmp) {
-    const int l = get_local_id(0);
-    tmp[l] = v;
-    barrier(CLK_LOCAL_MEM_FENCE);
-    for (int s = (int)get_local_size(0) / 2; s > 0; s >>= 1) {
-        if (l < s) tmp[l] += tmp[l + s];
-        barrier(CLK_LOCAL_MEM_FENCE);
-    }
-    const float r = tmp[0];
-    barrier(CLK_LOCAL_MEM_FENCE);
-    return r;
-}
-inline float wg_max(float v, __local float *tmp) {
-    const int l = get_local_id(0);
-    tmp[l] = v;
-    barrier(CLK_LOCAL_MEM_FENCE);
-    for (int s = (int)get_local_size(0) / 2; s > 0; s >>= 1) {
-        if (l < s) tmp[l] = fmax(tmp[l], tmp[l + s]);
-        barrier(CLK_LOCAL_MEM_FENCE);
-    }
-    const float r = tmp[0];
-    barrier(CLK_LOCAL_MEM_FENCE);
-    return r;
-}
 
 // x (+= add) -> h = x / rms(x) * (1 + w), and h into X / XS / XB. One work group of 256; n % 4096 == 0.
 __kernel void norm_q(__global float *x, __global const float *add, int has_add, __global const float *P, int w,
@@ -607,7 +664,8 @@ __kernel void attn_values(__global const float *scores, int np, __global const h
     out[h * hd + d] = acc;
 }
 
-// Flash decoding (head_dim 256, 8 query heads a KV head - Qwen3.6): the positions in blocks of AP. A work group takes
+// Flash decoding (head_dim 256, AG query heads a KV head: 8 - Qwen3.6, 4 - Qwen3.5-2B, the program built with
+// -DAG=4): the positions in blocks of AP. A work group takes
 // one block of one KV head for the program's T tokens at once: their 8 queries each in local memory, each K row read
 // for all 8 heads (item = position x token), the block's softmax max and sum per token and head (tree reductions),
 // then each V row read once for all T x 8 outputs (item = dimension); attn_merge weighs the blocks by exp(max - the
@@ -616,7 +674,9 @@ __kernel void attn_values(__global const float *scores, int np, __global const h
 // (31 ms a token at 3000 positions); the loads here go eight (V) and four (K) at a time, in flight together. Token t
 // sees positions < np0 + t. Tokens go two a launch (PT; local memory is 32 KB): tokens tb, tb + 1 of the T - a batch
 // of more takes several launches, each token's arithmetic the one-token arithmetic.
+#ifndef AG
 #define AG 8
+#endif
 #define AB 256   // the head's dimensions = the work group
 #define AP 128   // positions a block
 #define PT (T < 2 ? T : 2)
@@ -979,6 +1039,668 @@ __kernel void moe_combine(__global float *x, __global const float *eo, __global 
         if (!(skip >> k & 1)) m += weights[k] * scale * eo[((int)(um >> (6 * k) & 63) * T + t) * H + i];
     x[i] += m;
 }
+
+// a dense model's MLP (the shared slot 0 of eo: row t a token) added to the residual
+__kernel void mlp_add(__global float *x, __global const float *eo, int H) {
+    const int i = get_global_id(0), t = get_global_id(1);
+    x[t * H + i] += eo[t * H + i];
+}
+
+#endif   // T <= 5
+
+#if T <= 5 || T == 8
+// ---- Gemma 4 generating (Gpu8::gemma_step): T tokens, token t = get_group_id(1) (a 1-D launch: 0); a vector's block
+// k of token t at X[k * T + t], as above. The same kernels in the batch program (T = 8: Gpu8::gemma_prompt, a
+// prompt's layers): token t's block k of nb at tile t / 8's place, as quant writes it (XAT).
+#if T == 8
+#define XAT(k, t, nb) ((((t) >> 3) * (nb) + (k)) * 8 + ((t)&7))
+#else
+#define XAT(k, t, nb) ((k) * T + (t))
+#endif
+// Gemma's norms take w as it is (not 1 + w), a norm's output before its residual add ("sandwich"), GELU (tanh) where Qwen has SiLU; the CPU's arithmetic (gemma.cpp gemma_chunk) in the
+// same order, the sums in another (float rounding).
+inline float g_gelu(float x) { return x / (1.0f + exp(-1.5957691216057308f * (x + 0.044715f * x * x * x))); }
+inline float16 g_gelu16(float16 x) { return x / (1.0f + exp(-1.5957691216057308f * (x + 0.044715f * x * x * x))); }
+
+// token t's n floats (x + t n) into X as they are: an item a 16-value block. NDRange (n / 16, T)
+__kernel void g_quant(__global const float *x, int n, __global uint4 *X, __global float *XS, __global int *XB) {
+    const int b = get_global_id(0), t = get_global_id(1);
+    put_block(vload16(b, x + (size_t)t * n), XAT(b, t, n >> 4), X, XS, XB);
+}
+
+// h = x / rms(x) * w, into X too. One work group of 256 a token; n % 256 == 0
+__kernel void g_norm_q(__global const float *x, __global const float *P, int w, __global float *h, int n, float eps,
+                       __global uint4 *X, __global float *XS, __global int *XB) {
+    __local float tmp[256];
+    const int l = get_local_id(0), per = n / 256, t = get_group_id(1);
+    x += t * n;
+    h += t * n;
+    float ss = 0.0f;
+    for (int i = l * per; i < (l + 1) * per; ++i) ss += x[i] * x[i];
+    ss = wg_sum(ss, tmp);
+    const float inv = 1.0f / sqrt(ss / (float)n + eps);
+    for (int i = l * per; i < (l + 1) * per; ++i) h[i] = x[i] * inv * P[w + i];
+    barrier(CLK_GLOBAL_MEM_FENCE);
+    for (int b = l; b < n / 16; b += 256) put_block(vload16(b, h), XAT(b, t, n >> 4), X, XS, XB);
+}
+
+// After the attention: m = mix / rms(mix) * wa, x += m, then h = x / rms(x) * wf into X (the MLP's input). One work
+// group of 256 a token
+__kernel void g_post(__global float *x, __global const float *mix, __global const float *P, int wa, int wf,
+                     __global float *h, int n, float eps, __global uint4 *X, __global float *XS, __global int *XB) {
+    __local float tmp[256], tmp2[256];
+    const int l = get_local_id(0), per = n / 256, t = get_group_id(1);
+    x += t * n;
+    mix += t * n;
+    h += t * n;
+    float ss = 0.0f;
+    for (int i = l * per; i < (l + 1) * per; ++i) ss += mix[i] * mix[i];
+    ss = wg_sum(ss, tmp);
+    const float inv = 1.0f / sqrt(ss / (float)n + eps);
+    float s2 = 0.0f;
+    for (int i = l * per; i < (l + 1) * per; ++i) {
+        const float v = x[i] + mix[i] * inv * P[wa + i];
+        x[i] = v;
+        s2 += v * v;
+    }
+    s2 = wg_sum(s2, tmp2);
+    const float inv2 = 1.0f / sqrt(s2 / (float)n + eps);
+    for (int i = l * per; i < (l + 1) * per; ++i) h[i] = x[i] * inv2 * P[wf + i];
+    barrier(CLK_GLOBAL_MEM_FENCE);
+    for (int b = l; b < n / 16; b += 256) put_block(vload16(b, h), XAT(b, t, n >> 4), X, XS, XB);
+}
+
+// After the MLP: x += mix / rms(mix) * w, then x as it is into X (the per-layer gate's input). One work group of 256
+// a token
+__kernel void g_post_q(__global float *x, __global const float *mix, __global const float *P, int w, int n, float eps,
+                       __global uint4 *X, __global float *XS, __global int *XB) {
+    __local float tmp[256];
+    const int l = get_local_id(0), per = n / 256, t = get_group_id(1);
+    x += t * n;
+    mix += t * n;
+    float ss = 0.0f;
+    for (int i = l * per; i < (l + 1) * per; ++i) ss += mix[i] * mix[i];
+    ss = wg_sum(ss, tmp);
+    const float inv = 1.0f / sqrt(ss / (float)n + eps);
+    for (int i = l * per; i < (l + 1) * per; ++i) x[i] += mix[i] * inv * P[w + i];
+    barrier(CLK_GLOBAL_MEM_FENCE);
+    for (int b = l; b < n / 16; b += 256) put_block(vload16(b, x), XAT(b, t, n >> 4), X, XS, XB);
+}
+
+// The MLP's middle: gelu(gate) * up from a token's [gate ff | up ff] row into X. NDRange (ff / 16, T)
+__kernel void g_gelu_q(__global const float *gu, int ff, __global uint4 *X, __global float *XS, __global int *XB) {
+    const int b = get_global_id(0), t = get_global_id(1);
+    __global const float *row = gu + (size_t)t * 2 * ff + 16 * b;
+    const float16 g = vload16(0, row), u = vload16(0, row + ff);
+    put_block(g_gelu16(g) * u, XAT(b, t, ff >> 4), X, XS, XB);
+}
+
+// The per-layer inputs: ple_model's output (token t's layers x p floats at pin + t lp), each layer's p scaled, normed
+// (w) and joined with the table's row (prow, as read): (norm(s proj) + row tok) mix. A work group of p a layer and
+// token; NDRange (layers x p, T)
+__kernel void g_ple_in(__global float *pin, __global const float *prow, int lp, __global const float *P, int w,
+                       float eps, float proj, float tok, float mix) {
+    __local float tmp[256];
+    const int i = get_local_id(0), p = get_local_size(0), l = get_group_id(0), t = get_group_id(1);
+    __global float *s = pin + (size_t)t * lp + l * p;
+    const float v = s[i] * proj;
+    const float inv = 1.0f / sqrt(wg_sum(v * v, tmp) / (float)p + eps);
+    s[i] = (v * inv * P[w + i] + prow[(size_t)t * lp + l * p + i] * tok) * mix;
+}
+
+// A layer's per-layer input: gelu(its gate's output) * the token's input for the layer, into X. NDRange (p / 16, T)
+__kernel void g_ple_mid(__global const float *pg, int p, __global const float *pin, int lp, int lo, __global uint4 *X,
+                        __global float *XS, __global int *XB) {
+    const int b = get_global_id(0), t = get_global_id(1);
+    const float16 g = vload16(b, pg + (size_t)t * p), r = vload16(b, pin + (size_t)t * lp + lo);
+    put_block(g_gelu16(g) * r, XAT(b, t, p >> 4), X, XS, XB);
+}
+
+// x = (x + h / rms(h) * w) * scalar. One work group of 256 a token
+__kernel void g_ple_out(__global float *x, __global const float *h, __global const float *P, int w, float scalar, int n,
+                        float eps) {
+    __local float tmp[256];
+    const int l = get_local_id(0), per = n / 256, t = get_group_id(1);
+    x += t * n;
+    h += t * n;
+    float ss = 0.0f;
+    for (int i = l * per; i < (l + 1) * per; ++i) ss += h[i] * h[i];
+    ss = wg_sum(ss, tmp);
+    const float inv = 1.0f / sqrt(ss / (float)n + eps);
+    for (int i = l * per; i < (l + 1) * per; ++i) x[i] = (x[i] + h[i] * inv * P[w + i]) * scalar;
+}
+
+// A head's RMSNorm (w at P + w; has_w 0: none, the values') and rotary pairs (i, i + hd / 2) of the first `pairs`
+// (frequencies at P + fo): head g at buf + t ts + g hd, a work group of hd (256 or 512); token t at position pos + t
+__kernel void g_head(__global float *buf, int ts, __global const float *P, int w, int has_w, float eps, int pairs,
+                     int pos, int fo) {
+    __local float tmp[512], rot[512];
+    const int g = get_group_id(0), i = get_local_id(0), hd = get_local_size(0), t = get_group_id(1);
+    __global float *x = buf + (size_t)t * ts + g * hd;
+    pos += t;
+    const float v = x[i];
+    const float inv = 1.0f / sqrt(wg_sum(v * v, tmp) / (float)hd + eps);
+    const float y = v * inv * (has_w ? P[w + i] : 1.0f);
+    rot[i] = y;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    const int hh = hd / 2, j = i < hh ? i : i - hh;   // ("half" is a type here)
+    float r = y;
+    if (j < pairs) {
+        const float f = (float)pos * P[fo + j];
+        const float c = cos(f), s = sin(f);
+        r = i < hh ? rot[i] * c - rot[i + hh] * s : rot[i] * c + rot[i - hh] * s;
+    }
+    x[i] = r;
+}
+
+// kv_store8 for heads of up to 512 dimensions: KV head h's row (src + h hd of k and v) as int8, amax / 127 its scales
+__kernel void g_kv_store8(__global const float *k, __global const float *v, __global char *kv, int ko, int vo,
+                          __global float *kvs, int ksi, int vsi, int src) {
+    __local float tmp[512], tmp2[512];
+    const int h = get_group_id(0), i = get_local_id(0), hd = get_local_size(0);
+    const float x = k[src + h * hd + i], y = v[src + h * hd + i];
+    const float ka = wg_max(fabs(x), tmp), va = wg_max(fabs(y), tmp2);
+    kv[ko + h * hd + i] = (char)clamp(rint(x * (ka > 0.0f ? 127.0f / ka : 0.0f)), -127.0f, 127.0f);
+    kv[vo + h * hd + i] = (char)clamp(rint(y * (va > 0.0f ? 127.0f / va : 0.0f)), -127.0f, 127.0f);
+    if (i == 0) {
+        kvs[ksi + h] = ka / 127.0f;
+        kvs[vsi + h] = va / 127.0f;
+    }
+}
+
+// Flash decoding over the int8 cache for Gemma's shapes (attn_part8's scheme): a work group of hd (256 or 512) takes
+// one block of GAP positions for G (<= 8) query heads - group g's, of KV head g G / grp (grp: query heads a KV head) -
+// and pt tokens of the launch (tokens tb ..; pt G hd <= 4096 and pt <= hd / GAP: local memory, the items); token t
+// sees positions [np0 + t - window, np0 + t) (window 0: from 0). The queries without a gate: token t's head j at q +
+// t qs + j hd. Scale 1 (the heads are normed). po / pm / pl: [token][head][block] as attn_part8's, po's rows hd
+// floats. (E2B has one KV head: a group a query head gives the GPU 8 times the groups of one a KV head.)
+#define GAP 128
+#define GMG 8
+__kernel void g_attn8(__global const float *q, int qs, __global const char *kv, int kb, int vb, int kv_row,
+                      __global const float *kvs, int ksb, int vsb, int nkv, int c0, int b0, int np0, int window,
+                      __global float *po, __global float *pm, __global float *pl, int nb, int nh, int tb, int pt,
+                      int G, int grp) {
+    __local float qa[4096];          // the queries (pt x G x hd); then the reductions [token][head][GAP]
+    __local float pw[2 * GMG * GAP]; // the block's weights exp(s - max) x the row's V scale, per token and head
+    __local float vsl[GAP];
+    const int i = get_local_id(0), hd = get_local_size(0), b = b0 + get_group_id(0), g = get_group_id(1);
+    const int nt = min(pt, T - tb), kh = g * G / grp;   // (kh: the KV head)
+    for (int t = 0; t < nt; ++t)
+        for (int j = 0; j < G; ++j) qa[(t * G + j) * hd + i] = q[(tb + t) * qs + (g * G + j) * hd + i];
+    const int last = np0 + tb + nt - 1;   // positions < last: those any of the launch's tokens sees
+    if (i < GAP) vsl[i] = b * GAP + i < last ? kvs[vsb + (b * GAP + i - c0) * nkv + kh] : 0.0f;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    const int tk = i / GAP, ip = i % GAP, act = tk < nt;
+    const int p = b * GAP + ip, np = np0 + tb + tk;
+    const int valid = act && p < np && (window <= 0 || p >= np - window);
+    float s[GMG];
+#pragma unroll
+    for (int j = 0; j < GMG; ++j) s[j] = 0.0f;
+    if (valid) {
+        __global const char *k = kv + kb + (size_t)(p - c0) * kv_row + kh * hd;
+        __local const float *qq = qa + tk * G * hd;
+        for (int d = 0; d < hd; d += 16) {
+            float4 kk[4];
+#pragma unroll
+            for (int u = 0; u < 4; ++u) kk[u] = convert_float4(vload4(0, k + d + 4 * u));
+#pragma unroll
+            for (int u = 0; u < 4; ++u)
+#pragma unroll
+                for (int j = 0; j < GMG; ++j)
+                    if (j < G) s[j] += dot(vload4(0, qq + j * hd + d + 4 * u), kk[u]);
+        }
+        const float ks = kvs[ksb + (p - c0) * nkv + kh];
+#pragma unroll
+        for (int j = 0; j < GMG; ++j) s[j] *= ks;
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);   // the queries read: qa takes the reductions
+    __local float *red = qa + tk * GMG * GAP;
+    if (act)
+#pragma unroll
+        for (int j = 0; j < GMG; ++j)
+            if (j < G) {
+                s[j] = valid ? s[j] : -INFINITY;
+                red[j * GAP + ip] = s[j];
+            }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int st = GAP / 2; st > 0; st >>= 1) {
+        if (act && ip < st)
+#pragma unroll
+            for (int j = 0; j < GMG; ++j)
+                if (j < G) red[j * GAP + ip] = fmax(red[j * GAP + ip], red[j * GAP + ip + st]);
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    float m[GMG];
+#pragma unroll
+    for (int j = 0; j < GMG; ++j) m[j] = act && j < G ? red[j * GAP] : 0.0f;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (act)
+#pragma unroll
+        for (int j = 0; j < GMG; ++j)
+            if (j < G) {
+                // (a block none of whose positions the token sees: its max -inf, every weight 0)
+                const float e = valid ? exp(s[j] - m[j]) : 0.0f;
+                pw[(tk * G + j) * GAP + ip] = e * vsl[ip];
+                red[j * GAP + ip] = e;
+            }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int st = GAP / 2; st > 0; st >>= 1) {
+        if (act && ip < st)
+#pragma unroll
+            for (int j = 0; j < GMG; ++j)
+                if (j < G) red[j * GAP + ip] += red[j * GAP + ip + st];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    if (act && ip == 0)
+#pragma unroll
+        for (int j = 0; j < GMG; ++j)
+            if (j < G) {
+                const size_t at = ((size_t)(tb + tk) * nh + g * G + j) * nb + b;
+                pm[at] = m[j];
+                pl[at] = red[j * GAP];
+            }
+    // the values: item i = dimension i, every token's G outputs from one read of each V row
+    float o[2 * GMG];
+#pragma unroll
+    for (int j = 0; j < 2 * GMG; ++j) o[j] = 0.0f;
+    const int pend = min(GAP, last - b * GAP), ng = nt * G;
+    __global const char *v = kv + vb + (size_t)(b * GAP - c0) * kv_row + kh * hd + i;
+    int r = 0;
+    for (; r + 8 <= pend; r += 8) {
+        float vv[8];
+#pragma unroll
+        for (int u = 0; u < 8; ++u) vv[u] = convert_float(v[(size_t)(r + u) * kv_row]);
+#pragma unroll
+        for (int u = 0; u < 8; ++u)
+#pragma unroll
+            for (int j = 0; j < 2 * GMG; ++j)
+                if (j < ng) o[j] += pw[j * GAP + r + u] * vv[u];
+    }
+    for (; r < pend; ++r) {
+        const float vv = convert_float(v[(size_t)r * kv_row]);
+#pragma unroll
+        for (int j = 0; j < 2 * GMG; ++j)
+            if (j < ng) o[j] += pw[j * GAP + r] * vv;
+    }
+#pragma unroll
+    for (int j = 0; j < 2 * GMG; ++j)
+        if (j < ng) po[(((size_t)(tb + j / G) * nh + g * G + j % G) * nb + b) * hd + i] = o[j];
+}
+
+// One query head's attention for one token in one work group of hd items, over at most 2048 positions in at most two
+// chunks (kv0: positions c0 .., kv1: c0 + cn ..; the same layout, kb / vb / ksb / vsb within each): a sliding layer's
+// window, a full layer's first chunks. The scores into local memory, their softmax, the weighted values. Group (h, t):
+// head h of token t (at position np0 - 1 + t, seeing [np0 + t - window, np0 + t)), KV head h / grp; scale 1.
+__kernel void g_attn_small(__global const float *q, int qs, __global const char *kv0, __global const char *kv1, int kb,
+                           int vb, int kv_row, int ksb, int vsb, int nkv, int grp, int c0, int cn, int np0, int window,
+                           __global float *out, int cs) {
+    __local float sc[2048];
+    __local float qv[512];
+    __local float tmp[512], tmp2[512];
+    __local float4 red[512];   // (the values' four lanes, each hd / 4 float4s)
+    const int i = get_local_id(0), hd = get_local_size(0), h = get_group_id(0), t = get_group_id(1), kh = h / grp;
+    const int np = np0 + t, lo = window > 0 ? max(0, np - window) : 0, n = np - lo, c1 = c0 + cn;
+    qv[i] = q[(size_t)t * qs + h * hd + i];
+    barrier(CLK_LOCAL_MEM_FENCE);
+    float mx = -INFINITY;
+    for (int r = i; r < n; r += hd) {
+        const int p = lo + r, two = p >= c1, pc = p - (two ? c1 : c0);
+        __global const char *kc = two ? kv1 : kv0;
+        __global const char *k = kc + kb + (size_t)pc * kv_row + kh * hd;
+        float s = 0.0f;
+        for (int d = 0; d < hd; d += 64) {
+            float16 kk[4];
+#pragma unroll
+            for (int u = 0; u < 4; ++u) kk[u] = convert_float16(vload16(0, k + d + 16 * u));
+#pragma unroll
+            for (int u = 0; u < 4; ++u) {
+                const float16 qq = vload16(0, qv + d + 16 * u);
+                s += dot(qq.s0123, kk[u].s0123) + dot(qq.s4567, kk[u].s4567) + dot(qq.s89ab, kk[u].s89ab) +
+                     dot(qq.scdef, kk[u].scdef);
+            }
+        }
+        s *= ((__global const float *)kc)[ksb + pc * nkv + kh];
+        sc[r] = s;
+        mx = fmax(mx, s);
+    }
+    mx = wg_max(mx, tmp);
+    float sum = 0.0f;
+    for (int r = i; r < n; r += hd) {
+        const int p = lo + r, two = p >= c1, pc = p - (two ? c1 : c0);
+        const float e = exp(sc[r] - mx);
+        sum += e;
+        sc[r] = e * ((__global const float *)(two ? kv1 : kv0))[vsb + pc * nkv + kh];   // (the V row's scale in it)
+    }
+    sum = wg_sum(sum, tmp2);   // (its barriers: every weight in sc before the values)
+    // the values: item i four dimensions (i % (hd / 4)) of every fourth position (lane i / (hd / 4)), the lanes summed
+    const int q4 = hd / 4, d4 = (i % q4) * 4, lane = i / q4;
+    float4 o = (float4)(0.0f);
+    const int n0 = min(n, max(0, c1 - lo));   // the positions in the first chunk
+    __global const char *v = kv0 + vb + (size_t)(lo - c0) * kv_row + kh * hd + d4;
+#pragma unroll 4
+    for (int r = lane; r < n0; r += 4) o += sc[r] * convert_float4(vload4(0, v + (size_t)r * kv_row));
+    v = kv1 + vb + (size_t)(lo + n0 - c1) * kv_row + kh * hd + d4;
+#pragma unroll 4
+    for (int r = n0 + lane; r < n; r += 4) o += sc[r] * convert_float4(vload4(0, v + (size_t)(r - n0) * kv_row));
+    red[lane * q4 + i % q4] = o;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    const __local float *rf = (const __local float *)red;
+    out[(size_t)t * cs + h * hd + i] = (rf[i] + rf[hd + i] + rf[2 * hd + i] + rf[3 * hd + i]) / sum;
+}
+
+// A prompt's attention, flash-style (Gpu8::gemma_prompt, positions as g_attn_small takes them): a work group of 256
+// items takes one KV head and a tile of tokens - R query rows, R / G tokens x the G query heads that read that KV
+// head - and walks the positions any of them sees in blocks of BP = 4096 / R, every K and V row read once for all R
+// rows (g_attn_small: once a head and token). The queries as int8 rows, one scale a row (the CPU's quant_row), the
+// scores integer dots with the int8 keys (qcom_dot8: the second operand unsigned, so k + 128 and 128 x the row's sum
+// taken back); a block: its scores (an item a position and 16 rows), every row's running max and sum (online
+// softmax: the values so far scaled by e^(old max - new)), the weighted values in floats (an item D dimensions of
+// every row; hd = 256 D). R = 32, D = 1 (hd 256) or R = 16, D = 2 (hd 512): 32 sums an item either way. Row r: token
+// t0 + r / G, head kh G + r % G; scale 1. The tiles from token tb, the tokens < n; only positions [plo, phi). parts >
+// 0: those positions part `part` of a token's (past two chunks), its unnormalised values, max and sum (g_attn_chunk's
+// po / pm / pl, from token tb: g_attn_join). NDRange (256 nkv, the tiles), work groups of 256
+inline void attn_pf(__global const float *q, int qs, __global const char *kv0, __global const char *kv1, int kb,
+                    int vb, int kv_row, int ksb, int vsb, int nkv, int G, int c0, int cn, int np0, int window,
+                    __global float *out, int cs, int n, int tb, int plo, int phi, __global float *po,
+                    __global float *pm, __global float *pl, int part, int parts, const int R, const int D,
+                    __local float *buf,
+                    __local uint *qw, __local float *red, __local float *rm, __local float *rl, __local float *ra,
+                    __local float *vsl, __local float *qsc, __local int *qsm) {
+    const int hd = 256 * D, BP = 4096 / R, TT = R / G, S = 256 / R, HW = hd / 4;
+    const int i = get_local_id(0), kh = get_group_id(0), t0 = tb + get_group_id(1) * TT, c1 = c0 + cn;
+    const int tn = min(TT, n - t0);
+    // the positions the tile sees (of this part's): from its first token's window to its last token's own
+    const int A = max(plo, window > 0 ? max(0, np0 + t0 - window) : 0), E = min(phi, np0 + t0 + tn - 1);
+    const int ip = i % BP, rh = i / BP;   // the scores: position ip of a block, rows rh 16 ..
+    const int sr = i / S, sg = i % S;     // a row's work (its queries, its softmax): row sr, part sg of S
+    // the queries: item (sr, sg) 32 values of row sr (hd = 32 S)
+    {
+        const int tt = sr / G;
+        __global const float *qr = q + (size_t)(t0 + min(tt, tn - 1)) * qs + (kh * G + sr % G) * hd + sg * 32;
+        float4 x[8];
+        float am = 0.0f;
+#pragma unroll
+        for (int k = 0; k < 8; ++k) {
+            x[k] = tt < tn ? vload4(k, qr) : (float4)(0.0f);
+            const float4 a = fabs(x[k]);
+            am = fmax(am, fmax(fmax(a.x, a.y), fmax(a.z, a.w)));
+        }
+        red[i] = am;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        float m = 0.0f;
+        for (int e = 0; e < S; ++e) m = fmax(m, red[sr * S + e]);
+        const float inv = m > 0.0f ? 127.0f / m : 0.0f;
+        int sum = 0;
+#pragma unroll
+        for (int k = 0; k < 8; ++k) {
+            const int4 v = convert_int4(clamp(rint(x[k] * inv), -127.0f, 127.0f));
+            qw[sr * HW + sg * 8 + k] = pack4(v.x, v.y, v.z, v.w);
+            sum += v.x + v.y + v.z + v.w;
+        }
+        vsl[i] = (float)sum;   // (exact: |sum| <= 32 x 127)
+        if (sg == 0) qsc[sr] = m / 127.0f, rm[sr] = -INFINITY, rl[sr] = 0.0f;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        if (sg == 0) {
+            float t = 0.0f;
+            for (int e = 0; e < S; ++e) t += vsl[sr * S + e];
+            qsm[sr] = 128 * (int)t;
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    float o[32];
+#pragma unroll
+    for (int k = 0; k < 32; ++k) o[k] = 0.0f;
+    for (int b = A; b < E; b += BP) {
+        const int p = b + ip, pin = p < E;
+        const int two = p >= c1, pc = p - (two ? c1 : c0);
+        __global const char *kc = two ? kv1 : kv0;
+        int acc[16];
+#pragma unroll
+        for (int j = 0; j < 16; ++j) acc[j] = 0;
+        if (pin) {
+            __global const uint4 *kr = (__global const uint4 *)(kc + kb + (size_t)pc * kv_row + kh * hd);
+            __local const uint *qb = qw + rh * 16 * HW;
+            for (int w = 0; w < hd / 16; ++w) {
+                const uint4 k4 = kr[w] ^ (uint4)(0x80808080u);
+#pragma unroll
+                for (int j = 0; j < 16; ++j) {
+                    const uint4 q4 = vload4(0, qb + j * HW + 4 * w);
+                    acc[j] = qcom_dot8_acc(q4.s3, k4.s3,
+                                           qcom_dot8_acc(q4.s2, k4.s2,
+                                                         qcom_dot8_acc(q4.s1, k4.s1, qcom_dot8_acc(q4.s0, k4.s0, acc[j]))));
+                }
+            }
+        }
+        const float ks = pin ? ((__global const float *)kc)[ksb + pc * nkv + kh] : 0.0f;
+        barrier(CLK_LOCAL_MEM_FENCE);   // (the block before's values read: buf takes the scores)
+#pragma unroll
+        for (int j = 0; j < 16; ++j) {
+            const int r = rh * 16 + j, tt = r / G, np = np0 + t0 + tt;
+            const int ok = pin && tt < tn && p < np && (window <= 0 || p >= np - window);
+            buf[r * BP + ip] = ok ? (float)(acc[j] - qsm[r]) * (qsc[r] * ks) : -INFINITY;
+        }
+        if (i < BP) {   // the block's V scales (0 past its last position: those weights are 0)
+            const int pv = b + i, tv = pv >= c1;
+            vsl[i] = pv < E ? ((__global const float *)(tv ? kv1 : kv0))[vsb + (pv - (tv ? c1 : c0)) * nkv + kh] : 0.0f;
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+        float mx = -INFINITY;
+        for (int e = sg; e < BP; e += S) mx = fmax(mx, buf[sr * BP + e]);
+        red[i] = mx;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        if (sg == 0) {
+            for (int e = 1; e < S; ++e) mx = fmax(mx, red[i + e]);
+            const float mo = rm[sr], mn = fmax(mo, mx);
+            ra[sr] = mn == -INFINITY ? 1.0f : exp(mo - mn);   // (nothing seen yet: 1; the first seen: 0)
+            rm[sr] = mn;
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+        const float mn = rm[sr];
+        float sum = 0.0f;
+        for (int e = sg; e < BP; e += S) {
+            const float x = buf[sr * BP + e], w = x == -INFINITY ? 0.0f : exp(x - mn);
+            sum += w;
+            buf[sr * BP + e] = w * vsl[e];   // (the V row's scale in it)
+        }
+        red[i] = sum;
+        barrier(CLK_LOCAL_MEM_FENCE);   // (the weights in buf; ra read below)
+        if (sg == 0) {
+            for (int e = 1; e < S; ++e) sum += red[i + e];
+            rl[sr] = rl[sr] * ra[sr] + sum;   // (only this item reads it before the end)
+        }
+#pragma unroll
+        for (int k = 0; k < 32; ++k) o[k] *= ra[k / D];
+        // the values: item i dimensions i D .. of V's rows, 4 positions at a time (past the last: it again, weight 0)
+        const int pend = min(BP, E - b);
+        for (int e = 0; e < pend; e += 4) {
+            float va[4], vb2[4];
+#pragma unroll
+            for (int u = 0; u < 4; ++u) {
+                const int pp = min(b + e + u, E - 1), tv = pp >= c1;
+                __global const char *vr =
+                    (tv ? kv1 : kv0) + vb + (size_t)(pp - (tv ? c1 : c0)) * kv_row + kh * hd + i * D;
+                if (D == 1) {
+                    va[u] = (float)vr[0];
+                } else {
+                    const float2 v2 = convert_float2(vload2(0, vr));
+                    va[u] = v2.x, vb2[u] = v2.y;
+                }
+            }
+            const float4 a4 = (float4)(va[0], va[1], va[2], va[3]);
+            const float4 b4 = (float4)(vb2[0], vb2[1], vb2[2], vb2[3]);
+#pragma unroll
+            for (int r = 0; r < R; ++r) {
+                const float4 w = vload4(0, buf + r * BP + e);
+                if (D == 1) {
+                    o[r] += dot(w, a4);
+                } else {
+                    o[2 * r] += dot(w, a4);
+                    o[2 * r + 1] += dot(w, b4);
+                }
+            }
+        }
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);   // (the rows' last sums)
+    const int nh = nkv * G;
+    if (parts > 0) {   // a part: none of its positions seen - max -inf, sum 0, values 0 (g_attn_join skips it)
+#pragma unroll
+        for (int k = 0; k < 32; ++k) {
+            const int r = k / D, tt = r / G, at = ((t0 + tt - tb) * nh + kh * G + r % G) * parts + part;
+            if (tt < tn) po[(size_t)at * hd + i * D + k % D] = o[k];
+        }
+        const int tt = i / G, at = ((t0 + tt - tb) * nh + kh * G + i % G) * parts + part;
+        if (i < R && tt < tn) pm[at] = rm[i], pl[at] = rl[i];
+        return;
+    }
+#pragma unroll
+    for (int k = 0; k < 32; ++k) {
+        const int r = k / D, tt = r / G;
+        if (tt < tn) out[(size_t)(t0 + tt) * cs + (kh * G + r % G) * hd + i * D + k % D] = o[k] / rl[r];
+    }
+}
+
+#define ATTN_PF_LOCALS                                                                                \
+    __local float buf[4096], red[256], vsl[256], rm[32], rl[32], ra[32], qsc[32];                     \
+    __local uint qw[2048];                                                                            \
+    __local int qsm[32];
+__kernel void g_attn_pf256(__global const float *q, int qs, __global const char *kv0, __global const char *kv1, int kb,
+                           int vb, int kv_row, int ksb, int vsb, int nkv, int grp, int c0, int cn, int np0, int window,
+                           __global float *out, int cs, int n, int tb, int plo, int phi, __global float *po,
+                           __global float *pm, __global float *pl, int part, int parts) {
+    ATTN_PF_LOCALS
+    attn_pf(q, qs, kv0, kv1, kb, vb, kv_row, ksb, vsb, nkv, grp, c0, cn, np0, window, out, cs, n, tb, plo, phi, po, pm,
+            pl, part, parts, 32, 1, buf, qw, red, rm, rl, ra, vsl, qsc, qsm);
+}
+__kernel void g_attn_pf512(__global const float *q, int qs, __global const char *kv0, __global const char *kv1, int kb,
+                           int vb, int kv_row, int ksb, int vsb, int nkv, int grp, int c0, int cn, int np0, int window,
+                           __global float *out, int cs, int n, int tb, int plo, int phi, __global float *po,
+                           __global float *pm, __global float *pl, int part, int parts) {
+    ATTN_PF_LOCALS
+    attn_pf(q, qs, kv0, kv1, kb, vb, kv_row, ksb, vsb, nkv, grp, c0, cn, np0, window, out, cs, n, tb, plo, phi, po, pm,
+            pl, part, parts, 16, 2, buf, qw, red, rm, rl, ra, vsl, qsc, qsm);
+}
+
+// A prompt's tokens' K and V into the cache (g_kv_store8's arithmetic): token t's KV head h's row at src + t kw, to
+// rows t of the chunk from ko / vo (kv_row bytes apart), its scales from ksi / vsi (nkv apart). NDRange (kw, tokens),
+// work groups of hd
+__kernel void g_kv_store8n(__global const float *k, __global const float *v, __global char *kv, int ko, int vo,
+                           __global float *kvs, int ksi, int vsi, int src, int kw, int kv_row, int nkv) {
+    __local float tmp[512], tmp2[512];
+    const int h = get_group_id(0), i = get_local_id(0), hd = get_local_size(0), t = get_group_id(1);
+    const int at = src + t * kw;
+    const float x = k[at + h * hd + i], y = v[at + h * hd + i];
+    const float ka = wg_max(fabs(x), tmp), va = wg_max(fabs(y), tmp2);
+    kv[ko + t * kv_row + h * hd + i] = (char)clamp(rint(x * (ka > 0.0f ? 127.0f / ka : 0.0f)), -127.0f, 127.0f);
+    kv[vo + t * kv_row + h * hd + i] = (char)clamp(rint(y * (va > 0.0f ? 127.0f / va : 0.0f)), -127.0f, 127.0f);
+    if (i == 0) {
+        kvs[ksi + t * nkv + h] = ka / 127.0f;
+        kvs[vsi + t * nkv + h] = va / 127.0f;
+    }
+}
+
+// g_attn_small over one KV chunk (positions c0 .. c0 + cn of kvc) for a prompt's long spans: token t0 + tt's head h,
+// the positions of the chunk it sees, its partial softmax - the scores' max (pm), their weights' sum (pl) and the
+// values they weigh, unnormalised (po, hd floats) - at [tt][h][part] of parts; none seen: max -inf, sum 0. Joined by
+// g_attn_join. NDRange (nh hd, tokens), work groups of hd
+__kernel void g_attn_chunk(__global const float *q, int qs, __global const char *kvc, int kb, int vb, int kv_row,
+                           int ksb, int vsb, int nkv, int grp, int c0, int cn, int np0, int window, __global float *po,
+                           __global float *pm, __global float *pl, int part, int parts, int t0) {
+    __local float sc[2048];
+    __local float qv[512];
+    __local float tmp[512], tmp2[512];
+    __local float4 red[512];
+    const int i = get_local_id(0), hd = get_local_size(0), h = get_group_id(0), tt = get_group_id(1), kh = h / grp;
+    const int nh = get_num_groups(0), t = t0 + tt;
+    const int np = np0 + t, lo = window > 0 ? max(0, np - window) : 0;
+    const int a = max(lo, c0), n = min(np, c0 + cn) - a;
+    const int idx = (tt * nh + h) * parts + part;
+    if (n <= 0) {   // (the whole group alike: no barrier is skipped by some items only)
+        po[(size_t)idx * hd + i] = 0.0f;
+        if (i == 0) pm[idx] = -INFINITY, pl[idx] = 0.0f;
+        return;
+    }
+    qv[i] = q[(size_t)t * qs + h * hd + i];
+    barrier(CLK_LOCAL_MEM_FENCE);
+    float mx = -INFINITY;
+    for (int r = i; r < n; r += hd) {
+        __global const char *k = kvc + kb + (size_t)(a + r - c0) * kv_row + kh * hd;
+        float s = 0.0f;
+        for (int d = 0; d < hd; d += 64) {
+            float16 kk[4];
+#pragma unroll
+            for (int u = 0; u < 4; ++u) kk[u] = convert_float16(vload16(0, k + d + 16 * u));
+#pragma unroll
+            for (int u = 0; u < 4; ++u) {
+                const float16 qq = vload16(0, qv + d + 16 * u);
+                s += dot(qq.s0123, kk[u].s0123) + dot(qq.s4567, kk[u].s4567) + dot(qq.s89ab, kk[u].s89ab) +
+                     dot(qq.scdef, kk[u].scdef);
+            }
+        }
+        s *= ((__global const float *)kvc)[ksb + (a + r - c0) * nkv + kh];
+        sc[r] = s;
+        mx = fmax(mx, s);
+    }
+    mx = wg_max(mx, tmp);
+    float sum = 0.0f;
+    for (int r = i; r < n; r += hd) {
+        const float e = exp(sc[r] - mx);
+        sum += e;
+        sc[r] = e * ((__global const float *)kvc)[vsb + (a + r - c0) * nkv + kh];
+    }
+    sum = wg_sum(sum, tmp2);
+    const int q4 = hd / 4, d4 = (i % q4) * 4, lane = i / q4;
+    float4 o = (float4)(0.0f);
+    __global const char *v = kvc + vb + (size_t)(a - c0) * kv_row + kh * hd + d4;
+#pragma unroll 4
+    for (int r = lane; r < n; r += 4) o += sc[r] * convert_float4(vload4(0, v + (size_t)r * kv_row));
+    red[lane * q4 + i % q4] = o;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    const __local float *rf = (const __local float *)red;
+    po[(size_t)idx * hd + i] = rf[i] + rf[hd + i] + rf[2 * hd + i] + rf[3 * hd + i];
+    if (i == 0) pm[idx] = mx, pl[idx] = sum;
+}
+
+// g_attn_chunk's parts of token t0 + tt's head h joined: out = sum_p po_p e^(pm_p - M) / sum_p pl_p e^(pm_p - M).
+// NDRange (nh hd, tokens), work groups of hd
+__kernel void g_attn_join(__global const float *po, __global const float *pm, __global const float *pl, int parts,
+                          __global float *out, int cs, int t0) {
+    const int i = get_local_id(0), hd = get_local_size(0), h = get_group_id(0), tt = get_group_id(1);
+    const int nh = get_num_groups(0), base = (tt * nh + h) * parts;
+    float m = -INFINITY;
+    for (int p = 0; p < parts; ++p) m = fmax(m, pm[base + p]);
+    float l = 0.0f, o = 0.0f;
+    for (int p = 0; p < parts; ++p) {
+        const float w = pl[base + p] > 0.0f ? exp(pm[base + p] - m) : 0.0f;
+        l += pl[base + p] * w;
+        o += po[(size_t)(base + p) * hd + i] * w;
+    }
+    out[(size_t)(t0 + tt) * cs + h * hd + i] = o / l;
+}
+
+// head h's blocks [b0, nb) of token t merged into out[t cs + h hd + d] (a work group of hd a head and token)
+__kernel void g_attn_merge(__global const float *po, __global const float *pm, __global const float *pl, int nb,
+                           int b0, __global float *out, int cs, int nh) {
+    const int d = get_local_id(0), hd = get_local_size(0), h = get_group_id(0), t = get_group_id(1);
+    const size_t base = ((size_t)t * nh + h) * nb;
+    float mx = -INFINITY;
+    for (int b = b0; b < nb; ++b) mx = fmax(mx, pm[base + b]);
+    float l = 0.0f, o = 0.0f;
+    for (int b = b0; b < nb; ++b) {
+        const float w = exp(pm[base + b] - mx);
+        l += pl[base + b] * w;
+        o += po[(base + b) * hd + d] * w;
+    }
+    out[(size_t)t * cs + h * hd + d] = o / l;
+}
+
+// the logits' soft-cap: tanh(y / cap) cap
+__kernel void g_softcap(__global float *y, float cap) {
+    const int i = get_global_id(0);
+    y[i] = tanh(y[i] / cap) * cap;
+}
+
+// the pass's last launch: its tag where the host polls (gemma_step: a busy CPU keeps the DDR's clock up)
+__kernel void g_done(__global int *flag, int tag) { flag[0] = tag; }
 #endif
 
 #endif   // GEODE_PF_ONLY

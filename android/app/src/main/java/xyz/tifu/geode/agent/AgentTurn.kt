@@ -21,6 +21,7 @@ fun ChatMessage.withAgent(e: AgentEvent): ChatMessage = when (e) {
         val i = steps.indexOfLast { it.tool.isNotEmpty() && it.ok == null && (e.id.isEmpty() || it.id == e.id) }
         if (i < 0) this else copy(steps = steps.toMutableList().also { it[i] = it[i].copy(ok = e.ok, output = e.output) })
     }
+    is AgentEvent.Compacted -> copy(compacted = true)
     else -> this
 }
 

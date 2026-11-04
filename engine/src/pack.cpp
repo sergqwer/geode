@@ -104,7 +104,7 @@ bool Pack::open(const std::string &dir, std::string &err) {
     k.moe_ff = geti(c, "moe_intermediate_size");
     k.shared_ff = geti(c, k.dense ? "intermediate_size" : "shared_expert_intermediate_size");
     const auto &types = c["layer_types"];
-    if (static_cast<int>(types.size()) != k.n_layers) {
+    if (k.n_layers <= 0 || k.n_layers > 1024 || static_cast<int>(types.size()) != k.n_layers) {
         err = "geode.json: layer_types does not match num_hidden_layers";
         return false;
     }
@@ -166,18 +166,33 @@ bool Pack::open(const std::string &dir, std::string &err) {
             err = name + ": unknown type '" + t["type"].str() + "'";
             return false;
         }
-        for (size_t i = 0; i < t["shape"].size(); ++i) x.shape.push_back(t["shape"].at(i).i64());
+        // (a malformed table is refused, never taken as pointers past a file: every dimension positive and below
+        // 2^31, their product below 2^40, the offset and the bytes checked without overflowing)
+        bool shape_ok = true;
+        for (size_t i = 0; i < t["shape"].size(); ++i) {
+            const int64_t d = t["shape"].at(i).i64();
+            shape_ok &= d > 0 && d < (int64_t{1} << 31);
+            x.shape.push_back(d);
+        }
         if (x.shape.empty()) x.shape.push_back(1);
         x.rows = x.shape[0];
         x.cols = 1;
-        for (size_t i = 1; i < x.shape.size(); ++i) x.cols *= x.shape[i];
+        for (size_t i = 1; i < x.shape.size() && shape_ok; ++i) {
+            x.cols *= x.shape[i];
+            shape_ok &= x.cols < (int64_t{1} << 40);
+        }
         if (x.shape.size() == 1) {
             x.cols = x.rows;
             x.rows = 1;
         }
+        const int64_t off = t["offset"].i64();
+        if (!shape_ok || off < 0 || static_cast<double>(x.rows) * static_cast<double>(x.cols) > 1099511627776.0) {
+            err = name + ": a shape or an offset out of range";
+            return false;
+        }
         x.file = file_index(t["file"].str(), err);
         if (x.file < 0) return false;
-        x.offset = static_cast<uint64_t>(t["offset"].i64());
+        x.offset = static_cast<uint64_t>(off);
         x.global = static_cast<float>(t["global"].f64(1.0));
         if (is_quantized(x.type) && x.cols % kBlock) {
             err = name + ": columns not a multiple of 16";
@@ -185,7 +200,8 @@ bool Pack::open(const std::string &dir, std::string &err) {
         }
         const uint64_t bytes = is_quantized(x.type) ? static_cast<uint64_t>(x.rows) * row_bytes(x.type, x.cols)
                                                     : static_cast<uint64_t>(x.rows * x.cols) * (x.type == DType::F32 ? 4 : 2);
-        if (x.offset + bytes > files_[static_cast<size_t>(x.file)]->size()) {
+        const uint64_t fsize = files_[static_cast<size_t>(x.file)]->size();
+        if (x.offset > fsize || bytes > fsize - x.offset) {
             err = name + ": runs past the end of " + t["file"].str();
             return false;
         }

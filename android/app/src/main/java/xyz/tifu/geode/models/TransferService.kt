@@ -50,6 +50,8 @@ class TransferService : Service() {
     private var lastNotify = 0L
     /** The model the running transfer writes, once known. */
     @Volatile private var currentId = ""
+    /** The folder the running import reads (its persisted permission), or null. */
+    @Volatile private var importUri: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -80,6 +82,10 @@ class TransferService : Service() {
     // Android 15 limits dataSync services to 6 h a day; the partial files stay, so the user can resume later
     override fun onTimeout(startId: Int, fgsType: Int) {
         job?.cancel(CancellationException("timeout"))
+        // stopped now: the system gives a few seconds, and a read waiting on the network (up to its 60 s timeout) or a
+        // big file being hashed would not see the cancel in time (the app would be stopped for it)
+        stopForeground(STOP_FOREGROUND_DETACH)
+        stopSelf()
     }
 
     override fun onDestroy() {
@@ -220,6 +226,7 @@ class TransferService : Service() {
     // ---- a folder on the phone ----
 
     private suspend fun import(src: TransferSource.Folder, title: String): String {
+        importUri = src.uri
         val tree = DocumentFile.fromTreeUri(this, Uri.parse(src.uri))
             ?: throw IOException(getString(R.string.models_folder_unreadable))
         // geode.json in the picked folder itself, or in one of its subfolders
@@ -263,6 +270,12 @@ class TransferService : Service() {
             contentResolver.openInputStream(doc.uri)!!.use { input ->
                 FileOutputStream(dest).use { out -> copy(input, out, digest, f.size, progress) }
             }
+            // a source that ended early (a file without a hash in geode.json would pass, and a move delete it)
+            if (dest.length() != f.size) {
+                dest.delete()
+                progress.add(-(progress.done - base))
+                throw IOException(getString(R.string.models_wrong_size, f.name))
+            }
             if (f.sha256.isNotEmpty() && !digest.digest().toHex().equals(f.sha256, ignoreCase = true)) {
                 dest.delete()
                 progress.add(-(progress.done - base))
@@ -286,12 +299,19 @@ class TransferService : Service() {
         return id
     }
 
-    /** A folder import keeps a persisted permission (to resume after the app is killed) only while it runs. */
+    /**
+     * A folder import keeps a persisted permission (to resume after the app is killed) only while it runs: that one
+     * given up - not the others the app holds (the agent's phone folders: PhoneFolders), and not this one either when
+     * the same folder is also given to the agent (one grant serves both).
+     */
     private fun releaseUriPermissions() = runCatching {
-        contentResolver.persistedUriPermissions.forEach {
-            contentResolver.releasePersistableUriPermission(it.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        }
+        val uri = importUri ?: return@runCatching
+        importUri = null
+        if ((application as GeodeApp).phoneFolders.folders.value.any { it.uri == uri }) return@runCatching
+        val grant = contentResolver.persistedUriPermissions.firstOrNull { it.uri.toString() == uri } ?: return@runCatching
+        contentResolver.releasePersistableUriPermission(grant.uri,
+            (if (grant.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+                (if (grant.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0))
     }
 
     private suspend fun copy(input: InputStream, out: FileOutputStream, digest: MessageDigest, limit: Long,

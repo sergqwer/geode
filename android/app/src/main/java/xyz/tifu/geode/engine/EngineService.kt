@@ -35,6 +35,8 @@ class EngineService : Service() {
      *  stopped request cannot land on the next one starting meanwhile. */
     @Volatile private var running = 0L
     private val runLock = Any()
+    /** Taken by a stop from the ipc thread and by the worker letting the model go (stopEngine, closeModel). */
+    private val handleLock = Any()
     private lateinit var ipcHandler: Handler
     private lateinit var messenger: Messenger
 
@@ -100,8 +102,10 @@ class EngineService : Service() {
                     synchronized(runLock) { running = seq }
                     try {
                         state(reply, P.PREFILLED) { h, err ->
+                            val prompt = PromptFiles.take(data)
                             val rc = if (stopped(seq)) GeodeNative.E_STOPPED
-                            else GeodeNative.prefill(h, data.getIntArray(P.K_PROMPT) ?: IntArray(0), err)
+                            else if (prompt == null) GeodeNative.E_IO.also { err[0] = "the prompt's file could not be read" }
+                            else GeodeNative.prefill(h, prompt, err)
                             if (rc == GeodeNative.OK) GeodeNative.stats(h)[5].toInt() else -rc
                         }
                     } finally {
@@ -152,7 +156,7 @@ class EngineService : Service() {
             data.getInt(P.K_IO_THREADS), data.getInt(P.K_HELPERS), data.getInt(P.K_CONTEXT),
             data.getBoolean(P.K_PREFETCH, true), data.getBoolean(P.K_GPU), data.getFloat(P.K_GPU_SHARE),
             data.getInt(P.K_EXPERTS), data.getFloat(P.K_ROUTE_PRIOR), data.getInt(P.K_TAIL_SKIP),
-            data.getBoolean(P.K_NPU, true), err
+            data.getBoolean(P.K_NPU, true), data.getInt(P.K_MODE), data.getInt(P.K_OFF), err
         )
         send(reply, Message.obtain(null, P.OPENED, if (handle != 0L) 1 else 0, 0).apply {
             this.data = Bundle().apply {
@@ -179,13 +183,21 @@ class EngineService : Service() {
      * a stopped request still runs.
      */
     private fun stopRunning() {
-        handle.takeIf { it != 0L }?.let { GeodeNative.stop(it) }
+        stopEngine()
         for (ms in RESTOP_MS) ipcHandler.postDelayed({
             synchronized(runLock) {
                 val r = running
-                if (r != 0L && stopped(r)) handle.takeIf { it != 0L }?.let { GeodeNative.stop(it) }
+                if (r != 0L && stopped(r)) stopEngine()
             }
         }, ms)
+    }
+
+    /**
+     * geode_stop on the open model, from the ipc thread while the worker may be closing it: under [handleLock], which
+     * closeModel takes to let the handle go - a stop never reaches a model already freed.
+     */
+    private fun stopEngine() = synchronized(handleLock) {
+        handle.takeIf { it != 0L }?.let { GeodeNative.stop(it) }
     }
 
     private fun generate(data: Bundle, reply: Messenger?, seq: Long) {
@@ -198,7 +210,14 @@ class EngineService : Service() {
     }
 
     private fun generateNow(data: Bundle, reply: Messenger?, seq: Long) {
+        val prompt = PromptFiles.take(data)
         val h = handle
+        if (prompt == null) {
+            send(reply, Message.obtain(null, P.DONE, GeodeNative.E_IO, 0).apply {
+                this.data = Bundle().apply { putString(P.K_ERROR, "the prompt's file could not be read") }
+            })
+            return
+        }
         if (h == 0L) {
             send(reply, Message.obtain(null, P.DONE, -1, 0).apply {
                 this.data = Bundle().apply { putString(P.K_ERROR, "no model is open") }
@@ -266,7 +285,7 @@ class EngineService : Service() {
         }
         var n = 0
         val rc = GeodeNative.generate(
-            h, data.getIntArray(P.K_PROMPT) ?: IntArray(0), data.getFloat(P.K_TEMPERATURE), data.getFloat(P.K_TOP_P),
+            h, prompt, data.getFloat(P.K_TEMPERATURE), data.getFloat(P.K_TOP_P),
             data.getInt(P.K_TOP_K), data.getFloat(P.K_PRESENCE), data.getLong(P.K_SEED), data.getInt(P.K_MAX_TOKENS),
             data.getIntArray(P.K_STOPS) ?: IntArray(0),
             TokenListener { token ->
@@ -335,8 +354,9 @@ class EngineService : Service() {
     }
 
     private fun closeModel() {
-        val h = handle
-        handle = 0L
+        val h = synchronized(handleLock) {
+            handle.also { handle = 0L }
+        }
         if (h != 0L) GeodeNative.close(h)
     }
 

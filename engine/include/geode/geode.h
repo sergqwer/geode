@@ -51,7 +51,28 @@ typedef struct {
     int32_t npu;                  /* 1 = a prompt's dense products on the NPU (Hexagon v73+, Geode's module in an
                                      unsigned PD) where it opens and passes its check, else the path as without it;
                                      0 = never. GEODE_NPU overrides (0 / 1) */
+    int32_t mode;                 /* which units run the model (GEODE_MODE_*; GEODE_MODE overrides by name: auto, cpu,
+                                     gpu, npu, npu+cpu, npu+gpu, cpu+gpu): of two, the prompt goes to the one faster at
+                                     prompts (the NPU, then the GPU), the answer to the other. AUTO: gpu and npu above,
+                                     each unit where it serves. A unit the phone or the model lacks: the nearest the
+                                     engine can run (geode_status says what ran) */
+    int32_t no_draft;             /* 1 = no speculative decoding: Qwen's MTP layer and Gemma 4's drafter left unread
+                                     (one token at a time; less memory). 0 = speculate where the pack can */
+    int32_t no_vision;            /* 1 = the vision encoder left unread: no images, no video (its memory saved) */
+    int32_t no_audio;             /* 1 = the audio encoder left unread: no audio (nor a video's sound) */
 } geode_config;
+
+enum {
+    GEODE_MODE_AUTO = 0,
+    GEODE_MODE_CPU = 1,
+    GEODE_MODE_GPU = 2,       /* the prompt and the answer on the GPU */
+    GEODE_MODE_NPU_CPU = 3,   /* the prompt on the NPU, the answer on the CPU */
+    GEODE_MODE_NPU_GPU = 4,   /* the prompt on the NPU, the answer on the GPU */
+    GEODE_MODE_CPU_GPU = 5,   /* the prompt on the GPU, the answer on the CPU */
+    GEODE_MODE_NPU = 6,       /* the prompt and the answer on the NPU */
+};
+/* a mode by its name (auto, cpu, gpu, npu, npu+cpu, npu+gpu, cpu+gpu; any case); -1 for anything else */
+int geode_mode_from_name(const char *name);
 
 typedef struct {
     float temperature;            /* 0 = greedy */

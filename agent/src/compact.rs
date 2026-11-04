@@ -177,6 +177,9 @@ pub fn compact(
     let items = end + 1 - start;
     sess.replace_messages(next)?;
     rt.sink.update(&sess.id, json!({"sessionUpdate": "usage_update", "used": occupancy(&sess.messages, tools), "size": rt.cfg.context_window}));
+    // Geode's own update (a client that does not know it skips it): the chat marks where its history was condensed,
+    // and drops what came before older compactions
+    rt.sink.update(&sess.id, json!({"sessionUpdate": "geode_compacted", "items": items, "tokens": shadowed_tokens}));
     Ok(Some(Compacted { items, tokens: shadowed_tokens }))
 }
 

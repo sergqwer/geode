@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 pub struct Mount {
     pub guest: String,
     pub host: PathBuf,
+    /// A folder of the phone given read-only: the file tools write nothing in it.
+    pub read_only: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -44,23 +46,40 @@ pub fn join_guest(base: &str, rel: &str) -> String {
 impl Namespace {
     pub fn new(chat: &Path, rootfs: Option<&Path>, skills: Option<&Path>) -> Namespace {
         let mut mounts = vec![
-            Mount { guest: "/workspace".into(), host: chat.join("workspace") },
-            Mount { guest: "/root".into(), host: chat.join("home") },
-            Mount { guest: "/usr/local".into(), host: chat.join("local") },
-            Mount { guest: "/tmp".into(), host: chat.join("tmp") },
+            Mount { guest: "/workspace".into(), host: chat.join("workspace"), read_only: false },
+            Mount { guest: "/root".into(), host: chat.join("home"), read_only: false },
+            Mount { guest: "/usr/local".into(), host: chat.join("local"), read_only: false },
+            Mount { guest: "/tmp".into(), host: chat.join("tmp"), read_only: false },
         ];
         if let Some(s) = skills {
-            mounts.push(Mount { guest: "/root/.agents/skills".into(), host: s.to_path_buf() });
+            mounts.push(Mount { guest: "/root/.agents/skills".into(), host: s.to_path_buf(), read_only: false });
         }
         if let Some(r) = rootfs {
-            mounts.push(Mount { guest: "/".into(), host: r.to_path_buf() });
+            mounts.push(Mount { guest: "/".into(), host: r.to_path_buf(), read_only: false });
         }
         mounts.sort_by_key(|m| std::cmp::Reverse(m.guest.len()));
         Namespace { mounts }
     }
 
+    /// The phone's folders the user gave the agent, each at its guest path (/phone/<name>), as proot binds them.
+    pub fn with_folders(mut self, folders: &[crate::config::Folder]) -> Namespace {
+        for f in folders {
+            self.mounts.push(Mount { guest: f.guest.clone(), host: f.host.clone(), read_only: !f.write });
+        }
+        self.mounts.sort_by_key(|m| std::cmp::Reverse(m.guest.len()));
+        self
+    }
+
     pub fn mounts(&self) -> &[Mount] {
         &self.mounts
+    }
+
+    /// The read-only folder a canonical guest path is in (its guest path), if it is in one.
+    pub fn read_only(&self, guest: &str) -> Option<&str> {
+        let m = self.mounts.iter().find(|m| {
+            m.guest == "/" || guest == m.guest || guest.strip_prefix(&m.guest).is_some_and(|r| r.starts_with('/'))
+        })?;
+        m.read_only.then_some(m.guest.as_str())
     }
 
     /// The host path of a canonical guest path (None: outside every mount, as when the Linux is not installed).
@@ -214,6 +233,22 @@ mod tests {
         let n = Namespace::new(&t.join("chat"), None, None);
         assert!(n.resolve("/etc/hosts", "/workspace", true).is_err());
         assert!(n.resolve("/workspace/x", "/", true).is_ok());
+    }
+
+    #[test]
+    fn phone_folders() {
+        let t = tempdir("paths-folders");
+        let f = |g: &str, h: &str, w| crate::config::Folder { guest: g.into(), host: t.join(h), write: w };
+        let n = ns(&t).with_folders(&[f("/phone/Docs", "docs", false), f("/phone/Work", "work", true)]);
+        let r = n.resolve("/phone/Docs/a/b.txt", "/", true).unwrap();
+        assert_eq!(r.host, t.join("docs").join("a").join("b.txt"));
+        assert_eq!(n.read_only(&r.guest), Some("/phone/Docs"));
+        assert_eq!(n.read_only("/phone/Docs"), Some("/phone/Docs"));
+        assert_eq!(n.read_only("/phone/Docsx/c"), None);
+        assert_eq!(n.read_only("/phone/Work/c"), None);
+        assert_eq!(n.read_only("/workspace/c"), None);
+        assert_eq!(n.resolve("/phone/Work/c", "/", true).unwrap().host, t.join("work").join("c"));
+        assert_eq!(n.guest_of(&t.join("docs").join("x")).unwrap(), "/phone/Docs/x");
     }
 
     #[cfg(unix)]

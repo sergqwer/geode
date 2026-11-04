@@ -57,6 +57,12 @@ data class EngineOptions(
     /** geode_config.npu: a prompt's dense products on the NPU where it opens and passes its check (the default);
      *  elsewhere, or off, the GPU / CPU path as without it. */
     val npu: Boolean = true,
+    /** geode_config.mode (GEODE_MODE_*, RunModes): the units that run the model - 0 auto (the engine's own pick
+     *  from [gpu] and [npu]), 1 the CPU, 2 the GPU, 3 NPU + CPU, 4 NPU + GPU, 5 CPU + GPU. */
+    val mode: Int = 0,
+    /** What the engine leaves unread (GeodeNative.OFF_*: the drafting, the vision or audio encoder), as the user
+     *  turned the model's inputs and speculative decoding off (InstalledModel.engineOff). */
+    val off: Int = 0,
 )
 
 sealed interface EngineEvent {
@@ -89,8 +95,9 @@ data class EngineRun(
 
 /** The UI side of the engine: binds EngineService (BIND_IMPORTANT), opens a model, streams tokens. One per app. */
 class EngineClient(private val context: Context) : ServiceConnection {
-    private var service: Messenger? = null
-    private var connected = CompletableDeferred<Unit>()
+    // set on the main thread (the connection's callbacks), read from the callers' threads
+    @Volatile private var service: Messenger? = null
+    @Volatile private var connected = CompletableDeferred<Unit>()
     private var pendingOpen: CompletableDeferred<String?>? = null
     private var pendingBench: CompletableDeferred<String>? = null
     // a SAVE / LOAD / PREFILL's answer: arg1 (tokens, or -code), the error, the stats; one at a time (stateMutex)
@@ -179,7 +186,7 @@ class EngineClient(private val context: Context) : ServiceConnection {
         connected.await()
         val done = CompletableDeferred<String?>()
         pendingOpen = done
-        send(P.OPEN, Bundle().apply {
+        val sent = send(P.OPEN, Bundle().apply {
             putString(P.K_DIR, dir)
             putLong(P.K_BUDGET, options.budgetBytes)
             putInt(P.K_THREADS, options.threads)
@@ -194,7 +201,11 @@ class EngineClient(private val context: Context) : ServiceConnection {
             putFloat(P.K_ROUTE_PRIOR, options.routePrior)
             putInt(P.K_TAIL_SKIP, options.tailSkip)
             putBoolean(P.K_NPU, options.npu)
+            putInt(P.K_MODE, options.mode)
+            putInt(P.K_OFF, options.off)
         })
+        // not sent: the process is gone (its disconnection completes it too) or the binder refused it
+        if (!sent) done.complete("the engine process stopped")
         val error = done.await()
         _openModel.value = if (error == null) dir else null
         openOptions = if (error == null) options else null
@@ -209,16 +220,21 @@ class EngineClient(private val context: Context) : ServiceConnection {
     }
 
     /** [media]: the prompt's images, video frames and clips in order (the files the engine reads). */
+    /**
+     * The generation's events (Token..., Done) come on [events], to a collector there before this is called. Its Done
+     * always comes: when the request cannot reach the engine (its process gone between the open and now, the binder
+     * refusing it) it comes at once from here.
+     */
     fun generate(prompt: IntArray, sampling: Sampling, stopTokens: IntArray, media: List<EngineMedia> = emptyList()) {
-        if (service != null) _running.value = true
-        send(P.GENERATE, Bundle().apply {
+        _running.value = true
+        val sent = send(P.GENERATE, Bundle().apply {
             if (media.isNotEmpty()) {
                 putStringArray(P.K_IMAGES, media.map { it.path }.toTypedArray())
                 putIntArray(P.K_IMAGE_W, media.map { it.w }.toIntArray())
                 putIntArray(P.K_IMAGE_H, media.map { it.h }.toIntArray())
                 putIntArray(P.K_MEDIA_KIND, media.map { it.kind }.toIntArray())
             }
-            putIntArray(P.K_PROMPT, prompt)
+            PromptFiles.put(this, prompt, context.cacheDir)
             putFloat(P.K_TEMPERATURE, sampling.temperature)
             putFloat(P.K_TOP_P, sampling.topP)
             putInt(P.K_TOP_K, sampling.topK)
@@ -227,6 +243,10 @@ class EngineClient(private val context: Context) : ServiceConnection {
             putInt(P.K_MAX_TOKENS, sampling.maxTokens)
             putIntArray(P.K_STOPS, stopTokens)
         })
+        if (!sent) {
+            _running.value = false
+            _events.tryEmit(EngineEvent.Done(-1, "the engine process stopped", null))
+        }
     }
 
     /** Runs a device benchmark in the engine process (the model is closed first); its JSON, or "" if it failed. */
@@ -236,10 +256,11 @@ class EngineClient(private val context: Context) : ServiceConnection {
         val done = CompletableDeferred<String>()
         pendingBench = done
         gone()
-        send(P.BENCH, Bundle().apply {
+        val sent = send(P.BENCH, Bundle().apply {
             putString(P.K_WHAT, what)
             putString(P.K_ARG, arg)
         })
+        if (!sent) done.complete("")
         return done.await()
     }
 
@@ -266,7 +287,8 @@ class EngineClient(private val context: Context) : ServiceConnection {
      * conversations from. The conversation's length in tokens; throws EngineStateException (E_STOPPED by [stop]: the
      * conversation is then empty).
      */
-    suspend fun prefill(prompt: IntArray): Int = stateCall(P.PREFILL, Bundle().apply { putIntArray(P.K_PROMPT, prompt) })
+    suspend fun prefill(prompt: IntArray): Int =
+        stateCall(P.PREFILL, Bundle().apply { PromptFiles.put(this, prompt, context.cacheDir) })
 
     private suspend fun stateCall(what: Int, data: Bundle): Int = stateExchange(what, data).let { r ->
         if (r.result < 0) throw EngineStateException(-r.result, r.error ?: "the engine failed")
@@ -324,8 +346,7 @@ class EngineClient(private val context: Context) : ServiceConnection {
         connected.await()
         val done = CompletableDeferred<StateReply>()
         pendingState = done
-        if (service == null) done.complete(StateReply(-GeodeNative.E_IO, "the engine process stopped", null))
-        else send(what, data)
+        if (!send(what, data)) done.complete(StateReply(-GeodeNative.E_IO, "the engine process stopped", null))
         // its reply always comes (a prefill is stopped to cancel it), and must be taken here: a late one would answer
         // the next call
         val r = withContext(NonCancellable) { done.await() }
@@ -362,15 +383,28 @@ class EngineClient(private val context: Context) : ServiceConnection {
         gone()
     }
 
-    private fun send(what: Int, data: Bundle) {
-        val s = service ?: return
-        try {
+    /**
+     * [what] to the engine; false when it did not go. Its process gone (DeadObjectException): the system's
+     * onServiceDisconnected follows and answers whatever waits. Anything else (TransactionTooLargeException) is this
+     * message's alone - the process lives and the connection stays (taking it for a disconnection here would leave
+     * [connected] waiting for a reconnection that never comes: a living service is not connected again).
+     */
+    private fun send(what: Int, data: Bundle): Boolean {
+        val s = service
+        if (s == null) {
+            PromptFiles.drop(data)
+            return false
+        }
+        return try {
             s.send(Message.obtain(null, what).apply {
                 this.data = data
                 replyTo = incoming
             })
+            true
         } catch (e: RemoteException) {
-            onServiceDisconnected(null)
+            android.util.Log.w("GeodeEngine", "message $what not sent: $e")
+            PromptFiles.drop(data)
+            false
         }
     }
 

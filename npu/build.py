@@ -54,13 +54,16 @@ def main(argv=None) -> None:
         qurt = SDK / "rtos" / "qurt" / f"compute{arch}" / "include"
         dsp_inc = [gen, HERE, *incs, qurt, qurt / "qurt", qurt / "posix"]
         skel = OUT / f"libgeode_npu_skel_{arch}.so"
+        # GEODE_DSP_CFLAGS: more flags for the DSP's compiler (experiments, e.g. -mllvm -disable-qfp-opt)
+        extra = os.environ.get("GEODE_DSP_CFLAGS", "").split()
         run([TOOLS / "bin" / "hexagon-clang.exe", f"-m{arch}", "-mhvx", "-mhvx-length=128B", "-mhmx", "-O2", "-G0",
-             "-fpic", "-Wall", "-fno-zero-initialized-in-bss", "-fdata-sections",
+             *extra, "-fpic", "-Wall", "-fno-zero-initialized-in-bss", "-fdata-sections",
              *[x for i in dsp_inc for x in ("-I", i)],
              "-shared", "-Wl,-Bsymbolic", "-Wl,--no-threads", "-Wl,--build-id",
              f"-Wl,-L{TOOLS / 'target' / 'hexagon' / 'lib' / arch / 'G0' / 'pic'}",
              "-o", skel, f"-Wl,-soname,{skel.name}",
-             HERE / "dsp" / "npu_imp.c", HERE / "dsp" / "dec.c", gen / "geode_npu_skel.c", "-lc"])
+             HERE / "dsp" / "npu_imp.c", HERE / "dsp" / "dec.c", HERE / "dsp" / "gemma.c",
+             gen / "geode_npu_skel.c", "-lc"])
         skels.append(skel)
     skel = OUT / "libgeode_npu_skel.so"
     skel.write_bytes((OUT / "libgeode_npu_skel_v79.so" if "v79" in archs else skels[-1]).read_bytes())

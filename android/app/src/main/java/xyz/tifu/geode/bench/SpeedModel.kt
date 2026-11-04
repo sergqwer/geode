@@ -140,28 +140,34 @@ data class DeviceSpeed(
             val prefill = HashMap<String, Double>()
             val ks = cpu.optJSONArray("kernels") ?: return null
             for (i in 0 until ks.length()) {
-                val k = ks.getJSONObject(i)
-                decode[k.getString("format")] = k.getDouble("big_cores_gw")
-                prefill[k.getString("format")] = k.getDouble("four_tokens_one_core_gw")
+                val k = ks.optJSONObject(i) ?: continue
+                val format = k.optString("format")
+                if (format.isEmpty()) continue
+                // a rate the test did not get (null in its JSON) is no rate
+                k.optDouble("big_cores_gw").takeIf { it.isFinite() && it > 0 }?.let { decode[format] = it }
+                k.optDouble("four_tokens_one_core_gw").takeIf { it.isFinite() && it > 0 }?.let { prefill[format] = it }
             }
             var ram = 0.0
             val cs = mem.optJSONArray("configs")
             for (i in 0 until (cs?.length() ?: 0)) {
-                val cfg = cs!!.getJSONObject(i)
-                if (cfg.getString("name") == "big_cores" || ram == 0.0) ram = max(ram, cfg.getDouble("read_gbs"))
+                val cfg = cs!!.optJSONObject(i) ?: continue
+                val gbs = cfg.optDouble("read_gbs", 0.0).takeIf { it.isFinite() } ?: 0.0
+                if (cfg.optString("name") == "big_cores" || ram == 0.0) ram = max(ram, gbs)
             }
             // flash: the expert block's best rate (several reads in flight, as the engine reads), else 1 MiB's
             var best = 0.0
             var bestExpert = 0.0
             val rs = flash.optJSONArray("random")
             for (i in 0 until (rs?.length() ?: 0)) {
-                val r = rs!!.getJSONObject(i)
-                if (r.getDouble("block") >= 1 shl 19) best = max(best, r.getDouble("mbs"))
-                if (r.optBoolean("expert_block")) bestExpert = max(bestExpert, r.getDouble("mbs"))
+                val r = rs!!.optJSONObject(i) ?: continue
+                val mbs = r.optDouble("mbs", 0.0).takeIf { it.isFinite() } ?: 0.0
+                if (r.optDouble("block", 0.0) >= 1 shl 19) best = max(best, mbs)
+                if (r.optBoolean("expert_block")) bestExpert = max(bestExpert, mbs)
             }
             var fp32 = 0.0
             val ps = cpu.optJSONArray("peaks")
-            if (ps != null && ps.length() > 0) fp32 = ps.getJSONObject(0).optDouble("fp32_gflops", 0.0)
+            if (ps != null && ps.length() > 0)
+                fp32 = ps.optJSONObject(0)?.optDouble("fp32_gflops", 0.0)?.takeIf { it.isFinite() } ?: 0.0
             return DeviceSpeed(
                 bigCores = cpu.optInt("big_cores", 1),
                 decodeGw = decode,

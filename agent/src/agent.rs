@@ -68,7 +68,7 @@ pub fn ensure_system(rt: &Runtime, sess: &mut Session, mcp: &McpHub) {
 /// The context the harness adds before a step, when it changed: the runtime context, the workspace instructions,
 /// the skill catalog.
 fn pre_step(rt: &Runtime, sess: &mut Session, skills: &SkillSet) {
-    if let Some(m) = prompt::runtime_context_for_step(&sess.cwd, &sess.messages) {
+    if let Some(m) = prompt::runtime_context_for_step(&sess.cwd, &rt.cfg.folders, &sess.messages) {
         sess.push(m);
     }
     if let Some(m) = prompt::instructions_for_step(rt.ns, &sess.cwd, &sess.messages) {

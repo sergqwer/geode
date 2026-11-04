@@ -15,7 +15,7 @@ fn main() {
         return;
     }
     let cfg = Config::from_env();
-    let ns = Namespace::new(&cfg.chat, cfg.rootfs.as_deref(), cfg.skills.as_deref());
+    let ns = Namespace::new(&cfg.chat, cfg.rootfs.as_deref(), cfg.skills.as_deref()).with_folders(&cfg.folders);
     // the app makes room for the Linux before its first process (geode/linux); it waits at most this long
     let gate = LinuxGate::new(std::time::Duration::from_secs(5));
     let shell: Box<dyn Shell> = match std::env::var_os("GEODE_HOST_SHELL") {

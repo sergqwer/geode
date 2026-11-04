@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
@@ -51,8 +52,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.tifu.geode.R
 import xyz.tifu.geode.agent.AgentConfig
+import xyz.tifu.geode.agent.FolderState
+import xyz.tifu.geode.agent.PhoneFolders
 import xyz.tifu.geode.agent.McpServer
 import xyz.tifu.geode.agent.Skill
+import xyz.tifu.geode.util.formatBytes
 
 /**
  * The agent: its Linux (there, up to date, or unpacked again), the user's own skills (every chat's agent can use
@@ -64,6 +68,8 @@ fun AgentScreen(vm: AgentViewModel, openDrawer: () -> Unit) {
     val linux by vm.linux.collectAsStateWithLifecycle()
     val servers by vm.servers.collectAsStateWithLifecycle()
     val skills by vm.skills.collectAsStateWithLifecycle()
+    val folders by vm.folders.collectAsStateWithLifecycle()
+    val folderStates by vm.folderStates.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var editing by remember { mutableStateOf<McpServer?>(null) }
     var adding by remember { mutableStateOf(false) }
@@ -81,6 +87,10 @@ fun AgentScreen(vm: AgentViewModel, openDrawer: () -> Unit) {
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let { vm.importSkill(it, tree = true, onImported) }
+    }
+    val notGiven = stringResource(R.string.agent_folder_add_failed)
+    val pickShared = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let { vm.addFolder(it) { ok -> if (!ok) Toast.makeText(context, notGiven, Toast.LENGTH_LONG).show() } }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -146,6 +156,51 @@ fun AgentScreen(vm: AgentViewModel, openDrawer: () -> Unit) {
                     Icon(Icons.Outlined.Folder, null, Modifier.size(18.dp))
                     Text(stringResource(R.string.agent_skill_folder), Modifier.padding(start = 6.dp))
                 }
+            }
+
+            // ---- the phone's folders
+            Section(stringResource(R.string.agent_folders))
+            Text(stringResource(R.string.agent_folders_desc), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (folders.isEmpty()) {
+                Text(stringResource(R.string.agent_folders_none), style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 8.dp))
+            }
+            for (f in folders) {
+                val st = folderStates[f.name] ?: FolderState()
+                Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Folder, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text("${PhoneFolders.GUEST}/${f.name}", style = MaterialTheme.typography.titleSmall,
+                                fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(f.label, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(when {
+                                st.syncing -> stringResource(R.string.agent_folder_copying)
+                                st.error != null -> stringResource(R.string.agent_folder_error, st.error)
+                                else -> stringResource(R.string.agent_folder_files, st.files, formatBytes(st.bytes)) +
+                                    if (st.skipped > 0) "\n" + stringResource(R.string.agent_folder_skipped, st.skipped,
+                                        formatBytes(PhoneFolders.MAX_BYTES)) else ""
+                            }, style = MaterialTheme.typography.bodySmall,
+                                color = if (st.error != null && !st.syncing) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = { vm.removeFolder(f.name) }) {
+                            Icon(Icons.Outlined.Delete, stringResource(R.string.agent_folder_remove))
+                        }
+                    }
+                    Row(Modifier.padding(start = 32.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !f.write, onClick = { vm.setFolderWrite(f.name, false) },
+                            label = { Text(stringResource(R.string.agent_folder_read)) })
+                        FilterChip(selected = f.write, enabled = f.canWrite, onClick = { vm.setFolderWrite(f.name, true) },
+                            label = { Text(stringResource(R.string.agent_folder_write)) })
+                    }
+                }
+            }
+            OutlinedButton(onClick = { pickShared.launch(null) }, modifier = Modifier.padding(top = 8.dp)) {
+                Icon(Icons.Outlined.CreateNewFolder, null, Modifier.size(18.dp))
+                Text(stringResource(R.string.agent_folders_add), Modifier.padding(start = 6.dp))
             }
 
             // ---- MCP servers

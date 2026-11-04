@@ -1,6 +1,12 @@
 package xyz.tifu.geode.ui.chat
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.net.Uri
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -30,6 +36,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -37,6 +44,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
@@ -47,6 +56,10 @@ import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.AudioFile
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.automirrored.outlined.VolumeOff
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.VideoCall
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.AddComment
 import androidx.compose.material.icons.outlined.Compress
@@ -85,8 +98,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import kotlin.math.roundToInt
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.Density
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -118,6 +137,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.tifu.geode.R
 import xyz.tifu.geode.data.ChatInfo
+import xyz.tifu.geode.data.Compactions
 import xyz.tifu.geode.data.Reports
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -127,6 +147,7 @@ import kotlinx.coroutines.withContext
 fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit) {
     val st by vm.state.collectAsStateWithLifecycle()
     val chats by vm.chats.collectAsStateWithLifecycle()
+    val speaking by vm.speaking.collectAsStateWithLifecycle()
     val commands by vm.agentCommands.collectAsStateWithLifecycle()
     val engineRun by vm.engineRun.collectAsStateWithLifecycle()
     val unloading by vm.unloading.collectAsStateWithLifecycle()
@@ -158,6 +179,45 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
         Toast.makeText(context, if (granted) R.string.chat_record_hold else R.string.chat_mic_denied, Toast.LENGTH_SHORT).show()
     }
     LaunchedEffect(Unit) { vm.notices.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } }
+    // the phone's camera app, without leaving the chat: a photo or a video into the app's cache (the FileProvider's
+    // camera/), attached as a picked one would be and deleted once read. The manifest asks for the camera (the web
+    // chat's sign-in codes), so the camera app's intent needs that permission granted first.
+    val hasCamera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
+    var shot by rememberSaveable { mutableStateOf<String?>(null) }
+    var shotVideo by rememberSaveable { mutableStateOf(false) }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        shot?.let { vm.attachShot(java.io.File(it), video = false, taken = ok) }
+        shot = null
+    }
+    val recordVideo = rememberLauncherForActivityResult(CaptureVideoFor(VIDEO_SECONDS)) { ok ->
+        shot?.let { vm.attachShot(java.io.File(it), video = true, taken = ok) }
+        shot = null
+    }
+    fun openCamera(video: Boolean) {
+        val f = runCatching {
+            val dir = java.io.File(context.cacheDir, "camera").apply { mkdirs() }
+            java.io.File(dir, (if (video) "video_" else "photo_") + System.currentTimeMillis() + if (video) ".mp4" else ".jpg")
+        }.getOrNull() ?: return
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".files", f)
+        shot = f.path
+        try {
+            if (video) recordVideo.launch(uri) else takePhoto.launch(uri)
+        } catch (e: ActivityNotFoundException) {
+            shot = null
+            f.delete()
+            Toast.makeText(context, R.string.chat_camera_none, Toast.LENGTH_SHORT).show()
+        }
+    }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) openCamera(shotVideo)
+        else Toast.makeText(context, R.string.chat_camera_denied, Toast.LENGTH_LONG).show()
+    }
+    val camera: ((Boolean) -> Unit)? = if (!hasCamera) null else { video ->
+        shotVideo = video
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED) openCamera(video)
+        else cameraPermission.launch(android.Manifest.permission.CAMERA)
+    }
 
     if (showHistory) {
         History(chats, st.chatId, enabled = !st.generating,
@@ -223,6 +283,16 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
                         Icon(Icons.Outlined.FolderOpen, contentDescription = stringResource(R.string.agent_files))
                     }
                 }
+                // answers read aloud as they are written: on and off here as in the settings
+                val reading by vm.readAloud.collectAsStateWithLifecycle()
+                IconButton(onClick = {
+                    vm.setReadAloud(!reading)
+                    Toast.makeText(context, if (reading) R.string.chat_read_aloud_off else R.string.chat_read_aloud_on,
+                        Toast.LENGTH_SHORT).show()
+                }) {
+                    Icon(if (reading) Icons.AutoMirrored.Outlined.VolumeUp else Icons.AutoMirrored.Outlined.VolumeOff,
+                        contentDescription = stringResource(if (reading) R.string.chat_read_aloud_on else R.string.chat_read_aloud_off))
+                }
                 IconButton(onClick = vm::newChat, enabled = st.messages.isNotEmpty()) {
                     Icon(Icons.Outlined.AddComment, contentDescription = stringResource(R.string.chat_new))
                 }
@@ -239,13 +309,55 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         }
 
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            when {
-                !st.modelChecked -> Unit
-                st.model == null -> NoModel(openModels)
-                st.messages.isEmpty() -> Hint(stringResource(R.string.chat_empty))
-                else -> Messages(st, vm::thumbnail, vm::clipSeconds, vm::togglePlay, onReport = { reporting = it },
-                    onOpenFile = { openFile = it })
+        // the chat's text at its own size (the setting; two fingers on the conversation change it): sp scaled, dp not
+        val savedScale by vm.textScale.collectAsStateWithLifecycle()
+        var pinch by remember { mutableStateOf<Float?>(null) }
+        var pinching by remember { mutableStateOf(false) }
+        // the pinch's value stays until the setting has it (no frame of the old size between)
+        LaunchedEffect(savedScale) { pinch = null }
+        val scale = pinch ?: savedScale
+        val density = LocalDensity.current
+        val chatDensity = remember(density, scale) { Density(density.density, density.fontScale * scale) }
+        val current by rememberUpdatedState(scale)
+        Box(Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                var zoomed = false
+                do {
+                    // before the list sees it: two fingers zoom, one still scrolls
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (event.changes.count { it.pressed } >= 2) {
+                        val z = event.calculateZoom()
+                        if (z != 1f) {
+                            zoomed = true
+                            pinching = true
+                            pinch = (current * z).coerceIn(xyz.tifu.geode.ui.settings.CHAT_TEXT_MIN,
+                                xyz.tifu.geode.ui.settings.CHAT_TEXT_MAX)
+                        }
+                        event.changes.forEach { it.consume() }
+                    }
+                } while (event.changes.any { it.pressed })
+                pinching = false
+                if (zoomed) pinch?.let { vm.setTextScale((it * 20).roundToInt() / 20f) }
+            }
+        }) {
+            CompositionLocalProvider(LocalDensity provides chatDensity) {
+                when {
+                    !st.modelChecked -> Unit
+                    !st.ready -> NoModel(openModels)
+                    // a service's model: said plainly that what is sent leaves the phone
+                    st.messages.isEmpty() -> Hint(st.remote?.let { stringResource(R.string.chat_empty_remote, it.name, it.host) }
+                        ?: stringResource(R.string.chat_empty))
+                    else -> Messages(st, vm::thumbnail, vm::clipSeconds, vm::togglePlay, onReport = { reporting = it },
+                        onOpenFile = { openFile = it }, speaking = speaking, onSpeak = vm::speak)
+                }
+            }
+            if (pinching) {
+                Surface(Modifier.align(Alignment.TopCenter).padding(top = 12.dp), shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface) {
+                    Text("${(scale * 100).roundToInt()}%", Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelLarge)
+                }
             }
         }
         if (st.loadingModel) {
@@ -264,18 +376,13 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
             Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary)
         }
-        Input(
-            agent = true,
-            commands = commands,
-            enabled = st.model != null && !st.answeringElsewhere,
-            generating = st.generating,
-            vision = st.model?.vision == true,
-            attachments = st.attachments,
-            thumb = vm::thumbnail,
-            onAttach = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            onRemove = vm::removeAttachment,
-            sound = Sound(
-                hears = st.model?.audio == true,
+        // what the model takes looked up once per model (each is a look at its files), and the input's parts kept
+        // as they are while an answer streams in: the input is skipped then, not composed again at every token
+        val takes = remember(st.model, st.remote) { Triple(st.sees, st.hears, st.watches) }
+        val onCamera = remember(camera) { camera?.let { c -> { c(false) } } }
+        val sound = remember(takes.second, st.clips, st.recording, st.playing) {
+            Sound(
+                hears = takes.second,
                 clips = st.clips,
                 recording = st.recording,
                 playing = st.playing,
@@ -294,17 +401,34 @@ fun ChatScreen(vm: ChatViewModel, openModels: () -> Unit, openDrawer: () -> Unit
                 onRecorded = vm::stopRecording,
                 onPlay = vm::togglePlay,
                 onRemove = vm::removeClip,
-            ),
-            films = Films(
-                watches = st.model?.video == true,
+            )
+        }
+        val films = remember(takes.third, st.videos, st.preparingVideo, camera) {
+            Films(
+                watches = takes.third,
                 videos = st.videos,
                 preparing = st.preparingVideo,
                 onAttach = { videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                onRecord = camera?.let { c -> { c(true) } },
                 onRemove = vm::removeVideo,
-            ),
+            )
+        }
+        CompositionLocalProvider(LocalDensity provides chatDensity) { Input(
+            agent = true,
+            commands = commands,
+            enabled = st.ready && !st.answeringElsewhere,
+            generating = st.generating,
+            vision = takes.first,
+            attachments = st.attachments,
+            thumb = vm::thumbnail,
+            onAttach = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onCamera = onCamera,
+            onRemove = vm::removeAttachment,
+            sound = sound,
+            films = films,
             onSend = vm::send,
             onStop = vm::stop,
-        )
+        ) }
     }
 }
 
@@ -320,10 +444,14 @@ private fun ChatInfo(st: ChatUiState, run: xyz.tifu.geode.engine.EngineRun?, unl
         Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp)) {
             Text(st.title.ifEmpty { stringResource(R.string.chat_untitled) }, style = MaterialTheme.typography.titleLarge,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(st.model?.title ?: stringResource(R.string.chat_info_no_model), style = MaterialTheme.typography.bodyMedium,
+            Text(st.modelTitle ?: stringResource(R.string.chat_info_no_model), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+            st.remote?.let {
+                Text(stringResource(R.string.chat_info_service, it.host), style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
+            }
             // in memory or not, how it runs, and letting it go (the next message loads it again)
-            if (st.model != null) {
+            if (st.model != null && st.remote == null) {
                 if (run != null) {
                     Text(stringResource(R.string.models_in_memory, xyz.tifu.geode.util.formatBytes(run.memoryBytes)),
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary,
@@ -339,7 +467,7 @@ private fun ChatInfo(st: ChatUiState, run: xyz.tifu.geode.engine.EngineRun?, unl
                 }
             }
             Spacer(Modifier.height(16.dp))
-            if (st.model != null) {
+            if (st.ready) {
                 Text(stringResource(R.string.chat_info_last), style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 8.dp))
                 StatsGrid(st)
@@ -379,7 +507,7 @@ private fun ChatCounts(st: ChatUiState) {
     fun n(v: Long) = String.format(locale, "%,d", v)
     val s = st.stats
     FlowRow(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Stat(stringResource(R.string.chat_stat_compressions), st.messages.count { it.summary }.toString())
+        Stat(stringResource(R.string.chat_stat_compressions), (s.compactions + st.messages.count { it.summary }).toString())
         Stat(stringResource(R.string.chat_stat_read), n(s.read))
         Stat(stringResource(R.string.chat_stat_cached), n(s.cached))
         Stat(stringResource(R.string.chat_stat_cache_hits),
@@ -428,12 +556,30 @@ private fun Stat(label: String, value: String) {
 
 @Composable
 private fun Messages(st: ChatUiState, thumb: (String, Int) -> Bitmap?, seconds: (String) -> Float,
-                     onPlay: (String) -> Unit, onReport: (ChatMessage) -> Unit, onOpenFile: (String) -> Unit) {
+                     onPlay: (String) -> Unit, onReport: (ChatMessage) -> Unit, onOpenFile: (String) -> Unit,
+                     speaking: Long?, onSpeak: (ChatMessage) -> Unit) {
     val list = rememberLazyListState()
-    // follow the answer as it grows
+    // The answer followed as it grows - while the list is at its end: the user's drag up stops it (what is read
+    // earlier in the answer stays put), reaching the end again or a new message starts it again. A jump per token,
+    // not an animation: an animation started at every token kept the screen drawing at full rate the whole answer
+    // long (on the Redmi, the UI's thread then took a third of a core from the model's).
+    var follow by remember { mutableStateOf(true) }
+    LaunchedEffect(list) {
+        list.interactionSource.interactions.collect { i ->
+            when (i) {
+                is DragInteraction.Start -> follow = false
+                is DragInteraction.Stop, is DragInteraction.Cancel -> if (!list.canScrollForward) follow = true
+            }
+        }
+    }
+    LaunchedEffect(list) {
+        // at the end and still (a fling that came to rest there included)
+        snapshotFlow { !list.canScrollForward && !list.isScrollInProgress }.collect { end -> if (end) follow = true }
+    }
+    LaunchedEffect(st.messages.size) { follow = true }
     val last = st.messages.lastOrNull()
-    LaunchedEffect(st.messages.size, last?.text?.length, last?.thinking?.length) {
-        if (st.messages.isNotEmpty()) list.animateScrollToItem(st.messages.size - 1, Int.MAX_VALUE / 2)
+    LaunchedEffect(st.messages.size, last?.text?.length, last?.thinking?.length, last?.steps?.size) {
+        if (follow && st.messages.isNotEmpty()) list.scrollToItem(st.messages.size - 1, Int.MAX_VALUE / 2)
     }
     LazyColumn(
         state = list,
@@ -441,11 +587,18 @@ private fun Messages(st: ChatUiState, thumb: (String, Int) -> Bitmap?, seconds: 
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // the chat's start went after its compactions (Compactions): the model goes on from its summary of it
+        if (Compactions.pruned(st.messages)) item(key = "pruned") {
+            Text(stringResource(R.string.chat_pruned), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp))
+        }
         items(st.messages, key = { it.id }) { m ->
             when {
                 m.summary -> SummaryBubble(m)
                 m.user -> UserBubble(m, thumb, st.playing, seconds, onPlay)
-                else -> AnswerBubble(m, encoding = st.encodingImage && m.streaming, onReport = onReport, onOpenFile = onOpenFile)
+                else -> AnswerBubble(m, encoding = st.encodingImage && m.streaming, onReport = onReport,
+                    onOpenFile = onOpenFile, speaking = speaking == m.id, onSpeak = onSpeak)
             }
         }
     }
@@ -540,8 +693,22 @@ private class Films(
     val videos: List<ChatVideo>,
     val preparing: Boolean,
     val onAttach: () -> Unit,
+    /** The camera app records one (null: the phone has no camera). */
+    val onRecord: (() -> Unit)?,
     val onRemove: (ChatVideo) -> Unit,
 )
+
+/** A video the camera app records: at most [seconds] long (what Gemma 4 takes of one: its sound's first 30 s). */
+private class CaptureVideoFor(private val seconds: Int) : ActivityResultContracts.CaptureVideo() {
+    override fun createIntent(context: Context, input: Uri): Intent =
+        super.createIntent(context, input).putExtra(MediaStore.EXTRA_DURATION_LIMIT, seconds)
+}
+
+private const val VIDEO_SECONDS = 30
+
+/** One thing the attach button offers: its label, icon, whether it can now, what it does. */
+private class AttachItem(val label: Int, val icon: androidx.compose.ui.graphics.vector.ImageVector,
+                         val enabled: Boolean, val onClick: () -> Unit)
 
 /** A video as its first frame, a camera and its length over it. */
 @Composable
@@ -573,8 +740,16 @@ private fun Thumb(name: String, size: Dp, thumb: (String, Int) -> Bitmap?, modif
 
 @Composable
 private fun AnswerBubble(m: ChatMessage, encoding: Boolean = false, onReport: (ChatMessage) -> Unit,
-                         onOpenFile: (String) -> Unit = {}) {
+                         onOpenFile: (String) -> Unit = {}, speaking: Boolean = false, onSpeak: (ChatMessage) -> Unit = {}) {
     Column(Modifier.fillMaxWidth()) {
+        // the agent condensed its context before this answer: what came before, it knows from its summary
+        if (m.compacted) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)) {
+                Icon(Icons.Outlined.Summarize, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.tertiary)
+                Text(stringResource(R.string.chat_summary_title), style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.tertiary, modifier = Modifier.padding(start = 6.dp))
+            }
+        }
         if (m.steps.isNotEmpty()) AgentSteps(m.steps)
         if (m.thinking.isNotEmpty()) Thinking(m)
         if (m.text.isNotEmpty()) {
@@ -588,7 +763,7 @@ private fun AnswerBubble(m: ChatMessage, encoding: Boolean = false, onReport: (C
             }
         } else if (m.streaming && m.thinking.isEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.padding(8.dp).size(20.dp), strokeWidth = 2.dp)
+                Dots(Modifier.padding(horizontal = 12.dp, vertical = 16.dp))
                 if (encoding) {
                     Text(stringResource(R.string.chat_encoding_image), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -605,7 +780,11 @@ private fun AnswerBubble(m: ChatMessage, encoding: Boolean = false, onReport: (C
             Text(stringResource(R.string.chat_error, it), color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp, start = 4.dp))
         }
-        // the speed, and the report action of a finished answer (Play's AI-generated content policy)
+        // the speed, reading it aloud, and the report action of a finished answer (Play's AI-generated content policy)
+        if (m.streaming && speaking) {
+            // read as it is written: its reading can be stopped meanwhile
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { SpeakButton(true) { onSpeak(m) } }
+        }
         if (!m.streaming && (m.tokensPerSecond > 0f || m.text.isNotEmpty())) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (m.tokensPerSecond > 0f) {
@@ -615,6 +794,7 @@ private fun AnswerBubble(m: ChatMessage, encoding: Boolean = false, onReport: (C
                         modifier = Modifier.padding(start = 4.dp))
                 }
                 Spacer(Modifier.weight(1f))
+                if (m.text.isNotEmpty()) SpeakButton(speaking) { onSpeak(m) }
                 if (m.text.isNotEmpty()) {
                     IconButton(onClick = { onReport(m) }, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.Outlined.Flag, contentDescription = stringResource(R.string.report_action),
@@ -623,6 +803,17 @@ private fun AnswerBubble(m: ChatMessage, encoding: Boolean = false, onReport: (C
                 }
             }
         }
+    }
+}
+
+/** An answer read aloud (the speaker), or its reading stopped. */
+@Composable
+private fun SpeakButton(speaking: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(36.dp)) {
+        Icon(if (speaking) Icons.Outlined.StopCircle else Icons.AutoMirrored.Outlined.VolumeUp,
+            contentDescription = stringResource(if (speaking) R.string.chat_speak_stop else R.string.chat_speak),
+            modifier = Modifier.size(18.dp),
+            tint = if (speaking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -694,7 +885,7 @@ private fun SummaryBubble(m: ChatMessage) {
                     tint = MaterialTheme.colorScheme.onTertiaryContainer)
                 Text(stringResource(R.string.chat_summary_title), Modifier.weight(1f).padding(horizontal = 8.dp),
                     style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                if (m.streaming) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                if (m.streaming) Dots(dot = 4.dp, color = MaterialTheme.colorScheme.onTertiaryContainer)
                 else Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onTertiaryContainer)
             }
@@ -806,7 +997,8 @@ private fun Thinking(m: ChatMessage) {
 @Composable
 private fun Input(agent: Boolean, commands: List<xyz.tifu.geode.agent.AgentCommand>, enabled: Boolean,
                   generating: Boolean, vision: Boolean, attachments: List<String>,
-                  thumb: (String, Int) -> Bitmap?, onAttach: () -> Unit, onRemove: (String) -> Unit,
+                  thumb: (String, Int) -> Bitmap?, onAttach: () -> Unit, onCamera: (() -> Unit)?,
+                  onRemove: (String) -> Unit,
                   sound: Sound, films: Films, onSend: (String) -> Unit, onStop: () -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
     // a "/" typed to the agent: the commands it takes that begin so, a tap puts one in
@@ -883,8 +1075,20 @@ private fun Input(agent: Boolean, commands: List<xyz.tifu.geode.agent.AgentComma
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (vision && sound.hears) {
-            // an image or a sound file: a menu of the two
+        // what may go with the question, by what the model takes: images (picked, or taken with the camera), videos
+        // (picked or recorded), sound files - nothing a model cannot use (Qwen: no video, no sound; a text model: none)
+        val items = buildList {
+            if (vision) {
+                add(AttachItem(R.string.chat_attach_image, Icons.Outlined.Image, true, onAttach))
+                onCamera?.let { add(AttachItem(R.string.chat_take_photo, Icons.Outlined.PhotoCamera, true, it)) }
+            }
+            if (films.watches) {
+                add(AttachItem(R.string.chat_attach_video, Icons.Outlined.Videocam, !films.preparing, films.onAttach))
+                films.onRecord?.let { add(AttachItem(R.string.chat_record_video, Icons.Outlined.VideoCall, !films.preparing, it)) }
+            }
+            if (sound.hears) add(AttachItem(R.string.chat_attach_audio, Icons.Outlined.AudioFile, true, sound.onAttach))
+        }
+        if (items.size > 1) {
             var menu by remember { mutableStateOf(false) }
             Box {
                 IconButton(onClick = { menu = true }, enabled = enabled && !generating && sound.recording == null,
@@ -892,32 +1096,21 @@ private fun Input(agent: Boolean, commands: List<xyz.tifu.geode.agent.AgentComma
                     Icon(Icons.Outlined.AttachFile, contentDescription = stringResource(R.string.chat_attach))
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text(stringResource(R.string.chat_attach_image)) },
-                        leadingIcon = { Icon(Icons.Outlined.Image, null) },
+                    for (it in items) DropdownMenuItem(text = { Text(stringResource(it.label)) },
+                        leadingIcon = { Icon(it.icon, null) },
+                        enabled = it.enabled,
                         onClick = {
                             menu = false
-                            onAttach()
-                        })
-                    if (films.watches) DropdownMenuItem(text = { Text(stringResource(R.string.chat_attach_video)) },
-                        leadingIcon = { Icon(Icons.Outlined.Videocam, null) },
-                        enabled = !films.preparing,
-                        onClick = {
-                            menu = false
-                            films.onAttach()
-                        })
-                    DropdownMenuItem(text = { Text(stringResource(R.string.chat_attach_audio)) },
-                        leadingIcon = { Icon(Icons.Outlined.AudioFile, null) },
-                        onClick = {
-                            menu = false
-                            sound.onAttach()
+                            it.onClick()
                         })
                 }
             }
-        } else if (vision || sound.hears) {
-            IconButton(onClick = if (vision) onAttach else sound.onAttach, enabled = enabled && !generating,
+        } else if (items.size == 1) {
+            val it = items[0]
+            IconButton(onClick = it.onClick, enabled = enabled && !generating && it.enabled,
                 modifier = Modifier.padding(bottom = 4.dp)) {
-                Icon(if (vision) Icons.Outlined.AddPhotoAlternate else Icons.Outlined.AudioFile,
-                    contentDescription = stringResource(if (vision) R.string.chat_attach_image else R.string.chat_attach_audio))
+                Icon(if (it.label == R.string.chat_attach_image) Icons.Outlined.AddPhotoAlternate else it.icon,
+                    contentDescription = stringResource(it.label))
             }
         }
         val recording = sound.recording

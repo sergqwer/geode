@@ -10,6 +10,7 @@
 
 #include "gpu8.hpp"
 #include "kernels.hpp"
+#include "media.hpp"
 #include "pack.hpp"
 #include "threads.hpp"
 
@@ -46,8 +47,9 @@ public:
     // rgb: h rows of w pixels (R, G, B bytes), w and h multiples of patch * merge. out: tokens(w, h) rows of
     // out_hidden floats, the merger's output, in the order of the image's pad tokens (rows of merged tokens).
     // gpu: the Adreno 7xx+ path, when there is one: the products run there (Gpu8::vision_gemm), the rest on pool.
+    // npu: Gemma 4's products on HMX (MediaNpu) when usable; a failure there finishes the image on the CPU.
     bool encode(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vector<float> &out, std::string &err,
-                Gpu8 *gpu = nullptr);
+                Gpu8 *gpu = nullptr, const MediaNpu *npu = nullptr);
     // where the last encode's time went
     std::string profile() const;
     // An image's features kept in a file (the app's cache): written after an encode, read instead of one when the
@@ -62,7 +64,8 @@ private:
     };
     // Gemma 4's encoder (vision.cpp): open's and encode's
     bool open_gemma(const Pack &pack, bool direct, std::string &err);
-    bool encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vector<float> &out, std::string &err);
+    bool encode_gemma(const uint8_t *rgb, int w, int h, ThreadPool &pool, std::vector<float> &out, std::string &err,
+                      const MediaNpu *npu);
     // a tensor of vision.bin in a buffer holding [base, ...) of the file
     const Tensor *tensor(const std::string &name, std::string &err) const;
     bool read(const Range &r, AlignedBuffer &buf, size_t &cap, uint64_t &base, std::string &err) const;
@@ -74,10 +77,22 @@ private:
     std::string fingerprint_;   // vision.bin's sha256 as geode.json lists it (the feature files carry it)
     Range head_, merger_;   // the patch embedding and the position table; the merger (Gemma 4: the embedder)
     std::vector<Range> blocks_;
+    // the NPU's two layer buffers (MediaNpu), made at the first encode that uses them, kept with the NPU's handle
+    void *npu_g_ = nullptr;
+    uint8_t *npu_buf_[2] = {nullptr, nullptr};
+    int npu_fd_[2] = {-1, -1};
+    size_t npu_cap_ = 0;
+    // and the attention's keys and values (ATTN_ENCODER blocks), grown with the images
+    void *npu_kv_g_ = nullptr;
+    uint8_t *npu_kv_[2] = {nullptr, nullptr};
+    int npu_kv_fd_[2] = {-1, -1};
+    size_t npu_kv_cap_ = 0;
     struct Prof {
         double total = 0, wait = 0, embed = 0, matmul = 0, attention = 0, other = 0;
         int patches = 0;
         const char *where = "CPU";   // the products
+        bool att_npu = false;        // the attention on HMX (every layer's)
+        double att_dsp = 0;          // its DSP time
     } prof_;
 };
 

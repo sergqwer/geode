@@ -3,6 +3,7 @@ package xyz.tifu.geode.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import xyz.tifu.geode.R
+import xyz.tifu.geode.data.RunModes
 import xyz.tifu.geode.engine.EngineRun
 import xyz.tifu.geode.util.formatBytes
 
@@ -39,7 +40,8 @@ fun runModeText(r: EngineRun): String {
     if (cpu) units += "CPU"
     val parts = mutableListOf(
         if (units.size == 1) stringResource(R.string.models_mode_only, units[0]) else units.joinToString(" + "))
-    if (!npuOn && npu.isNotEmpty())
+    // (off by the mode the user chose: nothing to explain)
+    if (!npuOn && npu.isNotEmpty() && "the mode:" !in npu)
         parts += stringResource(R.string.models_mode_npu_off,
             npu.removePrefix("off").removePrefix("failed").trim().removePrefix("(").substringBeforeLast(')').trim()
                 .substringBefore(';').ifEmpty { npu })
@@ -51,4 +53,15 @@ fun runModeText(r: EngineRun): String {
     // (a dense model has no experts: its few bytes of cache are not worth a word)
     if (r.cacheBytes >= 1L shl 20) parts += stringResource(R.string.models_mode_cache, formatBytes(r.cacheBytes))
     return parts.joinToString(" · ")
+}
+
+/** A run mode's name in the settings' choice (RunModes): "CPU only", "NPU + GPU"... - of two, the prompts' unit first */
+@Composable
+fun runModeLabel(mode: Int): String = when (mode) {
+    RunModes.GPU -> stringResource(R.string.models_mode_only, "GPU")
+    RunModes.NPU -> stringResource(R.string.models_mode_only, "NPU")
+    RunModes.NPU_CPU -> "NPU + CPU"
+    RunModes.NPU_GPU -> "NPU + GPU"
+    RunModes.CPU_GPU -> "GPU + CPU"
+    else -> stringResource(R.string.models_mode_only, "CPU")
 }

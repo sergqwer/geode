@@ -12,6 +12,28 @@ pub const PERSONA_SUFFIX: &str = "Your folder is /workspace: it belongs to this 
 /// The model's output cap when the route declares none (dsh-llm-pi-ai's default).
 pub const DEFAULT_MAX_TOKENS: usize = 32768;
 
+/// A folder of the user's phone given to the agent (GEODE_FOLDERS): the app's copy of it ([host]) at [guest]
+/// (/phone/<name>), the agent's changes copied back to the phone after a turn when [write].
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct Folder {
+    pub guest: String,
+    pub host: PathBuf,
+    #[serde(default)]
+    pub write: bool,
+}
+
+/// GEODE_FOLDERS: a JSON array of {"guest", "host", "write"}; a folder whose guest path is not a plain absolute
+/// one (no `.`/`..`, not the root) is left out.
+fn folders(v: &str) -> Vec<Folder> {
+    let list: Vec<Folder> = serde_json::from_str(v).unwrap_or_default();
+    list.into_iter()
+        .filter(|f| {
+            let c: Vec<&str> = f.guest.split('/').filter(|c| !c.is_empty()).collect();
+            f.guest.starts_with('/') && !c.is_empty() && c.iter().all(|c| *c != "." && *c != "..")
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     /// The model's OpenAI-compatible API (Geode's, on the phone's loopback) and its key.
@@ -35,6 +57,8 @@ pub struct Config {
     pub search_cache: Option<PathBuf>,
     /// The user's skills shared by every chat (presented as /root/.agents/skills).
     pub skills: Option<PathBuf>,
+    /// The phone's folders the user gave the agent (every chat's).
+    pub folders: Vec<Folder>,
     pub persona_prefix: String,
     pub persona_suffix: String,
     pub search_max_results: usize,
@@ -68,6 +92,7 @@ impl Config {
             proot_tmp: path("GEODE_PROOT_TMP"),
             search_cache: path("GEODE_SEARCH_CACHE"),
             skills: path("GEODE_SKILLS"),
+            folders: env::var("GEODE_FOLDERS").map(|v| folders(&v)).unwrap_or_default(),
             persona_prefix: env::var("GEODE_PERSONA_PREFIX").unwrap_or_else(|_| PERSONA_PREFIX.into()),
             persona_suffix: env::var("GEODE_PERSONA_SUFFIX").unwrap_or_else(|_| PERSONA_SUFFIX.into()),
             search_max_results: 6,
@@ -96,6 +121,7 @@ impl Config {
             proot_tmp: None,
             search_cache: None,
             skills: None,
+            folders: Vec::new(),
             persona_prefix: PERSONA_PREFIX.into(),
             persona_suffix: PERSONA_SUFFIX.into(),
             search_max_results: 6,
@@ -129,5 +155,21 @@ impl Config {
     /// Long outputs saved for the model to read back (the chat's /tmp).
     pub fn tmp(&self) -> PathBuf {
         self.chat.join("tmp")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folders_from_the_app() {
+        let f = folders(r#"[{"guest":"/phone/Docs","host":"/data/x/Docs","write":false},
+            {"guest":"/phone/Work","host":"/data/x/Work","write":true},
+            {"guest":"/phone/../etc","host":"/data/x/e"},{"guest":"/","host":"/data/x/r"},{"guest":"rel","host":"/h"}]"#);
+        assert_eq!(f.len(), 2);
+        assert_eq!((f[0].guest.as_str(), f[0].write), ("/phone/Docs", false));
+        assert_eq!((f[1].host.clone(), f[1].write), (PathBuf::from("/data/x/Work"), true));
+        assert!(folders("not json").is_empty());
     }
 }

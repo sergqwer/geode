@@ -29,6 +29,20 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -49,6 +63,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -96,12 +111,53 @@ fun ModelsScreen(vm: ModelsViewModel, openDrawer: () -> Unit) {
         if (uri != null) vm.import(uri, move)
     }
 
+    // the list narrowed: words of the name or the description, and what the model must take in
+    var query by rememberSaveable { mutableStateOf("") }
+    var want by rememberSaveable { mutableIntStateOf(0) }
+    fun shows(name: String, desc: String, arch: String, c: Caps): Boolean {
+        if (want and NEED_PHOTOS != 0 && !c.photos) return false
+        if (want and NEED_VIDEO != 0 && !c.video) return false
+        if (want and NEED_SOUND != 0 && !c.sound) return false
+        return query.split(' ').filter { it.isNotBlank() }.all { w ->
+            name.contains(w, ignoreCase = true) || desc.contains(w, ignoreCase = true) || arch.contains(w, ignoreCase = true)
+        }
+    }
+    val narrowed = query.isNotBlank() || want != 0
+    val installed = st.installed.filter { shows(it.title, it.manifest.description, it.manifest.arch, Caps.of(it)) }
+    // the catalog's packs this phone has are under Installed already
+    val catalog = st.catalog?.filter { cp ->
+        st.installed.none { it.manifest.name == cp.manifest.name && it.manifest.bytes == cp.manifest.bytes } &&
+            shows(cp.manifest.name.ifEmpty { cp.pack.label }, cp.manifest.description, cp.manifest.arch, Caps.of(cp.manifest))
+    }
+
+    val providers by vm.providers.collectAsStateWithLifecycle()
+    var editing by remember { mutableStateOf<xyz.tifu.geode.models.Provider?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    if (adding || editing != null) {
+        val e = editing
+        ServiceDialog(e, hasKey = e != null && vm.hasKey(e), listModels = vm::listModels,
+            onSave = { p, key, use ->
+                vm.saveProvider(p, key, use)
+                editing = null
+                adding = false
+            },
+            onDelete = { p ->
+                vm.deleteProvider(p)
+                editing = null
+            },
+            onDismiss = {
+                editing = null
+                adding = false
+            })
+    }
+
     Column(Modifier.fillMaxSize().imePadding()) {
         TopAppBar(title = { Text(stringResource(R.string.nav_models)) }, navigationIcon = {
             IconButton(onClick = openDrawer) {
                 Icon(Icons.Outlined.Menu, contentDescription = stringResource(R.string.nav_menu))
             }
         })
+        SearchBar(query, { query = it }, want, { want = want xor it })
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -109,18 +165,44 @@ fun ModelsScreen(vm: ModelsViewModel, openDrawer: () -> Unit) {
         ) {
             transfer?.let { t -> item(key = "transfer") { TransferCard(t, vm::cancelTransfer, vm::dismissTransfer) } }
 
+            // the phone's own models first: the one in use among them
+            item(key = "installed-title") { Section(stringResource(R.string.models_installed)) }
+            if (st.installed.isEmpty() && st.partials.isEmpty()) {
+                item(key = "none") {
+                    Text(stringResource(R.string.models_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else if (narrowed && installed.isEmpty()) {
+                item(key = "none-match") { NoMatch() }
+            }
+            items(installed, key = { "m-" + it.id }) { m ->
+                InstalledCard(m, selected = m.id == st.selected && st.remote.isEmpty(), run = st.run?.takeIf { r -> r.dir == m.dir.path }, st = st,
+                    onUse = { vm.select(m) }, onDelete = { vm.delete(m) }, onLoad = vm::load, onUnload = vm::unload)
+            }
+            if (!narrowed) items(st.partials, key = { "p-" + it.id }) { p ->
+                PartialCard(p, canResume = !busy && p.source != null, onResume = {
+                    askNotifications()
+                    vm.resume(p)
+                }, onDelete = { vm.deletePartial(p) })
+            }
+
+            // the models of outside services the user has keys for, beside the phone's own
+            if (!narrowed) services(providers, st.remote, vm::useProvider, { editing = it; adding = false },
+                { editing = null; adding = true })
+
             // Geode's own packs, one tap each (Catalog), with what this phone has for them
-            item(key = "catalog-title") { Section(stringResource(R.string.models_catalog)) }
-            val catalog = st.catalog
+            // (no title when every pack of it is installed already)
+            if (catalog == null || catalog.isNotEmpty() || narrowed) {
+                item(key = "catalog-title") { Section(stringResource(R.string.models_catalog)) }
+            }
             when {
-                catalog != null -> items(catalog, key = { "c-" + it.pack.repo + "/" + it.pack.path }) { cp ->
-                    val installed = st.installed.any {
-                        it.manifest.name == cp.manifest.name && it.manifest.bytes == cp.manifest.bytes
+                catalog != null -> {
+                    if (narrowed && catalog.isEmpty()) item(key = "catalog-none-match") { NoMatch() }
+                    items(catalog, key = { "c-" + it.pack.repo + "/" + it.pack.path }) { cp ->
+                        CatalogCard(cp, st, installed = false, busy = busy, onDownload = {
+                            askNotifications()
+                            vm.download(cp.pack)
+                        })
                     }
-                    CatalogCard(cp, st, installed, busy, onDownload = {
-                        askNotifications()
-                        vm.download(cp.pack)
-                    })
                 }
                 st.catalogLoading -> item(key = "catalog-loading") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -136,23 +218,6 @@ fun ModelsScreen(vm: ModelsViewModel, openDrawer: () -> Unit) {
                         TextButton(onClick = vm::loadCatalog) { Text(stringResource(R.string.models_catalog_retry)) }
                     }
                 }
-            }
-
-            item(key = "installed-title") { Section(stringResource(R.string.models_installed)) }
-            if (st.installed.isEmpty() && st.partials.isEmpty()) {
-                item(key = "none") {
-                    Text(stringResource(R.string.models_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            items(st.installed, key = { "m-" + it.id }) { m ->
-                InstalledCard(m, selected = m.id == st.selected, run = st.run?.takeIf { r -> r.dir == m.dir.path }, st = st,
-                    onUse = { vm.select(m) }, onDelete = { vm.delete(m) }, onLoad = vm::load, onUnload = vm::unload)
-            }
-            items(st.partials, key = { "p-" + it.id }) { p ->
-                PartialCard(p, canResume = !busy && p.source != null, onResume = {
-                    askNotifications()
-                    vm.resume(p)
-                }, onDelete = { vm.deletePartial(p) })
             }
 
             item(key = "download") {
@@ -184,6 +249,7 @@ private fun CatalogCard(cp: CatalogPack, st: ModelsUiState, installed: Boolean, 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.padding(16.dp)) {
             Text(cp.manifest.name.ifEmpty { cp.pack.label }, style = MaterialTheme.typography.titleMedium)
+            Capabilities(Caps.of(cp.manifest))
             if (cp.manifest.description.isNotEmpty()) {
                 Text(cp.manifest.description, style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 4.dp))
@@ -192,7 +258,11 @@ private fun CatalogCard(cp: CatalogPack, st: ModelsUiState, installed: Boolean, 
             if (!installed) {
                 FitLine(room, if (room) stringResource(R.string.models_catalog_space, formatBytes(need))
                     else stringResource(R.string.models_catalog_space_low, formatBytes(need), formatBytes(st.freeBytes)))
-                if (Catalog.light(cp)) {
+                if (Catalog.wantsEightGb(cp)) {
+                    // a dense model on the processor, but one a 6 GB phone has no room for (an 8 GB one reports ~7.5)
+                    if (ramGb >= 7.0) FitLine(true, stringResource(R.string.models_catalog_mid))
+                    else FitLine(false, stringResource(R.string.models_catalog_ram_short, formatBytes(st.ramBytes)))
+                } else if (Catalog.light(cp)) {
                     // a dense small model: the processor (and the NPU for prompts), any phone's memory
                     FitLine(true, stringResource(R.string.models_catalog_light))
                 } else {
@@ -216,6 +286,92 @@ private fun CatalogCard(cp: CatalogPack, st: ModelsUiState, installed: Boolean, 
             }
         }
     }
+}
+
+/** What a model takes in and does beyond text: photos, video, sound, reasoning. */
+private data class Caps(val photos: Boolean, val video: Boolean, val sound: Boolean, val reasoning: Boolean) {
+    companion object {
+        /** A pack as its geode.json describes it (before it is downloaded). */
+        fun of(m: xyz.tifu.geode.models.PackManifest) =
+            Caps(m.vision, m.gemma && m.vision, m.audio, m.arch in xyz.tifu.geode.models.PackManifest.ARCHS)
+
+        /** An installed model as its files are: an encoder not downloaded (an optional file) is not there. */
+        fun of(m: InstalledModel) =
+            Caps(m.vision, m.video, m.audio, m.manifest.arch in xyz.tifu.geode.models.PackManifest.ARCHS)
+    }
+}
+
+private const val NEED_PHOTOS = 1
+private const val NEED_VIDEO = 2
+private const val NEED_SOUND = 4
+
+/** The search over the models (their names and descriptions), and what they must take in. */
+@Composable
+private fun SearchBar(query: String, onQuery: (String) -> Unit, want: Int, onToggle: (Int) -> Unit) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            placeholder = { Text(stringResource(R.string.models_search)) },
+            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) {
+                    Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.models_cancel))
+                }
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+        )
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for ((bit, icon, label) in listOf(
+                Triple(NEED_PHOTOS, Icons.Outlined.Image, R.string.models_cap_photos),
+                Triple(NEED_VIDEO, Icons.Outlined.Movie, R.string.models_cap_video),
+                Triple(NEED_SOUND, Icons.Outlined.GraphicEq, R.string.models_cap_sound),
+            )) {
+                FilterChip(
+                    selected = want and bit != 0,
+                    onClick = { onToggle(bit) },
+                    label = { Text(stringResource(label)) },
+                    leadingIcon = { Icon(icon, contentDescription = null, Modifier.size(FilterChipDefaults.IconSize)) },
+                )
+            }
+        }
+    }
+}
+
+/** A model's capabilities as small labels under its name. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun Capabilities(c: Caps) {
+    val shown = listOfNotNull(
+        (Icons.Outlined.Image to R.string.models_cap_photos).takeIf { c.photos },
+        (Icons.Outlined.Movie to R.string.models_cap_video).takeIf { c.video },
+        (Icons.Outlined.GraphicEq to R.string.models_cap_sound).takeIf { c.sound },
+        (Icons.Outlined.Psychology to R.string.models_cap_reasoning).takeIf { c.reasoning },
+    )
+    if (shown.isEmpty()) return
+    FlowRow(Modifier.padding(top = 6.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        for ((icon, label) in shown) {
+            Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(icon, contentDescription = null, Modifier.size(14.dp))
+                    Text(stringResource(label), Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoMatch() {
+    Text(stringResource(R.string.models_no_match), style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 /** A requirement met (a check) or a warning */
@@ -288,6 +444,7 @@ private fun InstalledCard(m: InstalledModel, selected: Boolean, run: EngineRun?,
     Card {
         Column(Modifier.padding(16.dp)) {
             Text(m.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Capabilities(Caps.of(m))
             if (m.manifest.description.isNotEmpty()) {
                 Text(m.manifest.description, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)

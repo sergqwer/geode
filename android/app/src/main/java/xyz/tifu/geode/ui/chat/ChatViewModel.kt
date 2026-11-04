@@ -10,6 +10,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import xyz.tifu.geode.GeodeApp
@@ -24,7 +26,9 @@ import xyz.tifu.geode.R
 import xyz.tifu.geode.data.ChatInfo
 import xyz.tifu.geode.data.ChatStats
 import xyz.tifu.geode.data.ChatStore
+import xyz.tifu.geode.data.Compactions
 import xyz.tifu.geode.data.Reports
+import xyz.tifu.geode.data.SavedChat
 import xyz.tifu.geode.agent.AgentEvent
 import xyz.tifu.geode.agent.AgentTurns
 import xyz.tifu.geode.agent.finished
@@ -55,6 +59,8 @@ data class ChatMessage(
     val endedThinking: Boolean = false,
     /** A context compression's summary (chats from before every chat was the agent's): the model went on from it. */
     val summary: Boolean = false,
+    /** The agent condensed its context into a summary before this answer (data/Compactions: the history kept). */
+    val compacted: Boolean = false,
     /** A question's images (ImageStore's names), before its text. */
     val images: List<String> = emptyList(),
     /** A question's sound clips (AudioStore's names: a voice message, a sound file), after its images. */
@@ -90,6 +96,8 @@ data class AgentStep(
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val model: InstalledModel? = null,
+    /** A service's model answers the chat instead of the phone's (Providers); null: the phone's. */
+    val remote: xyz.tifu.geode.models.Provider? = null,
     /** The selected model was looked up (so "no model" is not shown while it loads). */
     val modelChecked: Boolean = false,
     val loadingModel: Boolean = false,
@@ -135,7 +143,15 @@ data class ChatUiState(
     val answeringElsewhere: Boolean = false,
     /** What the agent does right now, in a line (reading the prompt, a tool running); null when nothing. */
     val agentStatus: String? = null,
-)
+) {
+    /** A model to answer with: the phone's or a service's. */
+    val ready: Boolean get() = remote != null || model != null
+    /** What the answering model takes: images (a service's as the user said), sound and video (the phone's only). */
+    val sees: Boolean get() = remote?.vision ?: (model?.vision == true)
+    val hears: Boolean get() = remote == null && model?.audio == true
+    val watches: Boolean get() = remote == null && model?.video == true
+    val modelTitle: String? get() = remote?.title ?: model?.title
+}
 
 /**
  * The conversation with the agent. Every chat is the agent's (geode-agent, native in the app: its tools, the chat's
@@ -164,6 +180,14 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
 
     /** The model in memory and how it runs (null: none), for the chat's details. */
     val engineRun: StateFlow<xyz.tifu.geode.engine.EngineRun?> = app.engine.run
+
+    /** The chat's text size (a share of the system's): the setting, which the chat's pinch changes too. */
+    val textScale: StateFlow<Float> = app.settings.flow.map { it.chatTextScale }.distinctUntilChanged()
+        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, 1f)
+
+    fun setTextScale(v: Float) {
+        viewModelScope.launch { app.settings.setChatTextScale(v) }
+    }
 
     /** Unloading the model now (an answer running is stopped first). */
     private val _unloading = MutableStateFlow(false)
@@ -196,18 +220,85 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     /** The agent's session for this chat (its next message goes on with it). */
     private var agentSession: String? = null
 
+    /** The message read aloud now (null: none). */
+    val speaking: StateFlow<Long?> = app.speaker.speaking
+    /** Answers written while reading aloud is on: read as they grow, to their end (a stopped one is not). */
+    private val readingAloud = HashSet<Long>()
+
+    /** [m] read aloud, or its reading stopped when it is the one read now. */
+    /** Answers read aloud as they are written (the setting; the chat's bar turns it on and off too). */
+    val readAloud: kotlinx.coroutines.flow.StateFlow<Boolean> = app.settings.flow.map { it.readAloud }
+        .distinctUntilChanged().stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+
+    fun setReadAloud(on: Boolean) {
+        viewModelScope.launch { app.settings.setReadAloud(on) }
+        if (!on) app.speaker.stop()
+    }
+
+    fun speak(m: ChatMessage) {
+        if (app.speaker.speaking.value == m.id) app.speaker.stop() else app.speaker.speak(m.id, m.text)
+    }
+
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            // the camera's files a process that died before reading them left behind (attachShot deletes its own)
+            val old = System.currentTimeMillis() - 3_600_000L
+            java.io.File(app.cacheDir, "camera").listFiles()?.filter { it.lastModified() < old }?.forEach { it.delete() }
+        }
         viewModelScope.launch {
-            app.settings.flow.collect { s ->
-                val m = withContext(Dispatchers.IO) { s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find) }
-                val changed = m?.dir?.path != _state.value.model?.dir?.path
-                // with a model open the engine's own limit stands (the budget may allow less than the setting)
+            app.settings.flow.map { it.speechRate }.distinctUntilChanged().collect { app.speaker.setRate(it) }
+        }
+        viewModelScope.launch {
+            app.settings.flow.map { it.speechPitch }.distinctUntilChanged().collect { app.speaker.setPitch(it) }
+        }
+        viewModelScope.launch {
+            app.settings.flow.map { it.speechVoice }.distinctUntilChanged().collect { app.speaker.setVoice(it) }
+        }
+        viewModelScope.launch {
+            app.settings.flow.map { it.speechEngine to it.neuralVoice }.distinctUntilChanged().collect { (e, v) ->
+                app.speaker.setEngine(e == 1)
+                app.speaker.setNeuralVoice(v)
+            }
+        }
+        viewModelScope.launch {
+            // the answer being written read aloud as it grows, when that is on (an answer of another chat or from
+            // before is not)
+            combine(_state.map { s -> s.messages.lastOrNull { !it.user }?.let { Triple(it.id, it.text, it.streaming) } }
+                .distinctUntilChanged(), app.settings.flow.map { it.readAloud }.distinctUntilChanged()) { a, on -> a to on }
+                .collect { (a, on) ->
+                    val (id, text, streaming) = a ?: return@collect
+                    // Geode's voice opened as the answer starts, not when its first sentence is complete
+                    if (streaming && on && readingAloud.add(id)) app.speaker.warm()
+                    if (id !in readingAloud) return@collect
+                    if (!on) {
+                        readingAloud -= id
+                        app.speaker.stop()
+                        return@collect
+                    }
+                    app.speaker.feed(id, text, final = !streaming)
+                    if (!streaming) readingAloud -= id
+                }
+        }
+        viewModelScope.launch {
+            // (a service changed on the Models screen - its model, what it takes - counts as the settings do)
+            kotlinx.coroutines.flow.combine(app.settings.flow, app.providers.list) { s, _ -> s }.collect { s ->
+                val m = withContext(Dispatchers.IO) {
+                    s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find)?.copy(off = s.featuresOff)
+                }
+                val remote = s.selectedRemote.takeIf { it.isNotEmpty() }?.let { app.providers.find(it) }
+                val changed = m?.dir?.path != _state.value.model?.dir?.path || remote != _state.value.remote
+                // with a model open the engine's own limit stands (the budget may allow less than the setting); a
+                // service's model has its own
                 _state.update {
-                    it.copy(model = m, modelChecked = true,
-                        contextLength = if (app.engine.openModel.value != null) it.contextLength else s.contextLength)
+                    it.copy(model = m, remote = remote, modelChecked = true,
+                        contextLength = when {
+                            remote != null -> remote.context
+                            app.engine.openModel.value != null && it.remote == null -> it.contextLength
+                            else -> s.contextFor(m)
+                        })
                 }
                 // the agent's shared start read ahead for it, once the engine is idle (Agent.warmAhead)
-                if (changed && m != null) app.agent.warmAhead()
+                if (changed && m != null && remote == null) app.agent.warmAhead()
             }
         }
         viewModelScope.launch {
@@ -271,7 +362,9 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     fun refreshModel() {
         viewModelScope.launch {
             val s = app.settings.flow.first()
-            val m = withContext(Dispatchers.IO) { s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find) }
+            val m = withContext(Dispatchers.IO) {
+                s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find)?.copy(off = s.featuresOff)
+            }
             _state.update { it.copy(model = m, modelChecked = true) }
         }
     }
@@ -284,8 +377,14 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
 
     /** The open chat to disk (a new one gets its id and title from its first question). */
     private fun persist() {
-        val msgs = _state.value.messages
-        if (msgs.none { it.user }) return
+        val all = _state.value.messages
+        if (all.none { it.user }) return
+        // what came before the compactions the chat keeps goes (data/Compactions): from the screen as from the file
+        val msgs = Compactions.prune(all)
+        if (msgs.size < all.size) {
+            val dropped = all.subList(0, all.size - msgs.size).mapTo(HashSet()) { it.id }
+            _state.update { s -> s.copy(messages = s.messages.filter { it.id !in dropped }) }
+        }
         val id = _state.value.chatId ?: System.currentTimeMillis().toString().also { id ->
             chatCreated = System.currentTimeMillis()
             _state.update { it.copy(chatId = id) }
@@ -308,14 +407,33 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         val created = chatCreated
         val stats = _state.value.stats
         val session = agentSession
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { runCatching { chatStore.save(id, title, created, msgs, stats, true, session) } }
+        // in the app's scope, one after another: a save the screen's end would cancel (the app's task swiped away
+        // while an answer runs - its save comes as the answer stops) is written all the same, and an older state of
+        // the chat never after a newer one
+        app.appScope.launch(SAVES) {
+            runCatching { chatStore.save(id, title, created, msgs, stats, true, session) }
             refreshChats()
+        }
+    }
+
+    /**
+     * A chat not open here any more changed in its saved file: a stopped answer's last news (its session, the files it
+     * made) after the user went on to another chat - the open chat's messages are numbered from 1 as well.
+     */
+    private fun changeSaved(chatId: String, f: (SavedChat) -> SavedChat) {
+        app.appScope.launch(SAVES) {
+            runCatching {
+                val c = chatStore.load(chatId) ?: return@runCatching
+                val n = f(c)
+                chatStore.save(chatId, n.title, chatId.toLongOrNull() ?: System.currentTimeMillis(), n.messages, n.stats,
+                    true, n.agentSession)
+            }
         }
     }
 
     fun openChat(id: String) {
         if (_state.value.generating) return
+        app.speaker.stop()
         viewModelScope.launch {
             val loaded = withContext(Dispatchers.IO) { chatStore.load(id) } ?: return@launch
             chatTitle = loaded.title
@@ -353,8 +471,31 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         }
     }
 
+    /**
+     * Every chat gone (the lock's way back in, its code forgotten): the answer stopped and a new chat open, the engine
+     * let go (what it holds of the last conversation; a save it waits for is written first), then the chats with all
+     * they hold and every saved conversation.
+     */
+    suspend fun deleteAll() {
+        val answer = answerJob
+        newChat()
+        // the stopped answer ended (its turn's end can take seconds) and the saves it made written: none of them comes
+        // after the deletion to bring its chat back
+        answer?.join()
+        withContext(SAVES) { }
+        app.gate.close(app.engine)
+        app.gate.use(this) {
+            withContext(Dispatchers.IO) {
+                chatStore.deleteAll()
+                app.stateCache.clear()
+            }
+        }
+        refreshChats()
+    }
+
     fun newChat() {
         if (_state.value.generating) stop()
+        app.speaker.stop()
         chatTitle = ""
         agentSession = null
         _state.update {
@@ -368,11 +509,28 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     // ---- images ----
 
     /** A picked image into the chat's store, attached to the next question. */
-    fun attach(uri: Uri) {
+    /** An image (picked, or the camera's) into the chat's store, for the next question; then [done] (on any outcome). */
+    fun attach(uri: Uri, done: () -> Unit = {}) {
         viewModelScope.launch {
-            val name = withContext(Dispatchers.IO) { runCatching { images.import(uri) }.getOrNull() } ?: return@launch
+            val name = withContext(Dispatchers.IO) {
+                try { runCatching { images.import(uri) }.getOrNull() } finally { done() }
+            } ?: return@launch
             _state.update { it.copy(attachments = it.attachments + name) }
         }
+    }
+
+    /**
+     * What the phone's camera app took into [file] (the app's cache, ChatScreen's camera): a photo or a video attached
+     * as a picked one would be, the file deleted once it is read. Nothing taken (cancelled, an empty file): only the
+     * file goes.
+     */
+    fun attachShot(file: java.io.File, video: Boolean, taken: Boolean) {
+        if (!taken || file.length() == 0L) {
+            file.delete()
+            return
+        }
+        val uri = Uri.fromFile(file)
+        if (video) attachVideo(uri) { file.delete() } else attach(uri) { file.delete() }
     }
 
     fun removeAttachment(name: String) {
@@ -394,7 +552,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
      */
     @android.annotation.SuppressLint("MissingPermission")
     fun startRecording() {
-        if (recordJob?.isActive == true || _state.value.model?.audio != true) return
+        if (recordJob?.isActive == true || !_state.value.hears) return
         player.stop()
         val stop = java.util.concurrent.atomic.AtomicBoolean(false)
         recordStop = stop
@@ -444,11 +602,16 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
      * A picked video into the chat's stores - its frames (about one a second, at most 32) and its sound - attached to
      * the next question.
      */
-    fun attachVideo(uri: Uri) {
-        if (_state.value.model?.video != true || _state.value.preparingVideo) return
+    fun attachVideo(uri: Uri, done: () -> Unit = {}) {
+        if (!_state.value.watches || _state.value.preparingVideo) {
+            done()
+            return
+        }
         _state.update { it.copy(preparingVideo = true) }
         viewModelScope.launch {
-            val v = withContext(Dispatchers.IO) { runCatching { importVideo(uri) }.getOrNull() }
+            val v = withContext(Dispatchers.IO) {
+                try { runCatching { importVideo(uri) }.getOrNull() } finally { done() }
+            }
             _state.update { st -> if (v == null) st.copy(preparingVideo = false) else st.copy(preparingVideo = false, videos = st.videos + v) }
             if (v == null) _notices.tryEmit(app.getString(R.string.chat_video_unreadable))
         }
@@ -518,7 +681,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
             note = note.trim(),
             question = if (include) question else "",
             answer = if (include) answer.text else "",
-            model = _state.value.model?.title.orEmpty(),
+            model = _state.value.modelTitle.orEmpty(),
         )
         viewModelScope.launch { done(app.reports.send(r)) }
     }
@@ -528,11 +691,11 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     fun send(text: String) {
         val question = text.trim()
         val st = _state.value
-        val attached = if (st.model?.vision == true) st.attachments else emptyList()
-        val heard = if (st.model?.audio == true) st.clips else emptyList()
-        val watched = if (st.model?.video == true) st.videos else emptyList()
+        val attached = if (st.sees) st.attachments else emptyList()
+        val heard = if (st.hears) st.clips else emptyList()
+        val watched = if (st.watches) st.videos else emptyList()
         if ((question.isEmpty() && attached.isEmpty() && heard.isEmpty() && watched.isEmpty()) || st.generating ||
-            st.model == null || st.answeringElsewhere || st.recording != null || st.preparingVideo) return
+            !st.ready || st.answeringElsewhere || st.recording != null || st.preparingVideo) return
         val before = st.messages
         val user = ChatMessage(nextId++, user = true, text = question, images = attached, audio = heard, videos = watched)
         val answer = ChatMessage(nextId++, user = false, text = "", streaming = true)
@@ -553,6 +716,9 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     fun stop() {
         val st = _state.value
         if (!st.generating) return
+        // nothing more of it read aloud (its end as stopped is no end to read to)
+        readingAloud.clear()
+        app.speaker.stop()
         answering++
         answerJob?.cancel()
         // the engine is this chat's turn's (or about to be): not the web chat's this one may still wait for
@@ -567,7 +733,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
     /** The agent compacts the conversation (its /compact): a summary it goes on from, its context free again. */
     fun compress() {
         val st = _state.value
-        if (st.generating || st.model == null || st.messages.none { it.user }) return
+        if (st.generating || !st.ready || st.messages.none { it.user }) return
         send(COMPACT)
     }
 
@@ -584,16 +750,21 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
      */
     private suspend fun agentAnswer(before: List<ChatMessage>, user: ChatMessage, id: Long, turn: Long) {
         val chatId = _state.value.chatId ?: return fail(id, "the chat is not saved")
+        // the chat open here is still this one (after a stop the user may open another: its messages are numbered
+        // from 1 too, and a late change by number would land on one of them)
+        fun here() = _state.value.chatId == chatId
+        // this turn's own figures: not a stopped one's, nor the web chat's while this one waits for it
+        fun counts() = turn == answering && here() && !_state.value.waiting
         val started = System.currentTimeMillis()
         // the speeds, the context and the expert cache's figures of each of the agent's requests, as a chat's
         var base: LongArray? = null
         var last: LongArray? = null
         val figures = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            launch(start = CoroutineStart.UNDISPATCHED) { app.apiEngine.results.collect { r -> onResult(id, r) } }
+            launch(start = CoroutineStart.UNDISPATCHED) { app.apiEngine.results.collect { r -> if (counts()) onResult(id, r) } }
             launch(start = CoroutineStart.UNDISPATCHED) {
                 app.engine.events.collect { e ->
                     when (e) {
-                        is EngineEvent.Stats -> {
+                        is EngineEvent.Stats -> if (counts()) {
                             val b = base ?: e.stats.also { base = it }
                             last = e.stats
                             cacheFigures(b, e.stats)
@@ -619,27 +790,35 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
             }
             // (a stopped answer's last updates, while the harness ends its turn, change nothing)
             val stop = app.agent.prompt(chatId, agentSession, task, files, sounds, films) { e ->
-                if (turn == answering || e is AgentEvent.Session) onAgent(id, e)
+                when {
+                    turn == answering -> onAgent(id, e)
+                    // a stopped turn's session still belongs to its chat - the one open here, or its saved file
+                    e is AgentEvent.Session -> if (here()) agentSession = e.id else changeSaved(chatId) { it.copy(agentSession = e.id) }
+                }
             }
             if (stop == "max_tokens") edit(id) { it.copy(error = app.getString(R.string.agent_max_tokens)) }
             // cancelled from elsewhere (an unload)
             if (stop == "cancelled") edit(id) { it.copy(error = app.getString(R.string.chat_stopped)) }
         } catch (e: CancellationException) {
-            withContext(NonCancellable) { edit(id) { it.copy(error = app.getString(R.string.chat_stopped)) } }
+            withContext(NonCancellable) { if (here()) edit(id) { it.copy(error = app.getString(R.string.chat_stopped)) } }
             throw e
         } catch (e: Exception) {
-            edit(id) { it.copy(error = e.message ?: e.javaClass.simpleName) }
+            if (here()) edit(id) { it.copy(error = e.message ?: e.javaClass.simpleName) }
         } finally {
             figures.cancel()
             // what it made or changed meanwhile, however it did (its file tools, a script), for the user to open
             val made = withContext(NonCancellable + Dispatchers.IO) {
                 AgentTurns.changedSince(app.agent.workspace(chatId), started)
             }
-            edit(id) { it.finished(made) }
-            // (a stopped answer freed the chat already: a newer one may run now)
-            if (turn == answering)
-                _state.update { it.copy(generating = false, agentStatus = null, encodingImage = false, waiting = false) }
-            persist()
+            // (a stopped answer freed the chat already: a newer one may run now, or another chat be open)
+            if (here()) {
+                edit(id) { it.finished(made) }
+                if (turn == answering)
+                    _state.update { it.copy(generating = false, agentStatus = null, encodingImage = false, waiting = false) }
+                persist()
+            } else {
+                changeSaved(chatId) { c -> c.copy(messages = c.messages.map { if (it.id == id) it.finished(made) else it }) }
+            }
             // the share of expert picks the cache served: the Benchmark tab's speed estimate uses it
             val b = base
             val l = last
@@ -675,7 +854,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         val id = _state.value.chatId ?: return
         viewModelScope.launch {
             _state.update { it.copy(agentStatus = app.getString(R.string.agent_starting)) }
-            runCatching { app.agent.warm(id, agentSession)?.let { agentSession = it } }
+            runCatching { app.agent.warm(id, agentSession)?.let { s -> if (_state.value.chatId == id) agentSession = s } }
                 .onFailure { e -> _state.update { it.copy(agentStatus = e.message) } }
             _state.update { if (it.agentStatus == app.getString(R.string.agent_starting)) it.copy(agentStatus = null) else it }
         }
@@ -689,6 +868,9 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
             is AgentEvent.Reading -> _state.update { it.copy(agentStatus = app.getString(R.string.agent_reading, e.tokens)) }
             is AgentEvent.Installing -> _state.update { it.copy(agentStatus = app.getString(R.string.agent_starting)) }
             is AgentEvent.ToolCall -> _state.update { it.copy(agentStatus = app.getString(R.string.agent_running_tool, e.tool)) }
+            is AgentEvent.Compacted -> _state.update {
+                it.copy(agentStatus = null, stats = it.stats.copy(compactions = it.stats.compactions + 1))
+            }
             is AgentEvent.Waiting -> Unit
             else -> _state.update { it.copy(agentStatus = null) }
         }
@@ -739,5 +921,8 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         private const val MIN_CLIP = AudioStore.RATE / 4
         /** The agent's command that compacts the conversation (geode-agent's /compact). */
         private const val COMPACT = "/compact"
+        /** The chats' saves, one at a time and in the order they were asked for. */
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        private val SAVES = Dispatchers.IO.limitedParallelism(1)
     }
 }

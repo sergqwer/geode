@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">Chat</string>
     <string name="nav_models">Model</string>
-    <string name="nav_settings">Setelan</string>
+    <string name="nav_settings">Setelan aplikasi</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Pesen</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">Papan kosong: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Setelan</string>
+    <string name="settings_title">Setelan aplikasi</string>
     <string name="settings_section_memory">Memori</string>
     <string name="settings_memory_budget">Memori kanggo model</string>
     <string name="settings_memory_budget_value">%1$s (disaranake %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">Konteks paling dawa: %1$d token</string>
     <string name="settings_context_desc">Konteks ora dicadhangake saka ngarep: tuwuh sithik-sithik sajrone chat, lan saben bagean njupuk memorine saka cache expert (expert sing paling arang dienggo) - konteks sing dawa ndadekake generasi luwih alon. Chat anyar mbalekake kabeh.</string>
+    <string name="settings_context_desc_dense">Konteks ora dicadhangake saka wiwitan: konteks mundhak sithik-sithik sadawane obrolan, lan konteks sing dawa njupuk memori luwih akeh lan nggawe ngasilake luwih alon. Obrolan anyar mbalekake kabeh.</string>
     <string name="settings_context_memory">Konteks (cache KV, int8): %1$s ing %2$d token (%3$s saben 1000) · cache expert banjur nyimpen %4$s</string>
     <string name="settings_context_capped">Anggaran memori iki mung cukup kanggo paling akeh %1$d token: obrolan mandheg ing kono.</string>
     <string name="settings_section_performance">Kinerja</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">Sampling · nganggo nalar</string>
     <string name="settings_sampling_plain">Sampling · tanpa nalar</string>
     <string name="settings_presence">Penalti presence: %1$.2f</string>
-    <string name="settings_presence_desc">Nyuda kemungkinan token sing wis ana ing wangsulan, supaya nalar sing dawa ora muter-muter. Qwen nyaranake 1.5.</string>
-    <string name="settings_sampling_reset">Nilai sing disaranake Qwen</string>
+    <string name="settings_presence_desc">Nyuda kemungkinan token sing wis ana ing wangsulan, supaya nalar sing dawa ora muter-muter.</string>
+    <string name="settings_sampling_reset">Nilai sing disaranake model</string>
+    <string name="settings_section_features">Input sing ditampa model</string>
+    <string name="settings_feature_images">Gambar</string>
+    <string name="settings_feature_images_desc">Foto lan gambar ing obrolan. Mati: enkoder visual ora dimuat, mula ngirit memori.</string>
+    <string name="settings_feature_video">Video</string>
+    <string name="settings_feature_video_desc">Video ing obrolan: model ndeleng pigurane lan ngrungokake swarane.</string>
+    <string name="settings_feature_audio">Audio</string>
+    <string name="settings_feature_audio_desc">Pesen swara lan file audio. Mati: enkoder audio ora dimuat, mula ngirit memori.</string>
+    <string name="settings_feature_draft">Dekoding spekulatif</string>
+    <string name="settings_feature_draft_desc_mtp">Lapisan MTP model nggawe draf tembung sabanjure, banjur model mriksa rong tembung bebarengan: wangsulan luwih cepet, teks tetep padha. Mati: siji tembung saben giliran.</string>
+    <string name="settings_feature_draft_desc_drafter">Model pambantu cilik Gemma ngira tembung-tembung sabanjure, banjur model utama mriksa kabeh bebarengan: wangsulan luwih cepet, teks tetep padha. Mati: siji tembung saben giliran, lan ngirit memori model pambantu.</string>
+    <string name="settings_sampling_recommended">Disaranake kanggo %1$s ing mode iki: temperatur %2$.2f, top-p %3$.2f, top-k %4$d, penalti presence %5$.1f.</string>
+    <string name="settings_context_model_max">Model iki dilatih kanggo konteks nganti %1$d token.</string>
     <string name="settings_think_budget">Anggaran nalar: %1$s</string>
     <string name="settings_think_budget_desc">Sawise token nalar sacacah iki, model dikon langsung mangsuli.</string>
     <string name="settings_max_answer">Wangsulan paling dawa: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">Inti cilik melu mbantu inti gedhe ing prompt sing dawa. Ing Redmi Note 9 Pro, inti cilik malah ndadekake prompt luwih alon.</string>
     <string name="settings_prefetch">Maca dhisik</string>
     <string name="settings_prefetch_desc">Nalika siji lapisan lagi ngitung, maca expert sing diprediksi bakal dibutuhake lapisan sabanjure.</string>
-    <string name="settings_gpu">Gunakake GPU</string>
-    <string name="settings_gpu_desc">Nglakokake model ing chip grafis telpon yen bisa: kabeh wangsulan ing Adreno 7xx utawa sing luwih anyar; ing Adreno 618, sebagian saka perkalian gedhe ing prompt.</string>
+    <string name="settings_runs_on">Mlaku ing</string>
+    <string name="settings_runs_on_desc">Prosesor HP endi sing nglakokaké model. Yèn loro, sing kapisan maca prompt lan sing kapindho nulis wangsulan. Mung sing ana ing HP iki sing ditampilaké; bawané NPU + GPU, paling cepet yèn loro-loroné ana.</string>
     <string name="settings_route_prior">Wangsulan luwih cepet nalika model ora cukup ing memori</string>
     <string name="settings_route_prior_desc">Ngutamakake expert sing wis ana ing memori, saengga luwih sithik sing diwaca saka panyimpenan. Tembung ing wangsulan bisa rada owah, kadhangkala uga kualitase. Mati kanthi gawan.</string>
-    <string name="settings_npu">Gunakna NPU</string>
-    <string name="settings_npu_desc">Nganggo prosesor AI telpon (Snapdragon Hexagon) ing panggonan sing mbiyantu: prompt diwaca luwih cepet lan rada luwih pas, lan ing Snapdragon 8 Elite uga njupuk sapérangan expert model 35B sarta nglakokaké model entheng kabèh. Yen ora ana utawa gagal dipriksa, GPU lan CPU makarya kaya biyasane.</string>
     <string name="settings_word_experts">Expert saben tembung</string>
     <string name="settings_word_experts_desc">8 (gawan): kabeh expert sing dipilih model, kualitas jangkepe. 6 utawa 4: yen salah siji saka 2 utawa 4 expert pungkasan sing dipilih ora ana ing memori, expert kuwi dilewati, ora diwaca. Luwih cepet yen model ora muat ing memori, nanging wangsulane model dadi kurang akurat.</string>
     <string name="settings_gpu_share">Bagean baris kanggo GPU: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">Kompres konteks</string>
     <string name="chat_compressing">Model lagi ngringkes obrolan…</string>
     <string name="chat_summary_title">Konteks wis dikompres</string>
+    <string name="chat_pruned">Pesen-pesen lawas wis dibusak sawisé konteks dipadhetaké: model nerusaké saka ringkesané.</string>
     <string name="chat_summary_note">Wiwit kene model ndeleng ringkesan iki minangka ganti pesen-pesen ing ndhuwur.</string>
     <string name="settings_image_detail">Detail gambar</string>
     <string name="settings_image_detail_fast">Cepet</string>
     <string name="settings_image_detail_fine">Rinci</string>
     <string name="settings_image_detail_most">Maksimal</string>
     <string name="settings_image_detail_desc">Sepira alus model ndeleng gambar sing dilampirake: nganti 256, 576 utawa 1024 token. Luwih alus luwih apik maca teks cilik, nanging luwih suwe sadurunge wangsulan diwiwiti (gambar dienkode ing inti telpon; bobote mung diwaca saka panyimpenan nalika iku).</string>
-    <string name="settings_auto_compress">Kompres konteks kanthi otomatis</string>
-    <string name="settings_auto_compress_desc">Yen konteks wis kebak 90%, model ngringkes obrolan lan nerusake saka ringkesan (wangsulan mandheg sadurunge 10% pungkasan, sing dienggo ringkesan).</string>
     <string name="answer_notif_title">Geode lagi mangsuli</string>
     <string name="answer_notif_text">Model tetep nyambut gawe nalika aplikasi ana ing latar mburi.</string>
     <string name="answer_notif_stop">Mandheg</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">Matur nuwun, laporan wis dikirim</string>
     <string name="report_queued">Ora ana sambungan: laporan bakal dikirim mengko</string>
     <string name="cpu_unsupported">Prosesor HP iki ora didhukung: Geode butuh prosesor ARM 64-bit sing nduwé instruksi dot product (ARMv8.2, akèh-akèhé HP wiwit 2019).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Privasi</string>
+    <string name="lock_setting">Kunci aplikasi</string>
+    <string name="lock_setting_desc">PIN utawa sandhi sadurunge chat katon: nalika aplikasi diwiwiti lan nalika sampeyan bali menyang aplikasi.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">Sandhi</string>
+    <string name="lock_repeat">Baleni</string>
+    <string name="lock_short_pin">Paling ora 4 angka</string>
+    <string name="lock_short_password">Paling ora 4 karakter</string>
+    <string name="lock_mismatch">Loro-lorone ora padha</string>
+    <string name="lock_enter_pin">PIN sampeyan</string>
+    <string name="lock_enter_password">Sandhi sampeyan</string>
+    <string name="lock_wrong">Salah, coba maneh</string>
+    <string name="lock_wait">Kakehan nyoba: sabanjure ing %1$s</string>
+    <string name="lock_unlock">Bukak kunci</string>
+    <string name="lock_title">Geode dikunci</string>
+    <string name="lock_fingerprint">Bukak kunci nganggo sidik driji</string>
+    <string name="lock_fingerprint_desc">Minangka ganti kode. Sidik driji sing ditambahake ing telpon mengko bakal mateni iki.</string>
+    <string name="lock_fingerprint_none">Tambahake sidik driji ing setelan telpon dhisik.</string>
+    <string name="lock_fingerprint_changed">Sidik driji ing telpon owah, mula sidik driji dipateni: bukak kunci nganggo kode lan uripake maneh ing Setelan.</string>
+    <string name="lock_prompt_title">Bukak kunci Geode</string>
+    <string name="lock_prompt_code">Nganggo kode</string>
+    <string name="lock_after">Kunci sawise metu saka aplikasi</string>
+    <string name="lock_after_now">Langsung</string>
+    <string name="lock_after_min">%1$d mnt</string>
+    <string name="lock_change">Ganti PIN utawa sandhi</string>
+    <string name="lock_off">Pateni kunci</string>
+    <string name="lock_now">Kunci saiki</string>
+    <string name="lock_note">Sajrone kunci urip, pratinjau aplikasi ing aplikasi anyar didhelikake. Chat web lan API ing jaringan tetep nganggo sandhi lan kunci dhewe.</string>
+    <string name="lock_forgot">Lali kode?</string>
+    <string name="lock_forgot_title">Busak kabeh chat?</string>
+    <string name="lock_forgot_text">Tanpa kode ora ana cara liya kanggo mlebu: kabeh chat dibusak, bebarengan karo foto, swara lan file agen, banjur kuncine. Model tetep ana.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Ukuran teks chat: %1$d%%</string>
+    <string name="settings_chat_text_desc">Pesen lan kolom ketik ing chat. Uga bisa diganti nganggo rong driji langsung ing obrolan.</string>
+    <string name="models_search">Golek model</string>
+    <string name="models_cap_photos">Foto</string>
+    <string name="models_cap_video">Video</string>
+    <string name="models_cap_sound">Swara</string>
+    <string name="models_cap_reasoning">Nalar</string>
+    <string name="models_no_match">Ora ana model sing cocog</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Layar</string>
+    <string name="screen_keep">Layar tetep murub</string>
+    <string name="screen_keep_off">Ora: wektu entek saka telpon</string>
+    <string name="screen_keep_answering">Sauntara Geode mangsuli</string>
+    <string name="screen_keep_always">Tansah, sauntara Geode dibukak</string>
+    <string name="screen_black_after">Layar ireng sawise %1$d mnt tanpa disentuh</string>
+    <string name="screen_black_never">Layar ireng: ora tau</string>
+    <string name="screen_black_desc">Supaya ora burn-in: ing layar OLED, perangan gambar sing ora tau obah (bilah, kolom ketik) bisa mbekas sawise pirang-pirang jam. Layar ireng dudu kunci: telpon tetep ora dikunci, cukup sentuh layar supaya Geode bali.</string>
+    <string name="screen_black_off_warning">Tanpa layar ireng, gambar sing meneng pirang-pirang jam bisa mbekas selawase ing layar OLED.</string>
+    <string name="screen_black_hint">Sentuh layar kanggo bali</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">Mlaku ing prosesor (NPU maca prompt yen ana), ing telpon kanthi RAM 8 GB utawa luwih</string>
+    <string name="models_catalog_ram_short">RAM %1$s: kurang kanggo model iki (butuh 8 GB)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Swara</string>
+    <string name="voice_read_aloud">Wacakake wangsulan</string>
+    <string name="voice_read_aloud_desc">Ukara siji-siji nalika wangsulan ditulis. Speaker ing ngisor wangsulan maca maneh.</string>
+    <string name="voice_rate">Kacepetan ngomong: %1$d%%</string>
+    <string name="voice_none">Telpon iki ora duwe mesin teks-dadi-ucapan: pasang siji (contone Layanan Ucapan dening Google) ing setelan sistem.</string>
+    <string name="chat_speak">Wacakake</string>
+    <string name="chat_speak_stop">Mandhegake maca</string>
+    <string name="nav_model_settings">Setelan model</string>
+    <string name="model_settings_selected">Model sing dipilih: %1$s</string>
+    <string name="model_settings_none">Durung ana model sing dipilih: setelan iki kanggo model sing sampeyan pilih.</string>
+    <string name="chat_take_photo">Njupuk foto</string>
+    <string name="chat_record_video">Ngrekam video</string>
+    <string name="chat_camera_denied">Geode ora bisa njupuk foto utawa video tanpa idin kamera</string>
+    <string name="chat_camera_none">Ora ana aplikasi kamera ing HP iki</string>
+    <string name="voice_voice">Swara</string>
+    <string name="voice_auto">Otomatis: swara gawan saben basa</string>
+    <string name="voice_voice_desc">Swara sing dipilih maca basane dhewe; basa liyane tetep nganggo swara gawane.</string>
+    <string name="voice_pitch">Dhuwure swara: %1$d%%</string>
+    <string name="voice_listen">Rungokake</string>
+    <string name="voice_sample">Kaya ngene wangsulane bakal keprungu.</string>
+    <string name="voice_engine_settings">Setelan teks dadi swara</string>
+    <string name="voice_network">butuh internet</string>
+    <string name="chat_read_aloud_on">Wangsulan diwaca banter</string>
+    <string name="chat_read_aloud_off">Wangsulan ora diwaca banter</string>
+    <string name="voice_engine">Apa sing maca kanthi swara</string>
+    <string name="voice_engine_system">Teks-dadi-swara ing HP</string>
+    <string name="voice_engine_geode">Swarane Geode dhewe</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: 31 basa diwaca ing HP iki, ing antarane basa Ukraina, Rusia lan Inggris; basa liyane diwaca dening teks-dadi-swara HP. Iki tetep ana ing panyimpenan lan mung njupuk udakara 300 MB memori nalika maca.</string>
+    <string name="voice_download">Undhuh swara (%1$s)</string>
+    <string name="voice_downloading">Ngundhuh swara: %1$d%%</string>
+    <string name="voice_delete">Busak swara</string>
+    <string name="voice_download_failed">Swara ora kaundhuh: %1$s</string>
+    <string name="voice_female">Swara wadon %1$d</string>
+    <string name="voice_male">Swara lanang %1$d</string>
+    <string name="voice_license">Lisensi swara</string>
+    <string name="voice_license_note">Supertonic 3 saka Supertone, kanthi lisensi Open RAIL-M: watesan panggunaane ditrapake marang apa sing diwaca. Mlaku nganggo sherpa-onnx.</string>
+    <string name="agent_folders">Folder HP</string>
+    <string name="agent_folders_desc">Folder ing HP iki sing bisa digarap agen saben chat: ing Linux-é ana ing /phone. Agen nggarap salinan saben folder, sing dianyari sadurungé saben pesen; folder maca lan nulis nampa manèh owah-owahané agen yèn wis rampung. Njupuk manèh folder mung mbusak salinané.</string>
+    <string name="agent_folders_none">Durung ana folder sing diwènèhaké.</string>
+    <string name="agent_folders_add">Wènèhi folder</string>
+    <string name="agent_folder_read">Mung maca</string>
+    <string name="agent_folder_write">Maca lan nulis</string>
+    <string name="agent_folder_remove">Jupuk manèh</string>
+    <string name="agent_folder_files">Berkas: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Nyalin…</string>
+    <string name="agent_folder_skipped">Ora disalin: %1$d (salinan isiné paling akèh 10.000 berkas lan %2$s)</string>
+    <string name="agent_folder_error">Folder ora bisa diwaca: %1$s</string>
+    <string name="agent_folder_add_failed">Folder ora bisa diwènèhaké marang agen</string>
+    <string name="models_services">Model layanan</string>
+    <string name="models_services_desc">Model saka layanan sing kuncine sampeyan duwe bisa mangsuli ing obrolan tinimbang model ing ponsel: DeepSeek, OpenRouter, OpenAI, Anthropic, utawa layanan apa wae sing nganggo API-ne. Apa sing dikirim obrolan lunga menyang layanan kuwi; Linux agen lan berkase tetep ana ing ponsel.</string>
+    <string name="models_service_add">Tambah layanan</string>
+    <string name="models_service_edit">Owahi</string>
+    <string name="service_name">Jeneng</string>
+    <string name="service_url">Alamat API</string>
+    <string name="service_protocol">Protokol</string>
+    <string name="service_key">Kunci API</string>
+    <string name="service_key_kept">Disimpen ing ponsel iki kanthi dienkripsi. Ketik kunci anyar kanggo ngganti.</string>
+    <string name="service_model">Model</string>
+    <string name="service_list">Tampilake modele</string>
+    <string name="service_list_failed">Model ora bisa ditampilake: %1$s</string>
+    <string name="service_vision">Model maca gambar</string>
+    <string name="service_context">Konteks, token</string>
+    <string name="service_max">Wangsulan paling dawa, token</string>
+    <string name="service_leaves">Obrolan karo model iki dikirim menyang %1$s lan ditangani miturut katemtuane. Kunci tetep ana ing ponsel iki kanthi dienkripsi.</string>
+    <string name="chat_empty_remote">Takon apa wae. Wangsulan teka saka %1$s (%2$s): apa sing sampeyan kirim metu saka ponsel.</string>
+    <string name="chat_info_service">Obrolan dikirim menyang %1$s</string>
+    <string name="settings_about_services">Lan nalika sampeyan milih model layanan ing layar Model, obrolane dikirim menyang layanan kuwi.</string>
 </resources>

@@ -5,7 +5,7 @@
     <!-- navigation -->
     <string name="nav_chat">Chat</string>
     <string name="nav_models">Models</string>
-    <string name="nav_settings">Settings</string>
+    <string name="nav_settings">App settings</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Message</string>
@@ -79,7 +79,7 @@
     <string name="models_free_space">Free space: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Settings</string>
+    <string name="settings_title">App settings</string>
     <string name="settings_section_memory">Memory</string>
     <string name="settings_memory_budget">Memory for the model</string>
     <string name="settings_memory_budget_value">%1$s (recommended %2$s)</string>
@@ -98,6 +98,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">Longest context: %1$d tokens</string>
     <string name="settings_context_desc">The context is not reserved up front: it grows in chunks as the chat goes on, and each chunk takes its memory from the expert cache (its least used experts) - a long context makes generating slower. A new chat gives it all back.</string>
+    <string name="settings_context_desc_dense">The context is not reserved up front: it grows in chunks as the chat goes on, and a long context takes more memory and makes generating slower. A new chat gives it all back.</string>
     <string name="settings_context_memory">The context (KV cache, int8): %1$s at %2$d tokens (%3$s per 1000) · the expert cache keeps %4$s then</string>
     <string name="settings_context_capped">This memory budget fits at most %1$d tokens: the conversation stops there.</string>
     <string name="settings_section_performance">Performance</string>
@@ -240,8 +241,20 @@
     <string name="settings_sampling_think">Sampling · with reasoning</string>
     <string name="settings_sampling_plain">Sampling · without reasoning</string>
     <string name="settings_presence">Presence penalty: %1$.2f</string>
-    <string name="settings_presence_desc">Lowers the odds of tokens the answer already has, so a long reasoning does not go round in circles. Qwen recommends 1.5.</string>
-    <string name="settings_sampling_reset">Qwen\'s recommended values</string>
+    <string name="settings_presence_desc">Lowers the odds of tokens the answer already has, so a long reasoning does not go round in circles.</string>
+    <string name="settings_sampling_reset">The model\'s recommended values</string>
+    <string name="settings_section_features">What the model takes</string>
+    <string name="settings_feature_images">Images</string>
+    <string name="settings_feature_images_desc">Photos and pictures in the chat. Off: the vision encoder is not loaded, which saves memory.</string>
+    <string name="settings_feature_video">Video</string>
+    <string name="settings_feature_video_desc">Videos in the chat: the model watches their frames and hears their sound.</string>
+    <string name="settings_feature_audio">Audio</string>
+    <string name="settings_feature_audio_desc">Voice messages and audio files. Off: the audio encoder is not loaded, which saves memory.</string>
+    <string name="settings_feature_draft">Speculative decoding</string>
+    <string name="settings_feature_draft_desc_mtp">The model\'s MTP layer drafts the next word and the model checks two at once: faster answers, the same text. Off: one word at a time.</string>
+    <string name="settings_feature_draft_desc_drafter">Gemma\'s drafter guesses the next words and the model checks them at once: faster answers, the same text. Off: one word at a time, and the drafter\'s memory saved.</string>
+    <string name="settings_sampling_recommended">Recommended for %1$s in this mode: temperature %2$.2f, top-p %3$.2f, top-k %4$d, presence penalty %5$.1f.</string>
+    <string name="settings_context_model_max">This model was trained for up to %1$d tokens of context.</string>
     <string name="settings_think_budget">Reasoning budget: %1$s</string>
     <string name="settings_think_budget_desc">After this many reasoning tokens the model is told to answer now.</string>
     <string name="settings_max_answer">Longest answer: %1$s</string>
@@ -253,12 +266,10 @@
     <string name="settings_helpers_desc">Little cores join the big ones on long prompts. On the Redmi Note 9 Pro they made prompts slower.</string>
     <string name="settings_prefetch">Read ahead</string>
     <string name="settings_prefetch_desc">While a layer computes, reads the experts the next one is predicted to need.</string>
-    <string name="settings_gpu">Use the GPU</string>
-    <string name="settings_gpu_desc">Runs the model on the phone\'s graphics chip where it can: the whole answer on an Adreno 7xx or newer; on the Adreno 618, a share of a prompt\'s big products.</string>
+    <string name="settings_runs_on">Runs on</string>
+    <string name="settings_runs_on_desc">Which of the phone\'s processors run the model. With two, the first reads the prompts and the second writes the answer. Only the processors this phone has are listed; the default, NPU + GPU, is the fastest where both are there.</string>
     <string name="settings_route_prior">Faster answers when the model does not fit in memory</string>
     <string name="settings_route_prior_desc">Prefers experts already in memory, so fewer are read from storage. Answers may change a little in wording and occasionally in quality. Off by default.</string>
-    <string name="settings_npu">Use the NPU</string>
-    <string name="settings_npu_desc">Uses the phone\'s AI processor (Snapdragon Hexagon) where it helps: it reads prompts faster and a little more precisely, and on the Snapdragon 8 Elite also takes part of the 35B model\'s experts and runs the light model entirely. Where there is none, or it fails its check, the GPU and CPU work as before.</string>
     <string name="settings_word_experts">Experts read for each word</string>
     <string name="settings_word_experts_desc">8 (default): every expert the model picks, its full quality. 6 or 4: when one of the last 2 or 4 picked experts is not in memory, it is skipped instead of read. Faster when the model does not fit in memory, but the model\'s answers become less accurate.</string>
     <string name="settings_gpu_share">GPU\'s share of the rows: %1$d%%</string>
@@ -276,14 +287,13 @@
     <string name="chat_compress">Compress the context</string>
     <string name="chat_compressing">The model is summarizing the conversation…</string>
     <string name="chat_summary_title">Context compressed</string>
+    <string name="chat_pruned">Earlier messages were removed after the context was compressed: the model goes on from its summary of them.</string>
     <string name="chat_summary_note">From here on the model sees this summary instead of the messages above it.</string>
     <string name="settings_image_detail">Image detail</string>
     <string name="settings_image_detail_fast">Fast</string>
     <string name="settings_image_detail_fine">Detailed</string>
     <string name="settings_image_detail_most">Most</string>
     <string name="settings_image_detail_desc">How finely the model sees an attached image: up to 256, 576 or 1024 of its tokens. Finer reads small text better but takes longer before the answer starts (the image is encoded on the phone\'s cores; its weights are read from storage only then).</string>
-    <string name="settings_auto_compress">Compress the context automatically</string>
-    <string name="settings_auto_compress_desc">When the context is 90% full, the model summarizes the conversation and goes on from the summary (an answer stops before the last 10%, which the summary takes).</string>
     <string name="answer_notif_title">Geode is answering</string>
     <string name="answer_notif_text">The model keeps working while the app is in the background.</string>
     <string name="answer_notif_stop">Stop</string>
@@ -451,4 +461,132 @@
     <string name="report_sent">Thank you, the report was sent</string>
     <string name="report_queued">No connection: the report will be sent later</string>
     <string name="cpu_unsupported">This phone’s processor is not supported: Geode needs a 64-bit ARM processor with dot product instructions (ARMv8.2, most phones since 2019).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Privacy</string>
+    <string name="lock_setting">Lock the app</string>
+    <string name="lock_setting_desc">A PIN or a password before the chats show: when the app starts and when you come back to it.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">Password</string>
+    <string name="lock_repeat">Repeat it</string>
+    <string name="lock_short_pin">At least 4 digits</string>
+    <string name="lock_short_password">At least 4 characters</string>
+    <string name="lock_mismatch">The two are not the same</string>
+    <string name="lock_enter_pin">Your PIN</string>
+    <string name="lock_enter_password">Your password</string>
+    <string name="lock_wrong">Not right, try again</string>
+    <string name="lock_wait">Too many tries: the next one in %1$s</string>
+    <string name="lock_unlock">Unlock</string>
+    <string name="lock_title">Geode is locked</string>
+    <string name="lock_fingerprint">Unlock with a fingerprint</string>
+    <string name="lock_fingerprint_desc">Instead of the code. A fingerprint added to the phone later turns this off.</string>
+    <string name="lock_fingerprint_none">Add a fingerprint in the phone\'s settings first.</string>
+    <string name="lock_fingerprint_changed">The phone\'s fingerprints changed, so the fingerprint is off: unlock with the code and turn it on again in Settings.</string>
+    <string name="lock_prompt_title">Unlock Geode</string>
+    <string name="lock_prompt_code">Use the code</string>
+    <string name="lock_after">Lock after leaving the app</string>
+    <string name="lock_after_now">At once</string>
+    <string name="lock_after_min">%1$d min</string>
+    <string name="lock_change">Change the PIN or password</string>
+    <string name="lock_off">Turn the lock off</string>
+    <string name="lock_now">Lock now</string>
+    <string name="lock_note">While the lock is on, the app\'s preview in recent apps is hidden. The web chat and the API on the network keep their own password and key.</string>
+    <string name="lock_forgot">Forgot the code?</string>
+    <string name="lock_forgot_title">Delete every chat?</string>
+    <string name="lock_forgot_text">Without the code there is no other way in: every chat goes, with its photos, sounds and the agent\'s files, and then the lock. The models stay.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Chat text size: %1$d%%</string>
+    <string name="settings_chat_text_desc">The messages and the input in the chat. Two fingers on the conversation change it too.</string>
+    <string name="models_search">Search models</string>
+    <string name="models_cap_photos">Photos</string>
+    <string name="models_cap_video">Video</string>
+    <string name="models_cap_sound">Sound</string>
+    <string name="models_cap_reasoning">Reasoning</string>
+    <string name="models_no_match">No model matches</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Screen</string>
+    <string name="screen_keep">Keep the screen on</string>
+    <string name="screen_keep_off">No: the phone\'s own timeout</string>
+    <string name="screen_keep_answering">While Geode answers</string>
+    <string name="screen_keep_always">Always, while Geode is open</string>
+    <string name="screen_black_after">Black screen after %1$d min without a touch</string>
+    <string name="screen_black_never">Black screen: never</string>
+    <string name="screen_black_desc">Against burn-in: on an OLED screen the parts of the picture that never move (the bars, the input) can burn in over hours. The black screen is not a lock: the phone stays unlocked, and a touch on the screen brings Geode back.</string>
+    <string name="screen_black_off_warning">With the black screen off, a picture that stays still for hours can burn into an OLED screen for good.</string>
+    <string name="screen_black_hint">Touch the screen to come back</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">Runs on the processor (the NPU reads prompts where there is one), on phones with 8 GB of RAM or more</string>
+    <string name="models_catalog_ram_short">%1$s of RAM: too little for this model (it wants 8 GB)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Voice</string>
+    <string name="voice_read_aloud">Read answers aloud</string>
+    <string name="voice_read_aloud_desc">Sentence by sentence as the answer is written. The speaker under an answer reads it again.</string>
+    <string name="voice_rate">Speech rate: %1$d%%</string>
+    <string name="voice_none">This phone has no text-to-speech engine: install one (for example Speech Services by Google) in the system settings.</string>
+    <string name="chat_speak">Read aloud</string>
+    <string name="chat_speak_stop">Stop reading</string>
+    <string name="nav_model_settings">Model settings</string>
+    <string name="model_settings_selected">Selected model: %1$s</string>
+    <string name="model_settings_none">No model selected yet: these settings apply to the one you pick.</string>
+    <string name="chat_take_photo">Take a photo</string>
+    <string name="chat_record_video">Record a video</string>
+    <string name="chat_camera_denied">Geode cannot take photos or videos without the camera permission</string>
+    <string name="chat_camera_none">There is no camera app on this phone</string>
+    <string name="voice_voice">Voice</string>
+    <string name="voice_auto">Automatic: each language\'s default voice</string>
+    <string name="voice_voice_desc">A voice you pick reads its own language; other languages keep their default voice.</string>
+    <string name="voice_pitch">Pitch: %1$d%%</string>
+    <string name="voice_listen">Listen</string>
+    <string name="voice_sample">This is how the answers will sound.</string>
+    <string name="voice_engine_settings">Text-to-speech settings</string>
+    <string name="voice_network">needs the internet</string>
+    <string name="chat_read_aloud_on">Answers are read aloud</string>
+    <string name="chat_read_aloud_off">Answers are not read aloud</string>
+    <string name="voice_engine">What reads aloud</string>
+    <string name="voice_engine_system">The phone\'s text-to-speech</string>
+    <string name="voice_engine_geode">Geode\'s own voice</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: 31 languages read on this phone, Ukrainian, Russian and English among them; other languages are read by the phone\'s text-to-speech. It stays on the storage and takes about 300 MB of memory only while it reads.</string>
+    <string name="voice_download">Download the voice (%1$s)</string>
+    <string name="voice_downloading">Downloading the voice: %1$d%%</string>
+    <string name="voice_delete">Delete the voice</string>
+    <string name="voice_download_failed">The voice did not download: %1$s</string>
+    <string name="voice_female">Female voice %1$d</string>
+    <string name="voice_male">Male voice %1$d</string>
+    <string name="voice_license">The voice\'s licence</string>
+    <string name="voice_license_note">Supertonic 3 by Supertone, under the Open RAIL-M licence: its use restrictions apply to what it reads. Run with sherpa-onnx.</string>
+    <string name="agent_folders">Phone folders</string>
+    <string name="agent_folders_desc">Folders of this phone that every chat\'s agent can work with: in its Linux they are at /phone. The agent works on a copy of each, brought up to date before every message; a read-and-write folder gets the agent\'s changes back when it is done. Taking a folder back deletes only the copy.</string>
+    <string name="agent_folders_none">No folders given yet.</string>
+    <string name="agent_folders_add">Give a folder</string>
+    <string name="agent_folder_read">Read only</string>
+    <string name="agent_folder_write">Read and write</string>
+    <string name="agent_folder_remove">Take back</string>
+    <string name="agent_folder_files">Files: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Copying…</string>
+    <string name="agent_folder_skipped">Not copied: %1$d (a copy holds at most 10,000 files and %2$s)</string>
+    <string name="agent_folder_error">Cannot read the folder: %1$s</string>
+    <string name="agent_folder_add_failed">The folder could not be given to the agent</string>
+    <string name="models_services">Models of services</string>
+    <string name="models_services_desc">The model of a service you have a key for can answer the chats instead of the phone\'s own: DeepSeek, OpenRouter, OpenAI, Anthropic, or any service that speaks their APIs. What the chats send goes to that service; the agent\'s Linux and its files stay on the phone.</string>
+    <string name="models_service_add">Add a service</string>
+    <string name="models_service_edit">Edit</string>
+    <string name="service_name">Name</string>
+    <string name="service_url">API address</string>
+    <string name="service_protocol">Protocol</string>
+    <string name="service_key">API key</string>
+    <string name="service_key_kept">Kept on this phone, encrypted. Type a new one to replace it.</string>
+    <string name="service_model">Model</string>
+    <string name="service_list">List its models</string>
+    <string name="service_list_failed">Could not list the models: %1$s</string>
+    <string name="service_vision">The model reads images</string>
+    <string name="service_context">Context, tokens</string>
+    <string name="service_max">Longest answer, tokens</string>
+    <string name="service_leaves">Chats with this model are sent to %1$s and handled under its terms. The key stays on this phone, encrypted.</string>
+    <string name="chat_empty_remote">Ask anything. The answers come from %1$s (%2$s): what you send leaves the phone.</string>
+    <string name="chat_info_service">The chat is sent to %1$s</string>
+    <string name="settings_about_services">And when you choose a service\'s model on the Models screen, its chats are sent to that service.</string>
 </resources>

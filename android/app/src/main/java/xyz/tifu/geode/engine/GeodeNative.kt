@@ -18,6 +18,10 @@ object GeodeNative {
     const val E_FORMAT = 3
     const val E_MEMORY = 4
     const val E_NOT_IMPLEMENTED = 5
+    /** open's `off`: what the engine leaves unread (geode_config's no_draft, no_vision, no_audio). */
+    const val OFF_DRAFT = 1
+    const val OFF_VISION = 2
+    const val OFF_AUDIO = 4
     const val E_STOPPED = 6
 
     external fun version(): String
@@ -25,7 +29,7 @@ object GeodeNative {
     /** A handle (> 0), or 0 with the reason in errOut[0]. */
     external fun open(dir: String, memoryBudget: Long, computeThreads: Int, ioThreads: Int, helperThreads: Int,
                       contextLength: Int, prefetch: Boolean, gpu: Boolean, gpuShare: Float,
-                      expertsPerToken: Int, routePrior: Float, tailSkip: Int, npu: Boolean,
+                      expertsPerToken: Int, routePrior: Float, tailSkip: Int, npu: Boolean, mode: Int, off: Int,
                       errOut: Array<String?>): Long
 
     external fun generate(handle: Long, prompt: IntArray, temperature: Float, topP: Float, topK: Int,

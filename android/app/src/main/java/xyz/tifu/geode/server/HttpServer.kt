@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import xyz.tifu.geode.util.Json
 import java.io.BufferedInputStream
@@ -21,7 +22,9 @@ import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
 /** A request: the method, the path (decoded) and the query, the headers (names in lower case), the body, the
@@ -155,12 +158,26 @@ class HttpServer(
                 runCatching { c.close() }
                 continue
             }
+            val from = c.inetAddress?.hostAddress.orEmpty()
+            val mine = perAddress.computeIfAbsent(from) { AtomicInteger() }
+            // one address cannot hold every connection (a client that opens them and sends nothing, byte by byte)
+            if (mine.incrementAndGet() > MAX_PER_ADDRESS) {
+                if (mine.decrementAndGet() == 0) perAddress.remove(from, mine)
+                runCatching { c.close() }
+                continue
+            }
             open.incrementAndGet()
             scope.launch {
                 try {
                     serve(c)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    // whatever a request does, the app goes on (an uncaught exception here would end its process)
+                    android.util.Log.w("GeodeHttp", "a request from $from failed: $e")
                 } finally {
                     open.decrementAndGet()
+                    if (mine.decrementAndGet() == 0) perAddress.remove(from, mine)
                     runCatching { c.close() }
                 }
             }
@@ -173,14 +190,31 @@ class HttpServer(
         val input = BufferedInputStream(c.getInputStream())
         val out = BufferedOutputStream(c.getOutputStream(), 16 * 1024)
         val r = HttpResponder(out)
-        val req = try {
-            read(input, out, c.inetAddress?.hostAddress.orEmpty())
-        } catch (e: BadRequest) {
-            runCatching { r.json(e.status, mapOf("error" to mapOf("message" to e.message, "type" to "invalid_request_error"))) }
-            return
-        } catch (e: IOException) {
-            return
+        // the request whole within READ_DEADLINE_MS (the timeout above is each read's: a byte every 29 s would do)
+        val deadline = scope.launch {
+            delay(READ_DEADLINE_MS)
+            runCatching { c.close() }
         }
+        val held = Body()
+        try {
+            val req = try {
+                read(input, out, c.inetAddress?.hostAddress.orEmpty(), held)
+            } catch (e: BadRequest) {
+                runCatching { r.json(e.status, mapOf("error" to mapOf("message" to e.message, "type" to "invalid_request_error"))) }
+                return
+            } catch (e: IOException) {
+                return
+            } finally {
+                deadline.cancel()
+            }
+            handle(c, req, r, out)
+        } finally {
+            // the body's bytes given back to the server's budget once the request is answered
+            bodies.addAndGet(-held.bytes)
+        }
+    }
+
+    private suspend fun handle(c: Socket, req: HttpRequest, r: HttpResponder, out: OutputStream) {
         // reading is done; an answer may take minutes (no timeout while it is written)
         c.soTimeout = 0
         try {
@@ -199,7 +233,24 @@ class HttpServer(
 
     private class BadRequest(val status: Int, message: String) : IOException(message)
 
-    private fun read(input: InputStream, out: OutputStream, remote: String): HttpRequest {
+    /** The bytes of the server's body budget a request holds. */
+    private class Body {
+        var bytes = 0L
+    }
+
+    /**
+     * [n] more bytes of a request's body taken from the budget all requests share, before they are read: many
+     * connections each saying it sends a big body (and sending nothing) cannot take the app's memory between them.
+     */
+    private fun reserve(held: Body, n: Long) {
+        if (bodies.addAndGet(n) > maxBodies) {
+            bodies.addAndGet(-n)
+            throw BadRequest(503, "the server is busy with other requests' bodies: try again in a moment")
+        }
+        held.bytes += n
+    }
+
+    private fun read(input: InputStream, out: OutputStream, remote: String, held: Body): HttpRequest {
         val head = readHead(input)
         val lines = head.split("\r\n")
         val first = lines[0].split(' ')
@@ -215,10 +266,11 @@ class HttpServer(
             out.flush()
         }
         val body = if (headers["transfer-encoding"]?.contains("chunked", ignoreCase = true) == true) {
-            chunked(input)
+            chunked(input, held)
         } else {
             val n = headers["content-length"]?.toLongOrNull() ?: 0L
             if (n < 0 || n > MAX_BODY) throw BadRequest(413, "the body is larger than ${MAX_BODY shr 20} MB")
+            reserve(held, n)
             readExactly(input, n.toInt())
         }
         val target = first[1]
@@ -256,16 +308,21 @@ class HttpServer(
         return a
     }
 
-    private fun chunked(input: InputStream): ByteArray {
+    private fun chunked(input: InputStream, held: Body): ByteArray {
         val b = ByteArrayOutputStream()
         while (true) {
             val line = readLine(input)
-            val n = line.substringBefore(';').trim().toIntOrNull(16) ?: throw BadRequest(400, "a bad chunk")
+            // a size is hex digits alone ("-1" or "+5" would parse, and a negative one is no size)
+            val n = line.substringBefore(';').trim().takeIf { s -> s.isNotEmpty() && s.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' } }
+                ?.toIntOrNull(16)?.takeIf { it >= 0 } ?: throw BadRequest(400, "a bad chunk")
             if (n == 0) {
                 while (readLine(input).isNotEmpty()) Unit  // trailers
                 return b.toByteArray()
             }
-            if (b.size() + n > MAX_BODY) throw BadRequest(413, "the body is larger than ${MAX_BODY shr 20} MB")
+            // in Long: a chunk of 0x7fffffff would overflow an Int sum past the check
+            if (b.size().toLong() + n > MAX_BODY) throw BadRequest(413, "the body is larger than ${MAX_BODY shr 20} MB")
+            // what the buffer grows by (it may double: twice the chunk at most)
+            reserve(held, 2L * n)
             b.write(readExactly(input, n))
             readLine(input)
         }
@@ -282,10 +339,21 @@ class HttpServer(
         }
     }
 
+    /** The bytes of request bodies the server holds now, all connections together. */
+    private val bodies = AtomicLong()
+    /** The connections open now from each address. */
+    private val perAddress = ConcurrentHashMap<String, AtomicInteger>()
+
     companion object {
         private const val BACKLOG = 32
         private const val MAX_CONNECTIONS = 32
+        /** A browser keeps up to 6 connections to a host; the web chat's streams come on top. */
+        private const val MAX_PER_ADDRESS = 16
         private const val READ_TIMEOUT_MS = 30_000
+        /** A request's head and body read within this (64 MB over a slow Wi-Fi takes half a minute). */
+        private const val READ_DEADLINE_MS = 120_000L
+        /** The bodies all requests hold at once: a quarter of the app's heap, at least one body as big as allowed. */
+        private val maxBodies = maxOf(64L shl 20, Runtime.getRuntime().maxMemory() / 4)
         private const val MAX_HEAD = 32 * 1024
         /** Images come as base64 inside the JSON. */
         private const val MAX_BODY = 64L shl 20

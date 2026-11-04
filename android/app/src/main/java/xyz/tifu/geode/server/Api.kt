@@ -94,19 +94,28 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
         if (anthropic) {
             val items = list.map {
                 linkedMapOf("type" to "model", "id" to it.id, "display_name" to it.title,
-                    "created_at" to Instant.ofEpochMilli(created).toString())
+                    "created_at" to Instant.ofEpochMilli(created).toString(), "input_modalities" to inputs(it))
             }
             if (one != null) return r.json(200, items.first())
             r.json(200, linkedMapOf("data" to items, "has_more" to false, "first_id" to list.firstOrNull()?.id,
                 "last_id" to list.lastOrNull()?.id))
         } else {
             val items = list.map {
-                linkedMapOf("id" to it.id, "object" to "model", "created" to created / 1000, "owned_by" to "geode")
+                linkedMapOf("id" to it.id, "object" to "model", "created" to created / 1000, "owned_by" to "geode",
+                    "input_modalities" to inputs(it))
             }
             if (one != null) return r.json(200, items.first())
             r.json(200, linkedMapOf("object" to "list", "data" to items))
         }
     }
+
+    /**
+     * What a model takes besides text, the field OpenRouter's model list names so (ours, beside the standard ones,
+     * which clients that do not know it skip): image (image_url / Anthropic image blocks), audio (input_audio), video
+     * (Geode's input_video: frames at their seconds and their sound).
+     */
+    private fun inputs(m: InstalledModel): List<String> =
+        listOf("text") + listOfNotNull("image".takeIf { m.vision }, "audio".takeIf { m.audio }, "video".takeIf { m.video })
 
     // ---- images ----
 

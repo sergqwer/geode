@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">Hira</string>
     <string name="nav_models">Model</string>
-    <string name="nav_settings">Saituna</string>
+    <string name="nav_settings">Saitunan manhaja</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Saƙo</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">Sarari kyauta: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Saituna</string>
+    <string name="settings_title">Saitunan manhaja</string>
     <string name="settings_section_memory">Ƙwaƙwalwa</string>
     <string name="settings_memory_budget">Ƙwaƙwalwa don model</string>
     <string name="settings_memory_budget_value">%1$s (shawara: %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">Context mafi tsawo: token %1$d</string>
     <string name="settings_context_desc">Ba a keɓe context tun farko ba: yana girma kashi-kashi yayin da hira ke tafiya, kuma kowane kashi yana ɗaukar ƙwaƙwalwarsa daga cache na expert (expert ɗin da aka fi ƙarancin amfani da su) - dogon context yana sa samarwa ta yi jinkiri. Sabuwar hira tana mayar da komai.</string>
+    <string name="settings_context_desc_dense">Ba a ajiye mahallin tun farko ba: yana girma a guntu-guntu yayin da hira ke tafiya, kuma dogon mahalli yana ɗaukar ƙarin ƙwaƙwalwa kuma yana rage saurin samarwa. Sabuwar hira tana mayar da duka.</string>
     <string name="settings_context_memory">Context ɗin (KV cache, int8): %1$s a token %2$d (%3$s a kowane 1000) · cache na expert zai riƙe %4$s a lokacin</string>
     <string name="settings_context_capped">Wannan kasafin ƙwaƙwalwa ya isa token %1$d kawai a mafi yawa: hirar za ta tsaya a nan.</string>
     <string name="settings_section_performance">Saurin aiki</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">Sampling · tare da tunani</string>
     <string name="settings_sampling_plain">Sampling · ba tare da tunani ba</string>
     <string name="settings_presence">Hukuncin maimaitawa (presence): %1$.2f</string>
-    <string name="settings_presence_desc">Yana rage damar token da ke cikin amsar tuni, don kada dogon tunani ya yi ta zagaye. Qwen yana ba da shawarar 1.5.</string>
-    <string name="settings_sampling_reset">Ƙimomin da Qwen ke ba da shawara</string>
+    <string name="settings_presence_desc">Yana rage damar token da ke cikin amsar tuni, don kada dogon tunani ya yi ta zagaye.</string>
+    <string name="settings_sampling_reset">Ƙimar da samfurin ke ba da shawara</string>
+    <string name="settings_section_features">Abin da samfurin ke karɓa</string>
+    <string name="settings_feature_images">Hotuna</string>
+    <string name="settings_feature_images_desc">Hotuna da zane-zane a hira. A kashe: ba a loda enkodar hotuna, don haka ana rage amfani da ƙwaƙwalwa.</string>
+    <string name="settings_feature_video">Bidiyo</string>
+    <string name="settings_feature_video_desc">Bidiyoyi a hira: samfurin yana kallon firam ɗinsu yana kuma sauraron sautinsu.</string>
+    <string name="settings_feature_audio">Sauti</string>
+    <string name="settings_feature_audio_desc">Saƙonnin murya da fayilolin sauti. A kashe: ba a loda enkodar sauti, don haka ana rage amfani da ƙwaƙwalwa.</string>
+    <string name="settings_feature_draft">Dikodin hasashe</string>
+    <string name="settings_feature_draft_desc_mtp">Layin MTP na samfurin yana tsara kalma ta gaba, samfurin kuma yana duba kalmomi biyu lokaci guda: amsoshi da sauri, rubutu iri ɗaya. A kashe: kalma ɗaya a lokaci guda.</string>
+    <string name="settings_feature_draft_desc_drafter">Ƙaramin samfurin mataimaki na Gemma yana hasashen kalmomin gaba, samfurin kuma yana duba su lokaci guda: amsoshi da sauri, rubutu iri ɗaya. A kashe: kalma ɗaya a lokaci guda, kuma ana rage ƙwaƙwalwar da mataimakin ke amfani da ita.</string>
+    <string name="settings_sampling_recommended">Shawara ga %1$s a wannan yanayin: temperature %2$.2f, top-p %3$.2f, top-k %4$d, hukuncin maimaitawa (presence) %5$.1f.</string>
+    <string name="settings_context_model_max">An horar da wannan samfurin don context har zuwa token %1$d.</string>
     <string name="settings_think_budget">Kasafin tunani: %1$s</string>
     <string name="settings_think_budget_desc">Bayan wannan adadin token na tunani, ana gaya wa model ɗin ya amsa yanzu.</string>
     <string name="settings_max_answer">Amsa mafi tsawo: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">Ƙananan core suna taimaka wa manya a dogayen prompt. A Redmi Note 9 Pro sun sa prompt ya yi jinkiri.</string>
     <string name="settings_prefetch">Karanta gaba</string>
     <string name="settings_prefetch_desc">Yayin da layer ɗaya ke lissafi, yana karanta expert ɗin da ake hasashen na gaba zai buƙata.</string>
-    <string name="settings_gpu">Yi amfani da GPU</string>
-    <string name="settings_gpu_desc">Yana gudanar da model ɗin a chip na zane na wayar inda zai iya: amsar gaba ɗaya a Adreno 7xx ko sababbi; a Adreno 618, wani kaso na manyan lissafin prompt.</string>
+    <string name="settings_runs_on">Yana aiki a kan</string>
+    <string name="settings_runs_on_desc">Waɗanne na\'urorin sarrafawa na waya ne ke gudanar da samfurin. Idan biyu ne, na farko yana karanta umarni, na biyu kuma yana rubuta amsa. Waɗanda wannan waya ke da su kawai ake nunawa; tsoho shi ne NPU + GPU, mafi sauri inda duka biyun suke.</string>
     <string name="settings_route_prior">Amsoshi da sauri lokacin da samfurin bai isa a ƙwaƙwalwa ba</string>
     <string name="settings_route_prior_desc">Yana fifita ƙwararrun da suke cikin ƙwaƙwalwa tun farko, don a karanta kaɗan daga wurin ajiya. Kalmomin amsoshi na iya ɗan canzawa, wani lokaci har da inganci. A kashe yake ta tsohuwa.</string>
-    <string name="settings_npu">Yi amfani da NPU</string>
-    <string name="settings_npu_desc">Yana amfani da na\'urar AI ta waya (Snapdragon Hexagon) inda take taimakawa: tana karanta saƙon umarni da sauri kuma da ɗan ƙarin daidaito, kuma a Snapdragon 8 Elite tana ɗaukar wani ɓangare na ƙwararrun samfurin 35B tare da gudanar da samfurin mai sauƙi gaba ɗaya. Idan babu ko ta kasa gwaji, GPU da CPU za su yi aiki kamar da.</string>
     <string name="settings_word_experts">Ƙwararru ga kowace kalma</string>
     <string name="settings_word_experts_desc">8 (tsoho): duk ƙwararrun da samfurin ya zaɓa, cikakken ingancinsa. 6 ko 4: idan ɗaya daga cikin ƙwararru 2 ko 4 na ƙarshe da aka zaɓa ba ya cikin ƙwaƙwalwa, ana tsallake shi maimakon a karanta shi. Ya fi sauri idan samfurin bai dace a ƙwaƙwalwa ba, amma amsoshin samfurin suna raguwa a daidaito.</string>
     <string name="settings_gpu_share">Kason layuka na GPU: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">Matsa context</string>
     <string name="chat_compressing">Model ɗin yana taƙaita hirar…</string>
     <string name="chat_summary_title">An matsa context</string>
+    <string name="chat_pruned">An cire tsofaffin saƙonni bayan an matse mahallin: samfurin yana ci gaba daga taƙaitawarsu.</string>
     <string name="chat_summary_note">Daga nan model ɗin yana ganin wannan taƙaitawa maimakon saƙonnin da ke samanta.</string>
     <string name="settings_image_detail">Dalla-dallar hoto</string>
     <string name="settings_image_detail_fast">Da sauri</string>
     <string name="settings_image_detail_fine">Dalla-dalla</string>
     <string name="settings_image_detail_most">Mafi yawa</string>
     <string name="settings_image_detail_desc">Yadda model ɗin ke ganin hoton da aka haɗa dalla-dalla: har zuwa token 256, 576 ko 1024. Mafi dalla-dalla yana karanta ƙaramin rubutu da kyau amma yana ɗaukar lokaci kafin amsa ta fara (ana sarrafa hoton a core na wayar; ana karanta nauyinsa daga ma\'ajiya a lokacin kawai).</string>
-    <string name="settings_auto_compress">Matsa context ta atomatik</string>
-    <string name="settings_auto_compress_desc">Idan context ya cika kashi 90%, model ɗin yana taƙaita hirar kuma yana ci gaba daga taƙaitawar (amsa tana tsayawa kafin kashi 10% na ƙarshe, wanda taƙaitawar ke ɗauka).</string>
     <string name="answer_notif_title">Geode yana amsawa</string>
     <string name="answer_notif_text">Model ɗin yana ci gaba da aiki yayin da manhajar ke bayan fage.</string>
     <string name="answer_notif_stop">Dakatar</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">Mun gode, an aika rahoton</string>
     <string name="report_queued">Babu haɗi: za a aika rahoton daga baya</string>
     <string name="cpu_unsupported">Ba a tallafa wa na\'urar sarrafa wannan wayar ba: Geode na buƙatar na\'urar sarrafa ARM ta 64-bit mai umarnin dot product (ARMv8.2, yawancin wayoyi tun 2019).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Sirri</string>
+    <string name="lock_setting">Kulle manhajar</string>
+    <string name="lock_setting_desc">PIN ko kalmar sirri kafin hirarraki su bayyana: lokacin da manhajar ta fara da lokacin da ka dawo gare ta.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">Kalmar sirri</string>
+    <string name="lock_repeat">Sake shigarwa</string>
+    <string name="lock_short_pin">Aƙalla lambobi 4</string>
+    <string name="lock_short_password">Aƙalla haruffa 4</string>
+    <string name="lock_mismatch">Biyun ba ɗaya ba ne</string>
+    <string name="lock_enter_pin">PIN ɗinka</string>
+    <string name="lock_enter_password">Kalmar sirrinka</string>
+    <string name="lock_wrong">Ba daidai ba, sake gwadawa</string>
+    <string name="lock_wait">Ƙoƙari ya yi yawa: na gaba bayan %1$s</string>
+    <string name="lock_unlock">Buɗe</string>
+    <string name="lock_title">An kulle Geode</string>
+    <string name="lock_fingerprint">Buɗe da hoton yatsa</string>
+    <string name="lock_fingerprint_desc">A madadin lambar. Hoton yatsa da aka ƙara a waya daga baya zai kashe wannan.</string>
+    <string name="lock_fingerprint_none">Da farko ƙara hoton yatsa a saitunan waya.</string>
+    <string name="lock_fingerprint_changed">Hotunan yatsa a waya sun canza, don haka an kashe hoton yatsa: buɗe da lambar sannan ka sake kunna shi a Saituna.</string>
+    <string name="lock_prompt_title">Buɗe Geode</string>
+    <string name="lock_prompt_code">Yi amfani da lambar</string>
+    <string name="lock_after">Kulle bayan barin manhajar</string>
+    <string name="lock_after_now">Nan take</string>
+    <string name="lock_after_min">Minti %1$d</string>
+    <string name="lock_change">Canza PIN ko kalmar sirri</string>
+    <string name="lock_off">Kashe kullewa</string>
+    <string name="lock_now">Kulle yanzu</string>
+    <string name="lock_note">Muddin kullewa na kunne, ana ɓoye samfoti na manhajar a manhajojin kwanan nan. Hirar yanar gizo da API a cikin hanyar sadarwa suna riƙe da kalmar sirrinsu da maɓallinsu.</string>
+    <string name="lock_forgot">Ka manta lambar?</string>
+    <string name="lock_forgot_title">A share dukkan hirarraki?</string>
+    <string name="lock_forgot_text">Ba tare da lambar ba babu wata hanyar shiga: ana share dukkan hirarraki tare da hotunansu, sautuka da fayilolin wakili, sannan kullewar. Model ɗin suna nan.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Girman rubutun hira: %1$d%%</string>
+    <string name="settings_chat_text_desc">Saƙonni da wurin rubutu a cikin hira. Yatsu biyu a kan hirar ma suna canza shi.</string>
+    <string name="models_search">Nemi model</string>
+    <string name="models_cap_photos">Hotuna</string>
+    <string name="models_cap_video">Bidiyo</string>
+    <string name="models_cap_sound">Sauti</string>
+    <string name="models_cap_reasoning">Tunani</string>
+    <string name="models_no_match">Babu model da ya dace</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Allon fuska</string>
+    <string name="screen_keep">Bar allon fuska a kunne</string>
+    <string name="screen_keep_off">A\'a: lokacin wayar kanta</string>
+    <string name="screen_keep_answering">Lokacin da Geode ke amsa</string>
+    <string name="screen_keep_always">Koyaushe, muddin Geode a buɗe yake</string>
+    <string name="screen_black_after">Baƙin allo bayan minti %1$d ba a taɓa ba</string>
+    <string name="screen_black_never">Baƙin allo: ba taɓa ba</string>
+    <string name="screen_black_desc">Don hana ƙonewar allo: a kan allon OLED, sassan hoton da ba sa motsi (sanduna, wurin rubutu) na iya makalewa a allon bayan sa\'o\'i. Baƙin allo ba makulli ba ne: wayar tana nan a buɗe, taɓa allon kawai zai dawo da Geode.</string>
+    <string name="screen_black_off_warning">Ba tare da baƙin allo ba, hoton da ya tsaya cak na sa\'o\'i na iya makalewa a allon OLED har abada.</string>
+    <string name="screen_black_hint">Taɓa allon don dawowa</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">Yana aiki a kan prosesa (NPU na karanta umarni inda take), a wayoyi masu RAM GB 8 ko fiye</string>
+    <string name="models_catalog_ram_short">RAM %1$s: ta yi kaɗan ga wannan model (tana buƙatar GB 8)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Murya</string>
+    <string name="voice_read_aloud">Karanta amsoshi da babbar murya</string>
+    <string name="voice_read_aloud_desc">Jimla bayan jimla yayin da ake rubuta amsar. Lasifikar da ke ƙarƙashin amsa tana sake karanta ta.</string>
+    <string name="voice_rate">Saurin magana: %1$d%%</string>
+    <string name="voice_none">Wannan wayar ba ta da injin karanta rubutu: shigar da ɗaya (misali Ayyukan Magana na Google) a saitunan tsarin.</string>
+    <string name="chat_speak">Karanta da babbar murya</string>
+    <string name="chat_speak_stop">Dakatar da karantawa</string>
+    <string name="nav_model_settings">Saitunan samfuri</string>
+    <string name="model_settings_selected">Samfurin da aka zaɓa: %1$s</string>
+    <string name="model_settings_none">Ba a zaɓi samfuri ba tukuna: waɗannan saituna suna aiki ga wanda ka zaɓa.</string>
+    <string name="chat_take_photo">Ɗauki hoto</string>
+    <string name="chat_record_video">Ɗauki bidiyo</string>
+    <string name="chat_camera_denied">Geode ba zai iya ɗaukar hotuna ko bidiyo ba sai da izinin kyamara</string>
+    <string name="chat_camera_none">Babu manhajar kyamara a wannan wayar</string>
+    <string name="voice_voice">Murya</string>
+    <string name="voice_auto">Kai-tsaye: tsohuwar muryar kowane harshe</string>
+    <string name="voice_voice_desc">Muryar da ka zaɓa tana karanta harshenta; sauran harsuna suna riƙe da tsohuwar muryarsu.</string>
+    <string name="voice_pitch">Kaurin murya: %1$d%%</string>
+    <string name="voice_listen">Saurara</string>
+    <string name="voice_sample">Haka amsoshin za su yi sauti.</string>
+    <string name="voice_engine_settings">Saitunan karanta rubutu da murya</string>
+    <string name="voice_network">yana buƙatar intanet</string>
+    <string name="chat_read_aloud_on">Ana karanta amsoshi da murya</string>
+    <string name="chat_read_aloud_off">Ba a karanta amsoshi da murya</string>
+    <string name="voice_engine">Abin da ke karantawa da murya</string>
+    <string name="voice_engine_system">Mai mayar da rubutu zuwa magana na waya</string>
+    <string name="voice_engine_geode">Muryar Geode ta kanta</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: harsuna 31 da ake karantawa a wannan waya, ciki har da Ukrainanci, Rashanci da Turanci; sauran harsuna mai mayar da rubutu zuwa magana na waya ne ke karanta su. Tana zaune a ma\'ajiya kuma tana ɗaukar kusan 300 MB na ƙwaƙwalwa ne kawai lokacin da take karantawa.</string>
+    <string name="voice_download">Sauke muryar (%1$s)</string>
+    <string name="voice_downloading">Ana sauke muryar: %1$d%%</string>
+    <string name="voice_delete">Goge muryar</string>
+    <string name="voice_download_failed">Ba a sauke muryar ba: %1$s</string>
+    <string name="voice_female">Muryar mace %1$d</string>
+    <string name="voice_male">Muryar namiji %1$d</string>
+    <string name="voice_license">Lasisin muryar</string>
+    <string name="voice_license_note">Supertonic 3 na Supertone, ƙarƙashin lasisin Open RAIL-M: ƙa\'idojin amfaninsa sun shafi abin da take karantawa. Tana aiki da sherpa-onnx.</string>
+    <string name="agent_folders">Jakunkunan waya</string>
+    <string name="agent_folders_desc">Jakunkunan wannan waya da wakilin kowace hira zai iya aiki da su: a Linux ɗinsa suna cikin /phone. Wakili yana aiki a kan kwafin kowace jaka, wanda ake sabuntawa kafin kowane saƙo; jakar karatu da rubutu tana karɓar canje-canjen wakilin idan ya gama. Karɓe jaka yana goge kwafin kawai.</string>
+    <string name="agent_folders_none">Ba a ba da jaka ba tukuna.</string>
+    <string name="agent_folders_add">Ba da jaka</string>
+    <string name="agent_folder_read">Karatu kawai</string>
+    <string name="agent_folder_write">Karatu da rubutu</string>
+    <string name="agent_folder_remove">Karɓe</string>
+    <string name="agent_folder_files">Fayiloli: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Ana kwafa…</string>
+    <string name="agent_folder_skipped">Ba a kwafa ba: %1$d (kwafi yana ɗaukar fayiloli 10,000 da %2$s a mafi yawa)</string>
+    <string name="agent_folder_error">Ba a iya karanta jakar ba: %1$s</string>
+    <string name="agent_folder_add_failed">Ba a iya ba wakilin jakar ba</string>
+    <string name="models_services">Samfuran ayyuka</string>
+    <string name="models_services_desc">Samfurin ayyukan da kuke da maɓallinsa zai iya amsawa a cikin hira maimakon samfurin wayar: DeepSeek, OpenRouter, OpenAI, Anthropic, ko kowane aiki da ke amfani da API ɗinsu. Abin da hira ke aikawa yana zuwa wannan aikin; Linux na wakili da fayilolinsa suna zama a wayar.</string>
+    <string name="models_service_add">Ƙara aiki</string>
+    <string name="models_service_edit">Gyara</string>
+    <string name="service_name">Suna</string>
+    <string name="service_url">Adireshin API</string>
+    <string name="service_protocol">Ka\'ida</string>
+    <string name="service_key">Maɓallin API</string>
+    <string name="service_key_kept">An adana shi a wannan wayar a ɓoye. Rubuta sabo don maye gurbinsa.</string>
+    <string name="service_model">Samfuri</string>
+    <string name="service_list">Nuna samfuransa</string>
+    <string name="service_list_failed">Ba a iya nuna samfuran ba: %1$s</string>
+    <string name="service_vision">Samfurin yana karanta hotuna</string>
+    <string name="service_context">Mahallin, alamomi</string>
+    <string name="service_max">Amsa mafi tsawo, alamomi</string>
+    <string name="service_leaves">Ana aika hira da wannan samfurin zuwa %1$s kuma ana sarrafa ta bisa sharuɗɗansa. Maɓallin yana zama a wannan wayar a ɓoye.</string>
+    <string name="chat_empty_remote">Tambayi komai. Amsoshi suna fitowa daga %1$s (%2$s): abin da kuke aikawa yana barin wayar.</string>
+    <string name="chat_info_service">Ana aika hirar zuwa %1$s</string>
+    <string name="settings_about_services">Kuma idan kuka zaɓi samfurin wani aiki a shafin Samfura, ana aika hirarsa zuwa wannan aikin.</string>
 </resources>

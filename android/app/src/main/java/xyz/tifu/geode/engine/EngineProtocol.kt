@@ -47,6 +47,8 @@ object EngineProtocol {
     const val K_ROUTE_PRIOR = "route_prior"
     const val K_TAIL_SKIP = "tail_skip"
     const val K_NPU = "npu"
+    const val K_MODE = "mode"
+    const val K_OFF = "off"
     const val K_PRESENCE = "presence"
     const val K_GPU_STATUS = "gpu_status"
     const val K_NPU_STATUS = "npu_status"
@@ -71,4 +73,57 @@ object EngineProtocol {
     const val K_APPEND = "append"
     const val K_BYTES = "bytes"
     const val K_EXPERTS = "experts"
+    /** A prompt too long for a binder transaction: the file it is in instead (PromptFiles). */
+    const val K_PROMPT_FILE = "prompt_file"
+}
+
+/**
+ * A prompt's tokens from the UI process to the :engine one. A binder transaction holds about 1 MB, shared by every
+ * transaction the process has in flight, and a token is 4 bytes: a long prompt (a document pasted into a 128k or 256k
+ * context) would not go at all (TransactionTooLargeException). Over [INLINE_MAX] tokens it is written to a file of the
+ * app's cache (both processes are the app's) and the engine reads it and deletes it.
+ */
+object PromptFiles {
+    const val INLINE_MAX = 32 * 1024
+    private const val PREFIX = "engine-prompt-"
+    private val n = java.util.concurrent.atomic.AtomicLong()
+
+    /** [ids] into [b]: inline, or the file they are written to (in [cacheDir]). */
+    fun put(b: android.os.Bundle, ids: IntArray, cacheDir: java.io.File) {
+        if (ids.size <= INLINE_MAX) {
+            b.putIntArray(EngineProtocol.K_PROMPT, ids)
+            return
+        }
+        val buf = java.nio.ByteBuffer.allocate(ids.size * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        buf.asIntBuffer().put(ids)
+        val f = java.io.File(cacheDir, PREFIX + android.os.Process.myPid() + "-" + n.incrementAndGet() + ".bin")
+        f.writeBytes(buf.array())
+        b.putString(EngineProtocol.K_PROMPT_FILE, f.path)
+    }
+
+    /** The prompt [b] carries (its file read and deleted); null: its file could not be read. */
+    fun take(b: android.os.Bundle): IntArray? {
+        b.getIntArray(EngineProtocol.K_PROMPT)?.let { return it }
+        val path = b.getString(EngineProtocol.K_PROMPT_FILE) ?: return IntArray(0)
+        val f = java.io.File(path)
+        return try {
+            val ib = java.nio.ByteBuffer.wrap(f.readBytes()).order(java.nio.ByteOrder.LITTLE_ENDIAN).asIntBuffer()
+            IntArray(ib.remaining()).also { ib.get(it) }
+        } catch (e: java.io.IOException) {
+            null
+        } finally {
+            f.delete()
+        }
+    }
+
+    /** [b]'s file deleted (its message did not go). */
+    fun drop(b: android.os.Bundle) {
+        b.getString(EngineProtocol.K_PROMPT_FILE)?.let { java.io.File(it).delete() }
+    }
+
+    /** Files no message took (a process gone between the write and the read), older than an hour. */
+    fun tidy(cacheDir: java.io.File) {
+        val old = System.currentTimeMillis() - 3_600_000L
+        cacheDir.listFiles { f -> f.name.startsWith(PREFIX) && f.lastModified() < old }?.forEach { it.delete() }
+    }
 }

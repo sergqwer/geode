@@ -394,62 +394,182 @@ struct QuadAt {
     size_t cs, js, ss;
 };
 
+// chunk g (64 inputs) of a quad against NT tokens: its four blocks into acc
+template <DType T, int NT>
+inline __attribute__((always_inline)) void quad_chunk(const int8x16_t lut, const QuadAt &qa, int64_t g,
+                                                      const int8_t *const (&xb)[NT], const float *const (&as)[NT],
+                                                      float32x4_t (&acc)[NT][4]) {
+    const uint8_t *p = qa.codes + qa.cs * static_cast<size_t>(g);
+    // the scale bytes [block][row]: block b's four rows' scales / 256 as one vector (rows in lanes)
+    const uint8x16_t sb = vld1q_u8(qa.sc + qa.ss * static_cast<size_t>(g));
+    uint16x8_t h01 = vshlq_n_u16(vmovl_u8(vget_low_u8(sb)), 7), h23 = vshlq_n_u16(vmovl_high_u8(sb), 7);
+    if constexpr (T == DType::Q4I) {   // signed E4M3: the sign bit (7, at 14 now) to FP16's (15)
+        const uint16x8_t mag = vdupq_n_u16(0x3F80), sgn = vdupq_n_u16(0x4000);
+        h01 = vorrq_u16(vandq_u16(h01, mag), vshlq_n_u16(vandq_u16(h01, sgn), 1));
+        h23 = vorrq_u16(vandq_u16(h23, mag), vshlq_n_u16(vandq_u16(h23, sgn), 1));
+    }
+    int8x16_t x[NT][4];   // the token's 64 activation bytes of the chunk, in the format's plane order
+    for (int t = 0; t < NT; ++t)
+        for (int k = 0; k < 4; ++k) x[t][k] = vld1q_s8(xb[t] + 64 * g + 16 * k);
+    const size_t js = qa.js;   // from word j to word j + 1
+    lanes_block<T, NT, 0>(lut, p, js, x, vcvt_f32_f16(vget_low_f16(vreinterpretq_f16_u16(h01))), as, g, acc);
+    lanes_block<T, NT, 1>(lut, p, js, x, vcvt_high_f32_f16(vreinterpretq_f16_u16(h01)), as, g, acc);
+    lanes_block<T, NT, 2>(lut, p, js, x, vcvt_f32_f16(vget_low_f16(vreinterpretq_f16_u16(h23))), as, g, acc);
+    lanes_block<T, NT, 3>(lut, p, js, x, vcvt_high_f32_f16(vreinterpretq_f16_u16(h23)), as, g, acc);
+}
+
+template <DType T, int NT>
+inline void quad_tokens(const QAct *const *acts, const int8_t *(&xb)[NT], const float *(&as)[NT]) {
+    for (int t = 0; t < NT; ++t) {
+        xb[t] = (T == DType::Q2 ? acts[t]->p4 : acts[t]->p2).data();
+        as[t] = acts[t]->scale.data();
+    }
+}
+
 template <DType T, int NT>
 inline void quad_lanes(const int8x16_t lut, const QuadAt &qa, const uint8_t *next, size_t next_bytes, int64_t nch,
                        const QAct *const *acts, float32x4_t out[NT]) {
-    const uint8_t *sc = qa.sc;
-    const size_t js = qa.js;   // from word j to word j + 1
     // per token and per block of the chunk (as row_dots' lanes), the four rows in the lanes
     float32x4_t acc[NT][4];
     const int8_t *xb[NT];
     const float *as[NT];
-    for (int t = 0; t < NT; ++t) {
+    quad_tokens<T, NT>(acts, xb, as);
+    for (int t = 0; t < NT; ++t)
         for (int b = 0; b < 4; ++b) acc[t][b] = vdupq_n_f32(0.0f);
-        xb[t] = (T == DType::Q2 ? acts[t]->p4 : acts[t]->p2).data();
-        as[t] = acts[t]->scale.data();
-    }
     // W + 1 short streams (512 bytes at 2048 columns) train no hardware prefetcher: the next quad (tile) is fetched
     // while this one is computed, a share of its cache lines a chunk
     const size_t lines = next ? next_bytes / 64 : 0, per = (lines + static_cast<size_t>(nch) - 1) / static_cast<size_t>(nch);
     for (int64_t g = 0; g < nch; ++g) {
-        const uint8_t *p = qa.codes + qa.cs * static_cast<size_t>(g);
         for (size_t l = static_cast<size_t>(g) * per; l < std::min(lines, static_cast<size_t>(g + 1) * per); ++l)
             __builtin_prefetch(next + 64 * l);
-        // the scale bytes [block][row]: block b's four rows' scales / 256 as one vector (rows in lanes)
-        const uint8x16_t sb = vld1q_u8(sc + qa.ss * static_cast<size_t>(g));
-        uint16x8_t h01 = vshlq_n_u16(vmovl_u8(vget_low_u8(sb)), 7), h23 = vshlq_n_u16(vmovl_high_u8(sb), 7);
-        if constexpr (T == DType::Q4I) {   // signed E4M3: the sign bit (7, at 14 now) to FP16's (15)
-            const uint16x8_t mag = vdupq_n_u16(0x3F80), sgn = vdupq_n_u16(0x4000);
-            h01 = vorrq_u16(vandq_u16(h01, mag), vshlq_n_u16(vandq_u16(h01, sgn), 1));
-            h23 = vorrq_u16(vandq_u16(h23, mag), vshlq_n_u16(vandq_u16(h23, sgn), 1));
-        }
-        int8x16_t x[NT][4];   // the token's 64 activation bytes of the chunk, in the format's plane order
-        for (int t = 0; t < NT; ++t)
-            for (int k = 0; k < 4; ++k) x[t][k] = vld1q_s8(xb[t] + 64 * g + 16 * k);
-        lanes_block<T, NT, 0>(lut, p, js, x, vcvt_f32_f16(vget_low_f16(vreinterpretq_f16_u16(h01))), as, g, acc);
-        lanes_block<T, NT, 1>(lut, p, js, x, vcvt_high_f32_f16(vreinterpretq_f16_u16(h01)), as, g, acc);
-        lanes_block<T, NT, 2>(lut, p, js, x, vcvt_f32_f16(vget_low_f16(vreinterpretq_f16_u16(h23))), as, g, acc);
-        lanes_block<T, NT, 3>(lut, p, js, x, vcvt_high_f32_f16(vreinterpretq_f16_u16(h23)), as, g, acc);
+        quad_chunk<T, NT>(lut, qa, g, xb, as, acc);
     }
     // vaddvq_f32's order: (b0 + b1) + (b2 + b3)
     for (int t = 0; t < NT; ++t) out[t] = vaddq_f32(vaddq_f32(acc[t][0], acc[t][1]), vaddq_f32(acc[t][2], acc[t][3]));
+}
+
+// chunks [g0, g1) of a quad, its accumulators carried in io between the calls (a tile8 tile taken a slice at a time:
+// rows_quad_neon) - the same operations in the same order as quad_lanes, so the same bits; lines of `pre` (two
+// ranges) fetched meanwhile, spread over the chunks
+template <DType T, int NT>
+inline void quad_lanes_slice(const int8x16_t lut, const QuadAt &qa, int64_t g0, int64_t g1, const uint8_t *const pre[2],
+                             const size_t pre_bytes[2], const QAct *const *acts, float32x4_t (&io)[NT][4]) {
+    float32x4_t acc[NT][4];   // (a local copy: registers; io's memory may alias the byte loads)
+    const int8_t *xb[NT];
+    const float *as[NT];
+    quad_tokens<T, NT>(acts, xb, as);
+    for (int t = 0; t < NT; ++t)
+        for (int b = 0; b < 4; ++b) acc[t][b] = io[t][b];
+    const size_t nc = static_cast<size_t>(g1 - g0);
+    size_t lines[2], per[2];
+    for (int r = 0; r < 2; ++r) {
+        lines[r] = pre[r] ? pre_bytes[r] / 64 : 0;
+        per[r] = (lines[r] + nc - 1) / nc;
+    }
+    for (int64_t g = g0; g < g1; ++g) {
+        const size_t s = static_cast<size_t>(g - g0);
+        for (int r = 0; r < 2; ++r)
+            for (size_t l = s * per[r]; l < std::min(lines[r], (s + 1) * per[r]); ++l) __builtin_prefetch(pre[r] + 64 * l);
+        quad_chunk<T, NT>(lut, qa, g, xb, as, acc);
+    }
+    for (int t = 0; t < NT; ++t)
+        for (int b = 0; b < 4; ++b) io[t][b] = acc[t][b];
 }
 
 // tokens a pass: 4 vectors of accumulators each (the rows in lanes, the blocks apart, as row_dots sums them)
 constexpr int kQuadTokens = 4;
 
 template <DType T>
+int8x16_t quad_lut() {
+    alignas(16) int8_t l[16] = {};
+    std::memcpy(l, T == DType::Q2 ? kQ2Affine : T == DType::Q4 ? kQ4Affine : T == DType::Q4I ? kQ4I : kNvfp4x2,
+                T == DType::Q2 ? 4 : 16);
+    return vld1q_s8(l);
+}
+
+// tile8 a slice at a time: chunks a slice (GEODE_T8_SLICE; 0: off). A quad's 16-byte words are 128 bytes apart there,
+// a cache line holds four quads' - so a quad at a time over a whole tile (18 x cols bytes: 184 KB at 10240 inputs)
+// read every line four times from L2 once the tile no longer fit L1 (a token 26% slower than the quad layout at
+// 10240 inputs on one Oryon core). A slice of 16 chunks is 18 KB: all of the tile's quads go through it, their
+// accumulators kept between the slices, while the next slice is fetched.
+int t8_slice() {
+    static const int s = std::getenv("GEODE_T8_SLICE") ? std::max(0, std::atoi(std::getenv("GEODE_T8_SLICE"))) : 16;
+    return s;
+}
+
+// rows [r0, r1) of a tile8 matrix against n (at most 16) tokens, slice by slice: bit for bit rows_quad_neon's (each
+// (quad, token) pair goes through the same chunks in the same order, its sums only parked between the slices)
+template <DType T>
+void rows_tile8_sliced(const QView &m, const QAct *const *acts, int n, float *const *ys, int64_t r0, int64_t r1,
+                       int64_t S) {
+    const int8x16_t lut = quad_lut<T>();
+    constexpr size_t W = 8;
+    const int64_t nch = m.cols / 64;
+    const size_t unch = static_cast<size_t>(nch), tb = 32 * m.row_bytes;
+    const float post = m.global * level_scale(m.type) * 256.0f;
+    constexpr int kMaxTok = 16;
+    float32x4_t acc[8][kMaxTok][4];
+    for (int64_t t0 = r0 & ~int64_t{31}; t0 < r1; t0 += 32) {
+        const uint8_t *tile = m.data + static_cast<size_t>(t0) * m.row_bytes;
+        const int64_t q0 = std::max(t0, r0 & ~int64_t{3}), q1 = std::min(t0 + 32, r1);
+        const int nq = static_cast<int>((q1 - q0 + 3) / 4);
+        for (int j = 0; j < nq; ++j)
+            for (int t = 0; t < n; ++t)
+                for (int b = 0; b < 4; ++b) acc[j][t][b] = vdupq_n_f32(0.0f);
+        for (int64_t g0 = 0; g0 < nch; g0 += S) {
+            const int64_t g1 = std::min(nch, g0 + S);
+            // what comes next: this tile's next slice, or the next tile's first (if this range has it)
+            const uint8_t *nx = g1 < nch ? tile : t0 + 32 < r1 ? tile + tb : nullptr;
+            const int64_t n0 = g1 < nch ? g1 : 0, n1 = g1 < nch ? std::min(nch, g1 + S) : std::min(nch, S);
+            const size_t cl = nx ? static_cast<size_t>(n1 - n0) * 1024 / 64 : 0, sl = nx ? static_cast<size_t>(n1 - n0) * 2 : 0;
+            for (int j = 0; j < nq; ++j) {
+                const size_t i = static_cast<size_t>(((q0 >> 2) + j) & 7);
+                const QuadAt qa = {tile + 16 * i, tile + 128 * W * unch + 16 * i, 128 * W, 128, 128};
+                // this quad's share of the next slice's lines (its codes, its scales)
+                const size_t ju = static_cast<size_t>(j), nqu = static_cast<size_t>(nq);
+                const size_t c0 = ju * cl / nqu, c1 = (ju + 1) * cl / nqu, s0 = ju * sl / nqu, s1 = (ju + 1) * sl / nqu;
+                const uint8_t *pre[2] = {nx ? nx + static_cast<size_t>(n0) * 1024 + 64 * c0 : nullptr,
+                                         nx ? nx + 1024 * unch + static_cast<size_t>(n0) * 128 + 64 * s0 : nullptr};
+                const size_t pb[2] = {64 * (c1 - c0), 64 * (s1 - s0)};
+                static const uint8_t *const none[2] = {nullptr, nullptr};
+                static const size_t zero[2] = {0, 0};
+                for (int tk = 0; tk < n; tk += kQuadTokens) {
+                    const int nt = std::min(kQuadTokens, n - tk);
+                    const uint8_t *const *pp = tk == 0 ? pre : none;
+                    const size_t *pz = tk == 0 ? pb : zero;
+                    auto &a = acc[j];
+                    switch (nt) {
+                    case 1: quad_lanes_slice<T, 1>(lut, qa, g0, g1, pp, pz, acts + tk, reinterpret_cast<float32x4_t (&)[1][4]>(a[tk])); break;
+                    case 2: quad_lanes_slice<T, 2>(lut, qa, g0, g1, pp, pz, acts + tk, reinterpret_cast<float32x4_t (&)[2][4]>(a[tk])); break;
+                    case 3: quad_lanes_slice<T, 3>(lut, qa, g0, g1, pp, pz, acts + tk, reinterpret_cast<float32x4_t (&)[3][4]>(a[tk])); break;
+                    default: quad_lanes_slice<T, 4>(lut, qa, g0, g1, pp, pz, acts + tk, reinterpret_cast<float32x4_t (&)[4][4]>(a[tk])); break;
+                    }
+                }
+            }
+        }
+        for (int j = 0; j < nq; ++j) {
+            const int64_t q = q0 + 4 * j;
+            for (int t = 0; t < n; ++t) {   // vaddvq_f32's order: (b0 + b1) + (b2 + b3), as quad_lanes
+                float o[4];
+                vst1q_f32(o, vaddq_f32(vaddq_f32(acc[j][t][0], acc[j][t][1]), vaddq_f32(acc[j][t][2], acc[j][t][3])));
+                for (int r = 0; r < 4; ++r)
+                    if (q + r >= r0 && q + r < r1) ys[t][q + r] = o[r] * post;
+            }
+        }
+    }
+}
+
+template <DType T>
 void rows_quad_neon(const QView &m, const QAct *const *acts, int n, float *const *ys, int64_t r0, int64_t r1) {
-    const int8x16_t lut = [] {
-        alignas(16) int8_t l[16] = {};
-        std::memcpy(l, T == DType::Q2 ? kQ2Affine : T == DType::Q4 ? kQ4Affine : T == DType::Q4I ? kQ4I : kNvfp4x2,
-                    T == DType::Q2 ? 4 : 16);
-        return vld1q_s8(l);
-    }();
+    const int8x16_t lut = quad_lut<T>();
     constexpr size_t W = T == DType::Q2 ? 4 : 8;   // code words a row and chunk
     const int64_t nch = m.cols / 64;
     const size_t unch = static_cast<size_t>(nch);
     const float post = m.global * level_scale(m.type) * 256.0f;
+    // (a tile that fits L1 - 64 KB, 2560 inputs: 46 KB - goes faster whole: slices cost it a sixth at one token)
+    if constexpr (W == 8)
+        if (m.tile8 && n <= 16 && t8_slice() > 0 && nch * 1152 > (64 << 10) && nch > t8_slice())
+            return rows_tile8_sliced<T>(m, acts, n, ys, r0, r1, t8_slice());
     // a range that splits a quad computes the whole quad and keeps its own rows
     const size_t qb = 4 * m.row_bytes, tb = 32 * m.row_bytes;
     for (int64_t q = r0 & ~int64_t{3}; q < r1; q += 4) {
@@ -460,8 +580,10 @@ void rows_quad_neon(const QView &m, const QAct *const *acts, int n, float *const
             const uint8_t *tile = m.data + static_cast<size_t>(q & ~int64_t{31}) * m.row_bytes;
             const size_t i = static_cast<size_t>((q >> 2) & 7);
             qa = {tile + 16 * i, tile + 128 * W * unch + 16 * i, 128 * W, 128, 128};
-            next = i == 0 && (q & ~int64_t{31}) + 32 < r1 ? tile + tb : nullptr;   // the next tile, from quad 0
-            next_bytes = tb;
+            // the next tile, an eighth of it from each quad: all of it from quad 0 left the memory idle while quads
+            // 1-7 read theirs out of the cache (a token 12% slower than the quad layout's)
+            next = (q & ~int64_t{31}) + 32 < r1 ? tile + tb + i * (tb / 8) : nullptr;
+            next_bytes = tb / 8;
         } else {
             const uint8_t *quad = m.data + static_cast<size_t>(q) * m.row_bytes;
             qa = {quad, quad + 16 * W * unch, 16, 16 * unch, 16};

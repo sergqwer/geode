@@ -71,7 +71,21 @@ struct ModelOptions {
     // HMX check; anything else (no cDSP, refused, an error) leaves the GPU / CPU path as it was. 1 = on (the app's
     // default), 0 = off. GEODE_NPU overrides either way (0 / 1).
     int npu = 0;
+    // Which units run the model (RunMode; geode.h GEODE_MODE_*, GEODE_MODE overrides by name): of two, the prompt goes
+    // to the one faster at prompts (the NPU, then the GPU), the answer to the other; Auto: npu and gpu above
+    int mode = 0;
+    // geode_config's switches: no speculative decoding (Qwen's MTP layer, Gemma's drafter left unread), no vision
+    // encoder, no audio encoder
+    bool no_draft = false, no_vision = false, no_audio = false;
 };
+
+// ModelOptions::mode
+enum class RunMode : int { Auto = 0, Cpu = 1, Gpu = 2, NpuCpu = 3, NpuGpu = 4, CpuGpu = 5, Npu = 6 };
+constexpr int kRunModes = 7;
+// "auto", "cpu", "gpu", "npu+cpu", "npu+gpu", "cpu+gpu", "npu" (any case, '+' or '-' or nothing between): -1 for
+// anything else
+int parse_run_mode(const char *s);
+const char *run_mode_name(int mode);
 
 // What one layer did for one token (the parity tool compares it with tools/pack.py's reference).
 struct LayerTrace {
@@ -292,6 +306,8 @@ public:
     double int8_check_worst() const { return check_worst_; }
     // the GPU path: "off", or what it holds, or why it is not there
     const std::string &gpu_status() const { return gpu_status_; }
+    // the run mode open() took (run_mode_name: "auto", "npu+gpu", ...; ModelOptions::mode, GEODE_MODE)
+    int mode() const { return mode_; }
     // the NPU (GEODE_NPU=1): "off", or what it holds and its time, or why it is not there
     std::string npu_status() const;
     // where the time went, summed over every token so far
@@ -372,6 +388,18 @@ private:
     bool forward_gemma(const int *tokens, int n, float *logits, bool all_logits, std::string &err);
     // hid_row: where the chunk's final-normed hidden rows go (keeps_hidden(): hid_ or hid_long_ from that row on)
     bool gemma_chunk(const int *tokens, int n, float *logits, bool all_logits, std::string &err, int hid_row = 0);
+    // Gemma's answer on the GPU (the run mode asks it; Gpu8::gemma_step): a pass of up to Gpu8::kMaxTokens text tokens
+    // there - a token generated, a draft verified - its norms and rotary tables in the GPU's parameter piece. Wanted
+    // (gemma_gpu_want_: the KV cache in the GPU's memory from the first chunk) once the GPU holds the prompt's
+    // matrices and lm_head; on (gemma_gpu_) after setup_gemma_gpu; a failed pass: the CPU from then on
+    bool gemma_gpu_want_ = false, gemma_gpu_ = false;
+    // a prompt's layers on the GPU too (the gpu and cpu+gpu modes: Gpu8::gemma_prompt), wanted / ready
+    bool gemma_prompt_want_ = false, gemma_gpu_prompt_ = false;
+    bool gemma_layers_gpu(int n, std::string &err);   // gemma_chunk's layers on the GPU (x_, ple_ in and x_ out)
+    std::vector<Gpu8::GemmaLayer> gg_layers_;
+    const float *gg_final_norm_ = nullptr, *gg_ple_norm_ = nullptr;
+    bool setup_gemma_gpu(std::string &why);
+    bool gemma_gpu_chunk(const int *tokens, int n, float *logits, bool all_logits, std::string &err, int hid_row);
     // the drafter (drafter.cpp; tools/gemma4_mtp.py is its spec): 4 layers of hidden 256 with no K / V of their own,
     // each attending over the main model's KV of one layer (slot) of its type; a draft round stays at one position
     struct GDraftLayer {
@@ -641,6 +669,13 @@ private:
     float gpu_dec_share_ = kGpuShare;
     bool gpu_failed_ = false;
     std::string gpu_status_ = "off";
+    // The run mode (ModelOptions::mode, GEODE_MODE; open() decides it before any unit opens) and what it asks: the
+    // NPU for the prompt, the GPU for the prompt, the GPU for the answer (a unit that cannot: the next it can)
+    int mode_ = 0;
+    bool want_npu_ = false, want_gpu_prompt_ = false, want_gpu_answer_ = false;
+    bool want_npu_answer_ = false;   // RunMode::Npu (Gemma: every layer on the DSP for a token too; Qwen: its decoder)
+    bool npu_answers() const { return want_npu_answer_ && cfg_.gemma && mode_ == static_cast<int>(RunMode::Npu); }
+    void decide_mode(const ModelOptions &opt);
     // The NPU (npu/host/npu_api.h): libgeode_npu.so opened at run time, a prompt's dense q4 products there (GEODE_NPU=1,
     // off by default: fp16 activations, not the CPU's int8 ones). GEODE_NPU_LIB: the library's path (adb tools).
     struct Npu {
@@ -669,6 +704,25 @@ private:
             int64_t cols = 0;
         };
         std::unordered_map<const uint8_t *, Parts> parts;
+        // One copy (Gemma 4, v79+: npu_one_copy): the q4i matrices in tile8 in memory the DSP maps, read by the CPU's
+        // kernels and expanded by the DSP's products from there (gnpu_adopt_t8) instead of an hmx4 copy beside them.
+        // Those buffers hold the CPU's weights: the session is never closed while they live (products_off instead)
+        int (*adopt_t8)(void *, const uint8_t *, int, uint64_t, int64_t, int64_t, int64_t, int64_t, float) = nullptr;
+        bool want_t8 = false;      // the caller's: the CPU's kernels will read the quad layout (tile8 one of its kinds)
+        // the media encoders' products on HMX (media.hpp MediaNpu: v79+, fp16 blocks the host makes)
+        size_t (*f16_bytes)(int64_t, int64_t) = nullptr;
+        int (*pack_f16)(const uint8_t *, int64_t, int64_t, size_t, float, uint8_t *, int *) = nullptr;
+        int (*gemm_f16)(void *, int, uint64_t, int64_t, int64_t, int, int, const float *const *, float *const *) = nullptr;
+        int (*gemm_f16c)(void *, int, uint64_t, int64_t, int64_t, int, int, const float *const *, float *const *,
+                         const float *) = nullptr;   // (the clipped linears: the clamps in its conversions)
+        uint64_t t8_bytes = 0;     // the matrices' buffers (gnpu_bytes counts them; the pack's dense bytes too)
+        int t8_mats = 0;
+        struct T8Buf {
+            uint8_t *p;
+            size_t bytes;
+            int fd;
+        };
+        std::vector<T8Buf> t8_bufs;   // one copy's buffers (NPU + GPU: the GPU imports them for the answer)
         std::vector<float> part_y;                 // a part's results, before they are added
         std::vector<const float *> part_x;         // the tokens' activations from a part's first input
         std::vector<float *> part_rows;
@@ -703,6 +757,29 @@ private:
         int moe_io_fd = -1;
         bool moe_on = false;
         bool products_off = false;   // a product failed while the slabs live on: no more products, the session kept
+        // A prompt's attention on HMX (npu/attn_cfg.h, Gemma 4: npu_attend): the KV cache's chunks in memory the DSP
+        // maps (new_kv_chunk), a chunk's queries and output rows through gnpu_attn_buffer's buffers; off for good
+        // after a failure or a chunk the DSP could not map (the CPU's attention then)
+        int (*attn)(void *, const void *, int, const float *, size_t, float *, size_t, double *) = nullptr;
+        float *(*attn_buf)(void *, int, size_t) = nullptr;
+        bool attn_on = false;
+        std::string attn_status = "off";
+        uint64_t attn_calls = 0;
+        double attn_wall = 0, attn_dsp = 0;
+        // Gemma 4's layers on the DSP (npu/gdec_cfg.h: setup_gdec, npu_layers): a prompt's chunk through every layer
+        // there; the CPU fills IO (x, the per-layer inputs, the rope tables) and reads x back. Off for good after a
+        // failure (the chunk then goes the CPU's way: x as it was)
+        int (*gdec_open)(void *, const void *, int, int, int) = nullptr;
+        int (*gdec_kv)(void *, int, int) = nullptr;
+        int (*gdec_prefill)(void *, int, int, int, double *) = nullptr;
+        bool gdec = false;
+        std::string gdec_status = "off";
+        uint8_t *gio = nullptr;
+        std::vector<uint8_t> gcfg;               // the gdec_cfg_t
+        std::vector<float> rope_f[2];            // the two kinds of layer's rotary frequencies
+        uint64_t gdec_calls = 0, gdec_tokens = 0;
+        double gdec_wall = 0, gdec_dsp = 0;
+        uint64_t gdec_bytes = 0;                 // its P and IO buffers (the memory budget counts them)
         float *conv_set[2] = {nullptr, nullptr}, *gdn_set[2] = {nullptr, nullptr};   // the two state sets in S
         int arch = 0;                         // the skel's Hexagon version (the decoder: 79 and later)
         int w_fd = -1, p_fd = -1, s_fd = -1;
@@ -718,6 +795,21 @@ private:
         ~Npu();
     } npu_;
     void setup_npu();
+    // Gemma 4's q4i matrices into tile8 in memory the DSP maps, registered there (Npu::adopt_t8): the matrices it
+    // placed (the rest stay for setup_npu's hmx4 copies)
+    int npu_one_copy();
+    // the media encoders' way onto HMX (v79+, the NPU's products on), or none
+    MediaNpu media_npu() const {
+        MediaNpu v;
+        if (!npu_.g || npu_.products_off || npu_.arch < 79) return v;
+        v.g = npu_.g, v.shared = npu_.shared, v.f16_bytes = npu_.f16_bytes, v.pack_f16 = npu_.pack_f16;
+        v.gemm_f16 = npu_.gemm_f16, v.gemm_f16c = npu_.gemm_f16c;
+        v.attn = npu_.attn, v.attn_buf = npu_.attn_buf;
+        return v;
+    }
+    // the NPU's products failed: off from now on - the session closed, or kept (products_off) while its buffers hold
+    // the CPU's weights or the expert cache
+    void npu_failed(int e);
     // the decoder's matrices (W: tile8 copies of the q4 ones, the head in q8 tiles) and parameters (P), while the
     // matrices are still in the pack's layout; the states into shared memory (S), then the DSP's side opened
     bool build_npu_decode(std::string &why);
@@ -733,6 +825,15 @@ private:
     bool npu_spec_ = false;   // the MTP layer and verified pairs on the DSP too
     // the ids keyed by each view's data again (the GPU's setup moves the dense matrices into its shared memory)
     void npu_rekey();
+    // a Gemma layer's attention for the chunk's n tokens on HMX (their K / V in the cache already, their queries in
+    // qg_): the rows into core_; false: not taken there (the caller attends on the CPU)
+    bool npu_attend(const GLayer &L, int n);
+    // Gemma's layers on the DSP (npu/gdec_cfg.h): the shape, the norms and the IO buffer handed over (open_gemma, the
+    // NPU on, every matrix adopted); npu_layers: the chunk's n rows (x_, ple_) through every layer there, x_ back -
+    // false: not taken there (the caller runs the layers as before)
+    // room: what the memory budget leaves beyond the NPU's own need and the context's (no budget: UINT64_MAX)
+    bool setup_gdec(std::string &why, uint64_t room);
+    bool npu_layers(int n);
     // ms[j] . xs's n rows -> ys[j] on the NPU, one input for all (count <= 4); false: not taken there
     bool npu_products(const QView *const *ms, int count, int n, const float *const *xs, float *const *const *ys);
     // ys = down(act(gate xs) * (up xs)) for n rows on the NPU in one go (act 0: gelu, tanh form); false: not taken
@@ -763,6 +864,7 @@ private:
     // Gemma 4 on the Adreno 7xx+ (gemma.cpp, where the NPU does not take the prompt): its dense q4i matrices into
     // shared memory in tile8 (the CPU reads them there too), a prompt's chunk of products on the GPU; false and why
     bool setup_gpu8_gemma(std::string &why);
+    bool setup_gpu8_on_npu(std::string &why);   // NPU + GPU: the GPU the answer's, from the NPU's one copy
     uint64_t gpu_staging_ = 0;   // the GPU's buffers beyond the matrices (they replace the pack's pages)
     // generating on the GPU (gpu8.hpp, dec_*): one token through every layer there, the CPU pinning the routed
     // experts once a layer
@@ -794,6 +896,7 @@ private:
     // Speculating on the CPU (verify, draft): the backups in the process's memory, a pair's batch keeping the states
     // after its first token there (gdn: each strip copied while it is in the cache), a rejected draft swapping them in
     bool cpu_spec_ = false, verify_keep_ = false;
+    bool no_draft_ = false;   // ModelOptions::no_draft: the MTP layer (Qwen) / the drafter (Gemma) left unread
     std::vector<float> conv_bk_mem_, gdn_bk_mem_;
     bool setup_cpu_spec();
     std::vector<int> spec_slots_;   // the expert cache's slots taken for them (ExpertStore::take: a reset keeps them out)

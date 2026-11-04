@@ -272,6 +272,9 @@ fn start(chat: &Path, run: &'static str, context: usize, model: Arc<ScriptModel>
     cfg.context_window = context;
     cfg.skills_tool = run == "features";
     cfg.auto_compact = false;
+    // the recordings' model (Qwen) reads images, hears nothing, watches no video
+    cfg.audio_input = false;
+    cfg.video_input = false;
     let ns = Namespace::new(&cfg.chat, None, None);
     let out = Capture(Arc::new(Mutex::new(Vec::new())));
     struct Shared(Arc<ScriptModel>);

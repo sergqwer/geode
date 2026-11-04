@@ -54,6 +54,8 @@ sealed interface AgentEvent {
     data class ToolResult(val id: String, val ok: Boolean, val output: String) : AgentEvent
     /** The model reads this many new tokens of the prompt (the slow part, on a phone). */
     data class Reading(val tokens: Int) : AgentEvent
+    /** The agent condensed [items] older messages (~[tokens] tokens) of its context into a summary (geode_compacted). */
+    data class Compacted(val items: Int, val tokens: Int) : AgentEvent
     /** The turn waits: another one runs (the web chat's, the phone's). */
     data object Waiting : AgentEvent
     /** The turn waits for the agent's Linux to be unpacked. */
@@ -267,6 +269,9 @@ class Agent(private val app: GeodeApp) {
         }
         onEvent(AgentEvent.Session(h.sessionId))
         try {
+            // the phone's folders the agent has, as the phone has them now (a read-and-write one's last changes out
+            // first); what it changes in a read-and-write one goes back when the turn ends, cancelled or not
+            app.phoneFolders.beforeTurn()
             return coroutineScope {
                 // the prompt's reading, from the engine: the harness says nothing until the first word
                 val reading = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -282,6 +287,7 @@ class Agent(private val app: GeodeApp) {
                 }
             }
         } finally {
+            withContext(NonCancellable) { app.phoneFolders.afterTurn() }
             busy = false
             // stopped after a while of nothing: its RAM is the model's again
             idle = scope.launch {
@@ -320,6 +326,7 @@ class Agent(private val app: GeodeApp) {
         if (warmer?.isActive == true) return
         warmer = scope.launch {
             while (true) {
+                if (app.selectedProvider() != null) return@launch
                 val path = selectedModel() ?: return@launch
                 if (app.settings.flow.first().stateCacheMb <= 0 || warmed(path) || failures >= MAX_WARM_FAILURES) return@launch
                 awaitIdle()
@@ -489,11 +496,15 @@ class Agent(private val app: GeodeApp) {
 
     private suspend fun harness(chatId: String, sessionId: String?, background: Job? = null): Harness {
         // the same chat's, unless the user's servers or skills changed since it started, or the model (another one
-        // selected: the harness is told the model and what it takes at its start)
-        val model = runCatching { modelKey(app.apiEngine.model()) }.getOrNull()
+        // selected, or its context: the harness is told the model, what it takes and its context at its start - it
+        // compacts by that context)
+        val model = app.selectedProvider()?.let(::remoteKey) ?: runCatching {
+            val m = app.apiEngine.model()
+            modelKey(m, app.settings.flow.first().contextFor(m))
+        }.getOrNull()
         live?.let {
-            if (it.chatId == chatId && it.alive && it.config == app.agentConfig.version && it.model == model &&
-                background == null) return it
+            if (it.chatId == chatId && it.alive && it.config == app.agentConfig.version &&
+                it.folders == app.phoneFolders.version && it.model == model && background == null) return it
         }
         stop()
         _commands.value = emptyList()
@@ -538,8 +549,13 @@ private fun input(model: xyz.tifu.geode.models.InstalledModel): String =
     (listOf("text") + listOfNotNull("image".takeIf { model.vision }, "audio".takeIf { model.audio },
         "video".takeIf { model.video })).joinToString(",")
 
-/** A model as a harness started for it knows it: its pack and what it takes. */
-private fun modelKey(model: xyz.tifu.geode.models.InstalledModel): String = model.dir.path + "|" + input(model)
+/** A model as a harness started for it knows it: its pack, what it takes, its context. */
+private fun modelKey(model: xyz.tifu.geode.models.InstalledModel, context: Int): String =
+    model.dir.path + "|" + input(model) + "|" + context
+
+/** A service's model as a harness started for it knows it. */
+private fun remoteKey(p: xyz.tifu.geode.models.Provider): String =
+    "remote:" + p.id + "|" + p.model + "|" + p.vision + "|" + p.context + "|" + p.maxTokens
 
 private class Harness(
     private val app: GeodeApp,
@@ -557,6 +573,7 @@ private class Harness(
     private val key = "agent-" + ByteArray(24).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
     // 127.0.0.1 itself: Android's getLoopbackAddress() is ::1, where the harness does not knock
     private val api = Api(app, app.apiEngine) { key }
+    private val remoteApi = xyz.tifu.geode.server.RemoteApi(app.apiEngine)
     private val server = HttpServer(0, ::route, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)))
     private lateinit var process: Process
     private val ids = AtomicInteger()
@@ -570,6 +587,8 @@ private class Harness(
     val alive: Boolean get() = ::process.isInitialized && process.isAlive
     /** The user's MCP servers and skills as they were at its start (AgentConfig.version). */
     val config = app.agentConfig.version
+    /** The phone's folders it was given at its start (PhoneFolders.version). */
+    val folders = app.phoneFolders.version
     /** The model it was told at its start (modelKey). */
     @Volatile
     var model: String? = null
@@ -610,9 +629,18 @@ private class Harness(
 
     /** The model's API, and Geode's web search for the harness's web_search (web-search-geode.mjs), same key. */
     private suspend fun serve(req: HttpRequest, r: HttpResponder) {
-        if (req.path != "/geode/search") return api.handle(req, r)
+        if (req.path != "/geode/search" && !req.path.endsWith("/chat/completions")) return api.handle(req, r)
         val given = req.header("authorization")?.trim()?.removePrefix("Bearer")?.trim().orEmpty()
         if (!MessageDigest.isEqual(given.toByteArray(), key.toByteArray())) return r.json(401, mapOf("error" to "unauthorized"))
+        if (req.path != "/geode/search") {
+            // a service's model chosen: the request is its (never the phone's model in its place, a key missing)
+            val remote = try {
+                app.remoteModel()
+            } catch (e: xyz.tifu.geode.server.ApiError) {
+                return r.json(e.status, mapOf("error" to mapOf("message" to e.message, "type" to "invalid_request_error")))
+            } ?: return api.handle(req, r)
+            return remoteApi.chat(req, r, remote.first, remote.second)
+        }
         val query = req.query["q"].orEmpty().trim()
         if (query.isEmpty()) return r.json(400, mapOf("error" to "no query"))
         try {
@@ -625,18 +653,30 @@ private class Harness(
 
     suspend fun start(resume: String?) = withContext(Dispatchers.IO) {
         server.start()
-        val model = app.apiEngine.model()
-        val s = app.settings.flow.first()
-        val env = mapOf(
+        val remote = app.selectedProvider()
+        val env = if (remote != null) mapOf(
+            // a service's model: the harness asks Geode's server all the same (RemoteApi takes it to the service
+            // with its key - the key is not the Linux's to read)
             "GEODE_BASE_URL" to "http://127.0.0.1:${server.boundPort}/v1",
             "GEODE_KEY" to key,
-            "GEODE_MODEL" to model.id,
-            // the model as it is: its context (the harness compacts before it is full), images if its pack reads them,
-            // sound if it hears
-            "GEODE_CONTEXT" to s.contextLength.toString(),
-            "GEODE_INPUT" to input(model),
-        )
-        this@Harness.model = modelKey(model)
+            "GEODE_MODEL" to remote.model,
+            "GEODE_CONTEXT" to remote.context.toString(),
+            "GEODE_MAX_TOKENS" to remote.maxTokens.toString(),
+            "GEODE_INPUT" to if (remote.vision) "text,image" else "text",
+        ) else {
+            val model = app.apiEngine.model()
+            val s = app.settings.flow.first()
+            mapOf(
+                "GEODE_BASE_URL" to "http://127.0.0.1:${server.boundPort}/v1",
+                "GEODE_KEY" to key,
+                "GEODE_MODEL" to model.id,
+                // the model as it is: its context (the harness compacts before it is full), images if its pack reads
+                // them, sound if it hears
+                "GEODE_CONTEXT" to s.contextFor(model).toString(),
+                "GEODE_INPUT" to input(model),
+            ).also { this@Harness.model = modelKey(model, s.contextFor(model)) }
+        }
+        if (remote != null) this@Harness.model = remoteKey(remote)
         val native = File(app.applicationInfo.nativeLibraryDir, NATIVE)
         process = if (native.isFile) {
             // geode-agent (geode/agent: the harness in Rust) runs here, outside the Linux, which it starts only for
@@ -650,6 +690,8 @@ private class Harness(
                 "GEODE_SEARCH_CACHE" to File(app.filesDir, "search").apply { mkdirs() }.path,
                 "GEODE_SEARCH_LANG" to java.util.Locale.getDefault().language,
                 "GEODE_SKILLS" to app.agentConfig.skillsDir.apply { mkdirs() }.path,
+                // the phone's folders the user gave the agent (their copies, at /phone/<name>)
+                "GEODE_FOLDERS" to app.phoneFolders.forHarness(),
                 "TMPDIR" to File(own, "tmp").apply { mkdirs() }.path,
                 "PATH" to "/system/bin",
             )
@@ -669,7 +711,7 @@ private class Harness(
                 "NODE_COMPILE_CACHE" to "/var/cache/node-compile",
             ), listOf(File(own, "home") to "/root", File(own, "local") to "/usr/local", File(own, "tmp") to "/tmp",
                 // the user's own skills, every chat's (the harness's user skills: ~/.agents/skills)
-                app.agentConfig.skillsDir to "/root/.agents/skills"),
+                app.agentConfig.skillsDir to "/root/.agents/skills") + app.phoneFolders.binds(),
                 mergeErrors = false)
         }
         scope.launch { read() }
@@ -773,6 +815,9 @@ private class Harness(
                         if (out.length > MAX_OUTPUT) out.take(MAX_OUTPUT) + "\n…" else out)
                 }
             }
+            // geode-agent's own: a compaction (its /compact, or the context filling up)
+            "geode_compacted" -> AgentEvent.Compacted((u["items"] as? Number)?.toInt() ?: 0,
+                (u["tokens"] as? Number)?.toInt() ?: 0)
             else -> null
         }
     }
@@ -858,6 +903,9 @@ private class Harness(
      */
     private suspend fun lend(on: Boolean) {
         if (on == lent) return
+        // no model in memory (a service's model answers, or the user unloaded it): nothing to lend, and the engine's
+        // process is not started for the asking
+        if (on && app.engine.openModel.value == null) return
         lent = on
         runCatching { app.engine.reserveMemory(if (on) GeodeApp.AGENT_RESERVE else 0L) }
     }

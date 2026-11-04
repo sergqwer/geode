@@ -17,7 +17,9 @@ data class ChatInfo(val id: String, val title: String, val updated: Long)
  * A chat's token counts over all its answers: the prompt tokens the model read, the ones it found in its context
  * already (the conversation so far, kept in the engine: the cache hits), and the tokens it generated.
  */
-data class ChatStats(val read: Long = 0, val cached: Long = 0, val generated: Long = 0) {
+data class ChatStats(val read: Long = 0, val cached: Long = 0, val generated: Long = 0,
+                     /** The agent's compactions of the chat's context (its messages before the last ones go: Compactions). */
+                     val compactions: Int = 0) {
     /** The share of the prompt tokens served from the cache (null before the first answer). */
     val hitRate: Double? get() = (read + cached).takeIf { it > 0 }?.let { cached.toDouble() / it }
 }
@@ -41,25 +43,33 @@ class ChatStore(context: Context) {
     private val images = ImageStore(context)
     private val clips = xyz.tifu.geode.media.AudioStore(context)
     private val agents = File(context.filesDir, "agents")
+    /** The images as the engine reads them (ImageStore's cache). */
+    private val visionCache = File(context.cacheDir, "vision")
 
     private fun file(id: String) = File(dir, "$id.json")
 
-    /** Every chat, the most recently changed first. */
-    fun list(): List<ChatInfo> = (dir.listFiles() ?: emptyArray())
-        .filter { it.isFile && it.name.endsWith(".json") }
-        .mapNotNull { f ->
-            runCatching {
+    /**
+     * Every chat, the most recently changed first. A chat's title and time are read from its file once and kept while
+     * the file stays as it was (its time and size): a list after each answer reads the chat that changed, not all.
+     */
+    fun list(): List<ChatInfo> {
+        val files = (dir.listFiles() ?: emptyArray()).filter { it.isFile && it.name.endsWith(".json") }
+        INFOS.keys.retainAll(files.mapTo(HashSet()) { it.name })
+        return files.mapNotNull { f ->
+            val stamp = f.lastModified() to f.length()
+            INFOS[f.name]?.takeIf { it.first == stamp }?.second ?: runCatching {
                 val o = JSONObject(f.readText())
                 ChatInfo(f.name.removeSuffix(".json"), o.optString("title"), o.optLong("updated"))
-            }.getOrNull()
-        }
-        .sortedByDescending { it.updated }
+            }.getOrNull()?.also { INFOS[f.name] = stamp to it }
+        }.sortedByDescending { it.updated }
+    }
 
     fun load(id: String): SavedChat? = runCatching {
         val o = JSONObject(file(id).readText())
         val arr = o.getJSONArray("messages")
         val st = o.optJSONObject("stats")
-        val stats = ChatStats(st?.optLong("read") ?: 0, st?.optLong("cached") ?: 0, st?.optLong("generated") ?: 0)
+        val stats = ChatStats(st?.optLong("read") ?: 0, st?.optLong("cached") ?: 0, st?.optLong("generated") ?: 0,
+            st?.optInt("compactions") ?: 0)
         val messages = (0 until arr.length()).map { i ->
             val m = arr.getJSONObject(i)
             ChatMessage(
@@ -72,6 +82,7 @@ class ChatStore(context: Context) {
                 thinkingCut = m.optBoolean("cut"),
                 endedThinking = m.optBoolean("ended"),
                 summary = m.optBoolean("summary"),
+                compacted = m.optBoolean("compacted"),
                 images = m.optJSONArray("images")?.let { a -> (0 until a.length()).map { a.getString(it) } }
                     ?: emptyList(),
                 audio = m.optJSONArray("audio")?.let { a -> (0 until a.length()).map { a.getString(it) } }
@@ -115,6 +126,7 @@ class ChatStore(context: Context) {
                 if (m.thinkingCut) put("cut", true)
                 if (m.endedThinking) put("ended", true)
                 if (m.summary) put("summary", true)
+                if (m.compacted) put("compacted", true)
                 if (m.images.isNotEmpty()) put("images", JSONArray(m.images))
                 if (m.audio.isNotEmpty()) put("audio", JSONArray(m.audio))
                 if (m.videos.isNotEmpty()) put("videos", JSONArray().apply {
@@ -149,22 +161,28 @@ class ChatStore(context: Context) {
                 put("read", stats.read)
                 put("cached", stats.cached)
                 put("generated", stats.generated)
+                if (stats.compactions > 0) put("compactions", stats.compactions)
             })
         }
-        val target = file(id)
-        val tmp = File(dir, "$id.json.tmp")
-        FileOutputStream(tmp).use {
-            it.write(o.toString().toByteArray())
-            it.fd.sync()
+        val bytes = o.toString().toByteArray()
+        // one save at a time, of every store (the chat's, the web chat's): two of one chat at once would write the
+        // same file aside together
+        synchronized(LOCK) {
+            val target = file(id)
+            val tmp = File(dir, "$id.json.tmp")
+            FileOutputStream(tmp).use {
+                it.write(bytes)
+                it.fd.sync()
+            }
+            tmp.renameTo(target)
         }
-        tmp.renameTo(target)
     }
 
     /**
      * The chat, the images and clips its questions had (and the local server's copies of them the agent's requests
      * made), and its agent's Linux (files/agents/<id>).
      */
-    fun delete(id: String) {
+    fun delete(id: String) = synchronized(LOCK) {
         load(id)?.messages?.let { msgs ->
             val pictures = msgs.flatMap { it.images } + msgs.flatMap { m -> m.videos.flatMap { it.frames } }
             val sounds = msgs.flatMap { it.audio } + msgs.flatMap { m -> m.videos.mapNotNull { it.audio } }
@@ -180,6 +198,19 @@ class ChatStore(context: Context) {
         }
         file(id).delete()
         File(agents, id).deleteRecursively()
+    }
+
+    /**
+     * Every chat (the lock's way back in, its code forgotten): each as [delete] takes it, then whatever files are left
+     * in the chats' folders - a chat that could not be read, media never sent, the local server's copies - the images
+     * as the engine read them, and the agents' Linux folders no saved chat had. The folders themselves stay: the
+     * stores write into them.
+     */
+    fun deleteAll() = synchronized(LOCK) {
+        list().forEach { runCatching { delete(it.id) } }
+        dir.walkBottomUp().filter { it.isFile }.forEach { it.delete() }
+        visionCache.listFiles()?.forEach { it.deleteRecursively() }
+        agents.listFiles()?.filter { !it.name.startsWith(".") }?.forEach { it.deleteRecursively() }
     }
 
     /**
@@ -267,6 +298,12 @@ class ChatStore(context: Context) {
     }
 
     private companion object {
+        /** Saves and deletes, one at a time (whichever store does them). */
+        val LOCK = Any()
+
+        /** The chats' titles and times as [list] read them, by file name, with the file's time and size then. */
+        val INFOS = java.util.concurrent.ConcurrentHashMap<String, Pair<Pair<Long, Long>, ChatInfo>>()
+
         /** How old a chat image or clip no chat holds is before it goes ([dropUnheldMedia]): one being attached is newer. */
         const val UNHELD_AGE_MS = 3600_000L
     }

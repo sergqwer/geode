@@ -36,7 +36,6 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Web
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -118,7 +117,7 @@ private fun StepCard(s: AgentStep, key: String) {
                     overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 8.dp).weight(1f))
                 when (s.ok) {
-                    null -> CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                    null -> Dots(dot = 3.5.dp)
                     true -> Icon(Icons.Outlined.Check, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                     false -> Icon(Icons.Outlined.Close, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
                 }

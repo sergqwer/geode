@@ -58,7 +58,7 @@ header .model { font-size: 12px; color: var(--muted); white-space: nowrap; overf
 .m .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .m .err { color: var(--err); }
 .m.summary { background: var(--card); border: 1px dashed var(--line); border-radius: 14px; padding: 10px 14px; }
-.m.summary .lbl { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.m.summary .lbl, .m .lbl { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 details.think { border-left: 3px solid var(--line); padding: 2px 0 2px 12px; margin-bottom: 8px; color: var(--muted); }
 details.think summary { cursor: pointer; font-size: 13px; }
 details.think div { white-space: pre-wrap; font-size: 13.5px; margin-top: 4px; }
@@ -87,6 +87,14 @@ ul, ol { margin: 6px 0; padding-left: 24px; }
 .att { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 6px 0; }
 .att span { position: relative; }
 .att img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; display: block; }
+.att .chip { display: flex; align-items: center; gap: 6px; height: 56px; padding: 0 12px; border-radius: 10px; background: var(--panel); font-size: 13px; }
+.att .vid { position: relative; }
+.badge { position: absolute; left: 4px; bottom: 4px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; padding: 1px 5px; border-radius: 6px; }
+.m .clips { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.m .clips audio, .m .vids audio { max-width: 260px; height: 36px; }
+.m .vids { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; margin-bottom: 6px; }
+.m .vids .v { position: relative; }
+.m .vids img { max-width: 220px; max-height: 220px; border-radius: 10px; display: block; }
 .att button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: var(--text); color: var(--bg); font-size: 12px; line-height: 20px; padding: 0; }
 .row { display: flex; align-items: flex-end; gap: 6px; }
 textarea { flex: 1; resize: none; border: 0; outline: 0; background: none; padding: 9px 8px; max-height: 40vh; min-height: 40px; }
@@ -168,7 +176,8 @@ const EN = {
   empty: 'Ask anything. The model runs entirely on this phone.', noModel: 'No model selected', signOut: 'Sign out',
   attach: 'Attach an image', waiting: 'Waiting for the model', reading: 'Reading %1$d tokens…', tps: '%1$.1f tokens/s',
   qr: 'Scan it with Geode on your phone: Local server → Scan a browser\'s QR code', or: 'or type the password',
-  installing: 'Starting the agent…', files: 'Agent\'s files'
+  installing: 'Starting the agent…', files: 'Agent\'s files', attachAny: 'Attach',
+  audioBad: 'This sound file could not be read', videoBad: 'This video could not be read', preparing: 'Preparing the video…'
 };
 const L = Object.assign({}, EN, /*GEODE_STRINGS*/{});
 document.documentElement.lang = /*GEODE_LANG*/'en';
@@ -176,7 +185,7 @@ document.documentElement.dir = /*GEODE_DIR*/'ltr';
 /** A translation with its one value in place of its %1$d, %1$s or %1$.1f. */
 function fmt(t, v) { return t.replace(/%1\$\.1f/, Number(v).toFixed(1)).replace(/%1\$[ds]/, String(v)); }
 const $ = id => document.getElementById(id);
-const S = { me: null, chats: [], chat: null, busy: false, images: [] };
+const S = { me: null, chats: [], chat: null, busy: false, images: [], clips: [], films: [], preparing: 0 };
 
 // ---- text ----
 const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -282,7 +291,10 @@ async function boot() {
     S.me = await (await api('/web/me')).json();
     $('model').textContent = S.me.model || L.noModel;
     $('hmodel').textContent = S.me.model || '';
-    $('pick').hidden = !S.me.vision;
+    const takes = [S.me.vision && 'image/*', S.me.audio && 'audio/*', S.me.video && 'video/*'].filter(Boolean);
+    $('pick').hidden = !takes.length;
+    $('file').accept = takes.join(',');
+    $('pick').title = S.me.audio || S.me.video ? L.attachAny : L.attach;
     await loadChats();
     if (S.chat && S.chat.id) await openChat(S.chat.id, true); else render();
   } catch (e) { /* the login shows */ }
@@ -333,6 +345,24 @@ function msgEl(m) {
       for (const n of m.images) { const i = document.createElement('img'); i.src = n.startsWith('data:') ? n : '/web/img/' + encodeURIComponent(n); i.alt = ''; im.appendChild(i); }
       el.appendChild(im);
     }
+    if (m.videos && m.videos.length) {
+      const vs = document.createElement('div'); vs.className = 'vids';
+      for (const v of m.videos) {
+        const w = document.createElement('div'); w.className = 'v';
+        const i = document.createElement('img'); i.alt = '';
+        const f = (v.frames && v.frames[0]) || '';
+        i.src = f.startsWith('data:') ? f : '/web/img/' + encodeURIComponent(f);
+        const b = document.createElement('span'); b.className = 'badge'; b.textContent = '\u{1F3AC} ' + clock(v.ms / 1000);
+        w.appendChild(i); w.appendChild(b); vs.appendChild(w);
+        if (v.audio) vs.appendChild(player(v.audio));
+      }
+      el.appendChild(vs);
+    }
+    if (m.audio && m.audio.length) {
+      const cs = document.createElement('div'); cs.className = 'clips';
+      for (const c of m.audio) cs.appendChild(player(c.url || c.name));
+      el.appendChild(cs);
+    }
     el.appendChild(document.createTextNode(m.text));
     return el;
   }
@@ -340,9 +370,17 @@ function msgEl(m) {
   fillBot(el, m);
   return el;
 }
+/** A clip's player: a saved clip by its name (the phone sends it as a WAV), or a page-made one by its blob: URL. */
+function player(src) {
+  const a = document.createElement('audio'); a.controls = true; a.preload = 'none';
+  a.src = src.startsWith('blob:') ? src : '/web/audio/' + encodeURIComponent(src);
+  return a;
+}
+function clock(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function fillBot(el, m) {
   el.textContent = '';
-  if (m.summary) { const l = document.createElement('div'); l.className = 'lbl'; l.textContent = L.summary; el.appendChild(l); }
+  // a summary, or an answer the agent condensed its context before (what came before it, it knows from its summary)
+  if (m.summary || m.compacted) { const l = document.createElement('div'); l.className = 'lbl'; l.textContent = L.summary; el.appendChild(l); }
   // what the agent did on the way: its words between the tools, a line per tool (its main argument, how it ended)
   for (const st of m.steps || []) {
     if (st.words != null) { const w = document.createElement('div'); w.className = 'words'; w.innerHTML = md(st.words); el.appendChild(w); continue; }
@@ -390,17 +428,21 @@ function setBusy(b) {
   const go = $('go');
   go.innerHTML = b ? '&#9632;' : '&#10148;';
   go.setAttribute('aria-label', b ? L.stop : L.send);
-  go.disabled = !b && !$('text').value.trim() && !S.images.length;
+  go.disabled = !b && (S.preparing > 0 || (!$('text').value.trim() && !S.images.length && !S.clips.length && !S.films.length));
 }
 async function send() {
   if (S.busy) { api('/web/stop', { method: 'POST' }); return; }
   const text = $('text').value.trim();
-  if (!text && !S.images.length) return;
+  if (S.preparing > 0 || (!text && !S.images.length && !S.clips.length && !S.films.length)) return;
   const images = S.images.map(i => i.b64);
   const shown = S.images.map(i => i.url);
-  $('text').value = ''; grow(); S.images = []; drawAtt();
+  const audio = S.clips.map(c => c.wav);
+  const videos = S.films.map(f => ({ frames: f.frames.map(x => ({ data: x.b64, second: x.second })), audio: f.wav, ms: f.ms }));
+  const heard = S.clips.map(c => ({ url: c.url }));
+  const watched = S.films.map(f => ({ frames: [f.frames[0].url], ms: f.ms, audio: f.url }));
+  $('text').value = ''; grow(); S.images = []; S.clips = []; S.films = []; drawAtt();
   if (!S.chat) S.chat = { id: null, title: '', messages: [] };
-  const q = { user: true, text, images: shown };
+  const q = { user: true, text, images: shown, audio: heard, videos: watched };
   const a = { user: false, text: '', thinking: '', live: true, steps: [] };
   S.chat.messages.push(q, a);
   render(true);
@@ -408,7 +450,7 @@ async function send() {
   const botEl = $('inner').lastElementChild;
   let r;
   try {
-    r = await api('/web/send', { method: 'POST', body: JSON.stringify({ chat: S.chat.id, text, images }) });
+    r = await api('/web/send', { method: 'POST', body: JSON.stringify({ chat: S.chat.id, text, images, audio, videos }) });
   } catch (e) { setBusy(false); return; }
   if (!r.ok) { a.live = false; a.error = await errorOf(r); fillBot(botEl, a); setBusy(false); return; }
   const reader = r.body.getReader(), dec = new TextDecoder();
@@ -417,7 +459,8 @@ async function send() {
     const stick = nearBottom();
     if (ev === 'start') {
       S.chat.id = d.chat; S.chat.title = d.title; $('title').textContent = d.title;
-      Object.assign(q, d.question, { images: shown.length ? shown : d.question.images });
+      Object.assign(q, d.question, { images: shown.length ? shown : d.question.images,
+        audio: heard.length ? heard : d.question.audio, videos: watched.length ? watched : d.question.videos });
       loadChats();
     } else if (ev === 'started') {
       if (d.prompt > d.cached) a.status = fmt(L.reading, d.prompt - d.cached);
@@ -457,8 +500,9 @@ async function send() {
   } catch (e) { /* the connection broke: the phone keeps the answer */ }
   if (a.live) { a.live = false; fillBot(botEl, a); }
   setBusy(false);
-  // the answer as the phone saved it
-  if (S.chat.id) openChat(S.chat.id, true);
+  // the answer as the phone saved it (its clips from the phone now: this page's own copies let go)
+  const blobs = heard.map(h => h.url).concat(watched.map(w => w.audio)).filter(Boolean);
+  if (S.chat.id) Promise.resolve(openChat(S.chat.id, true)).finally(() => blobs.forEach(u => URL.revokeObjectURL(u)));
 }
 $('go').onclick = send;
 const text = $('text');
@@ -471,6 +515,8 @@ text.addEventListener('input', grow);
 $('pick').onclick = () => $('file').click();
 $('file').onchange = async () => {
   for (const f of $('file').files) {
+    if (f.type.startsWith('audio/') && S.me && S.me.audio) { addClip(f); continue; }
+    if (f.type.startsWith('video/') && S.me && S.me.video) { addFilm(f); continue; }
     try {
       const bmp = await createImageBitmap(f);
       const k = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
@@ -493,7 +539,118 @@ function drawAtt() {
     s.querySelector('button').onclick = () => { S.images.splice(i, 1); drawAtt(); };
     box.appendChild(s);
   });
+  S.films.forEach((fm, i) => {
+    const s = document.createElement('span'); s.className = 'vid';
+    s.innerHTML = '<img alt=""><span class="badge"></span><button aria-label="×">&#10005;</button>';
+    s.querySelector('img').src = fm.frames[0].url;
+    s.querySelector('.badge').textContent = '\u{1F3AC} ' + clock(fm.ms / 1000);
+    s.querySelector('button').onclick = () => { if (fm.url) URL.revokeObjectURL(fm.url); S.films.splice(i, 1); drawAtt(); };
+    box.appendChild(s);
+  });
+  S.clips.forEach((c, i) => {
+    const s = document.createElement('span');
+    s.innerHTML = '<span class="chip"></span><button aria-label="×">&#10005;</button>';
+    s.querySelector('.chip').textContent = '\u{1F3B5} ' + clock(c.seconds);
+    s.querySelector('button').onclick = () => { URL.revokeObjectURL(c.url); S.clips.splice(i, 1); drawAtt(); };
+    box.appendChild(s);
+  });
+  if (S.preparing > 0) {
+    const s = document.createElement('span'); s.innerHTML = '<span class="chip dots"></span>';
+    s.querySelector('.chip').textContent = L.preparing; box.appendChild(s);
+  }
   setBusy(S.busy);
+}
+
+// ---- sound and video, made here into what the phone takes (AudioDecoder / VideoDecoder's shapes): a clip is 16 kHz
+// mono, its first 30 s, as a WAV; a video is its frames (one a second, at most 32 spread over a longer one, 768 px)
+// with the seconds they are at, and its sound - the file itself is never sent ----
+const RATE = 16000, MAX_CLIP_S = 30, MAX_FRAMES = 32, FRAME_SIDE = 768;
+// a long file's sound decoded from its first HEAD bytes (30 s of almost any format: MP3, AAC, Ogg, FLAC, a WAV up to
+// 48 kHz stereo 16-bit) - the decoder holds the whole track in memory, two hours of it would be gigabytes; whole when
+// those bytes alone do not decode (an MP4 with its index at the end), up to WHOLE bytes
+const HEAD = 8 << 20, WHOLE = 96 << 20;
+/** The first 30 s of a file's sound, 16 kHz mono (the browser's decoder; null: none it can read, or no decoder). */
+async function pcm16k(file) {
+  const AC = window.AudioContext || window.webkitAudioContext, OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!AC || !OAC) return null;
+  const decode = async blob => {
+    const ctx = new AC();
+    try { return await ctx.decodeAudioData(await blob.arrayBuffer()); } catch (e) { return null; } finally { ctx.close(); }
+  };
+  try {
+    let buf = file.size > HEAD ? await decode(file.slice(0, HEAD)) : null;
+    if (!buf && file.size <= WHOLE) buf = await decode(file);
+    if (!buf) return null;
+    const n = Math.ceil(Math.min(buf.duration, MAX_CLIP_S) * RATE);
+    if (n <= 0) return null;
+    // one output channel: the browser mixes the channels down (stereo: their average)
+    const off = new OAC(1, n, RATE);
+    const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start(0);
+    return (await off.startRendering()).getChannelData(0);
+  } catch (e) { return null; }
+}
+/** Samples as a PCM16 WAV: its bytes. */
+function wavOf(pcm) {
+  const b = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const tag = (o, t) => { for (let i = 0; i < 4; i++) b.setUint8(o + i, t.charCodeAt(i)); };
+  tag(0, 'RIFF'); b.setUint32(4, 36 + pcm.length * 2, true); tag(8, 'WAVE'); tag(12, 'fmt ');
+  b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true); b.setUint32(24, RATE, true);
+  b.setUint32(28, RATE * 2, true); b.setUint16(32, 2, true); b.setUint16(34, 16, true); tag(36, 'data');
+  b.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) b.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, pcm[i])) * 32767), true);
+  return new Uint8Array(b.buffer);
+}
+function b64Of(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+/** A clip from samples: its WAV (base64), a blob: URL to play it, its length. */
+function clipOf(pcm) {
+  const wav = wavOf(pcm);
+  return { wav: b64Of(wav), url: URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })), seconds: pcm.length / RATE };
+}
+async function addClip(f) {
+  S.preparing++; drawAtt();
+  try {
+    const pcm = await pcm16k(f);
+    if (!pcm || pcm.length < RATE / 4) alert(L.audioBad); else S.clips.push(clipOf(pcm));
+  } catch (e) { alert(L.audioBad); }
+  finally { S.preparing--; drawAtt(); }
+}
+/** The ms the frames of a video [ms] long are taken at (VideoDecoder.frameTimes). */
+function frameTimes(ms) {
+  const n = Math.max(1, Math.min(MAX_FRAMES, Math.ceil(Math.max(ms, 1) / 1000)));
+  return Array.from({ length: n }, (_, i) => ms <= MAX_FRAMES * 1000 ? i * 1000 : Math.floor(i * ms / n));
+}
+async function addFilm(f) {
+  S.preparing++; drawAtt();
+  const url = URL.createObjectURL(f);
+  try {
+    const v = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.playsInline = true; v.src = url;
+    await new Promise((ok, bad) => { v.onloadeddata = ok; v.onerror = bad; });
+    const ms = Math.round(v.duration * 1000);
+    if (!(ms > 0) || !v.videoWidth) throw new Error('no picture');
+    const k = Math.min(1, FRAME_SIDE / Math.max(v.videoWidth, v.videoHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+    const g = c.getContext('2d');
+    const frames = [];
+    for (const t of frameTimes(ms)) {
+      // the frame at that time (a seek there; the first is already shown)
+      const at = Math.min(t / 1000, Math.max(0, v.duration - 0.05));
+      if (Math.abs(v.currentTime - at) > 0.001) await new Promise((ok, bad) => { v.onseeked = ok; v.onerror = bad; v.currentTime = at; });
+      g.drawImage(v, 0, 0, c.width, c.height);
+      const du = c.toDataURL('image/jpeg', 0.9);
+      frames.push({ url: du, b64: du.slice(du.indexOf(',') + 1), second: Math.floor(t / 1000) });
+    }
+    // its sound, when the model hears (the pack's audio encoder) and the browser reads it (the whole track decoded:
+    // only for a video up to 3 minutes long); without it the frames alone
+    const pcm = S.me && S.me.videoSound && ms <= 180000 ? await pcm16k(f) : null;
+    const sound = pcm && pcm.length >= RATE / 4 ? clipOf(pcm) : null;
+    S.films.push({ frames, ms, wav: sound ? sound.wav : null, url: sound ? sound.url : null });
+  } catch (e) { alert(L.videoBad); }
+  finally { URL.revokeObjectURL(url); S.preparing--; drawAtt(); }
 }
 
 // ---- the rest ----

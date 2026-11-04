@@ -196,7 +196,9 @@ private fun Line(text: String, mono: Boolean = false, bold: Boolean = false) {
     )
 }
 
-private fun f(v: Double, digits: Int = 1) = String.format(Locale.getDefault(), "%.${digits}f", v)
+/** A number as the screen shows it: a dash for one the test did not get (the engine writes those as null) */
+private fun f(v: Double, digits: Int = 1) =
+    if (v.isFinite()) String.format(Locale.getDefault(), "%.${digits}f", v) else "\u2014"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -221,10 +223,10 @@ private fun SystemBody(o: JSONObject) {
         .filter { it.isNotBlank() }.joinToString(" · "))
     val cl = o.optJSONArray("clusters") ?: JSONArray()
     for (i in 0 until cl.length()) {
-        val c = cl.getJSONObject(i)
-        Line(stringResource(R.string.bench_cores, c.getInt("count"), c.getString("core"), c.getInt("max_mhz") / 1000.0))
+        val c = cl.optJSONObject(i) ?: continue
+        Line(stringResource(R.string.bench_cores, c.optInt("count"), c.optString("core"), c.optInt("max_mhz") / 1000.0))
     }
-    if (o.has("ram_bytes")) Line(stringResource(R.string.bench_ram_total, formatBytes(o.getDouble("ram_bytes").toLong())))
+    if (o.has("ram_bytes")) Line(stringResource(R.string.bench_ram_total, formatBytes(o.optDouble("ram_bytes").toLong())))
     Spacer(Modifier.height(6.dp))
     Dim(stringResource(R.string.bench_cpu_features))
     val fe = o.optJSONObject("features") ?: JSONObject()
@@ -237,8 +239,8 @@ private fun MemoryBody(o: JSONObject) {
     Dim(stringResource(R.string.bench_mem_cols))
     val cs = o.optJSONArray("configs") ?: JSONArray()
     for (i in 0 until cs.length()) {
-        val c = cs.getJSONObject(i)
-        val name = when (c.getString("name")) {
+        val c = cs.optJSONObject(i) ?: continue
+        val name = when (c.optString("name")) {
             "one_big_core" -> stringResource(R.string.bench_cfg_one_big_core)
             "big_cores" -> stringResource(R.string.bench_cfg_big_cores)
             "little_cores" -> stringResource(R.string.bench_cfg_little_cores)
@@ -247,16 +249,16 @@ private fun MemoryBody(o: JSONObject) {
         }
         Row(Modifier.fillMaxWidth()) {
             Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Line("${f(c.getDouble("read_gbs"))} · ${f(c.getDouble("write_gbs"))} · ${f(c.getDouble("copy_gbs"))}", mono = true)
+            Line("${f(c.optDouble("read_gbs"))} · ${f(c.optDouble("write_gbs"))} · ${f(c.optDouble("copy_gbs"))}", mono = true)
         }
     }
-    if (o.has("latency_ns")) Line(stringResource(R.string.bench_latency, o.getDouble("latency_ns")))
+    if (o.has("latency_ns")) Line(stringResource(R.string.bench_latency, o.optDouble("latency_ns")))
 }
 
 @Composable
 private fun FlashBody(o: JSONObject) {
     if (o.has("error")) {
-        Text(o.getString("error"), color = MaterialTheme.colorScheme.error)
+        Text(o.optString("error"), color = MaterialTheme.colorScheme.error)
         return
     }
     Dim(
@@ -267,22 +269,22 @@ private fun FlashBody(o: JSONObject) {
     Spacer(Modifier.height(4.dp))
     Dim(stringResource(R.string.bench_flash_random))
     val rs = o.optJSONArray("random") ?: JSONArray()
-    val byBlock = (0 until rs.length()).map { rs.getJSONObject(it) }.groupBy { it.getDouble("block").toLong() }
+    val byBlock = (0 until rs.length()).mapNotNull { rs.optJSONObject(it) }.groupBy { it.optDouble("block").toLong() }
     byBlock.forEach { (block, rows) ->
         val expert = rows.first().optBoolean("expert_block")
         Row(Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.bench_flash_block, formatBytes(block)) +
                 (if (expert) stringResource(R.string.bench_flash_expert) else ""),
                 Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Line(rows.joinToString("  ") { "${it.getInt("threads")}×${f(it.getDouble("mbs"), 0)}" }, mono = true)
+            Line(rows.joinToString("  ") { "${it.optInt("threads")}×${f(it.optDouble("mbs"), 0)}" }, mono = true)
         }
         val res = LocalContext.current.resources
         Dim(rows.joinToString("  ") {
-            res.getString(R.string.bench_threads, it.getInt("threads"), f(it.getDouble("latency_ms")))
+            res.getString(R.string.bench_threads, it.optInt("threads"), f(it.optDouble("latency_ms")))
         })
     }
-    if (o.has("sequential_mbs")) Line(stringResource(R.string.bench_flash_seq, o.getDouble("sequential_mbs")))
-    if (o.has("write_mbs")) Line(stringResource(R.string.bench_flash_write, o.getDouble("write_mbs")))
+    if (o.has("sequential_mbs")) Line(stringResource(R.string.bench_flash_seq, o.optDouble("sequential_mbs")))
+    if (o.has("write_mbs")) Line(stringResource(R.string.bench_flash_write, o.optDouble("write_mbs")))
 }
 
 @Composable
@@ -291,11 +293,11 @@ private fun CpuBody(o: JSONObject) {
     if (ps.length() > 0) {
         // a table: a row per data type, a column per core type
         Dim(stringResource(R.string.bench_cpu_peaks))
-        val peaks = (0 until ps.length()).map { ps.getJSONObject(it) }
+        val peaks = (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }
         Row(Modifier.fillMaxWidth()) {
             Spacer(Modifier.weight(1f))
             peaks.forEach { p ->
-                val core = p.getString("core")
+                val core = p.optString("core")
                 Text(Regex("Cortex-(\\w+)").find(core)?.groupValues?.get(1) ?: core, Modifier.weight(1f),
                     style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.End)
             }
@@ -305,7 +307,7 @@ private fun CpuBody(o: JSONObject) {
             Row(Modifier.fillMaxWidth()) {
                 Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                 peaks.forEach { p ->
-                    Text(if (p.has(key)) f(p.getDouble(key), 0) else "—", Modifier.weight(1f),
+                    Text(if (p.has(key)) f(p.optDouble(key), 0) else "—", Modifier.weight(1f),
                         fontFamily = FontFamily.Monospace, textAlign = TextAlign.End)
                 }
             }
@@ -316,12 +318,12 @@ private fun CpuBody(o: JSONObject) {
     Dim(stringResource(R.string.bench_kernel_cols, o.optInt("big_cores", 1)))
     val ks = o.optJSONArray("kernels") ?: JSONArray()
     for (i in 0 until ks.length()) {
-        val k = ks.getJSONObject(i)
+        val k = ks.optJSONObject(i) ?: continue
         Row(Modifier.fillMaxWidth()) {
-            Text("${k.getString("format")} · ${f(k.getDouble("bits_per_weight"))} bit", Modifier.weight(1f),
+            Text("${k.optString("format")} · ${f(k.optDouble("bits_per_weight"))} bit", Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium)
-            Line("${f(k.getDouble("one_core_gw"))} · ${f(k.getDouble("big_cores_gw"))} · " +
-                f(k.getDouble("four_tokens_one_core_gw")), mono = true)
+            Line("${f(k.optDouble("one_core_gw"))} · ${f(k.optDouble("big_cores_gw"))} · " +
+                f(k.optDouble("four_tokens_one_core_gw")), mono = true)
         }
     }
 }
@@ -332,7 +334,7 @@ private fun GpuBody(o: JSONObject) {
         Dim(stringResource(R.string.bench_gpu_none, o.optString("reason")))
         return
     }
-    Line("${o.getString("name")} · Vulkan ${o.optString("vulkan")}")
+    Line("${o.optString("name")} · Vulkan ${o.optString("vulkan")}")
     Spacer(Modifier.height(4.dp))
     Dim(stringResource(R.string.bench_gpu_types))
     val t = o.optJSONObject("types") ?: JSONObject()
@@ -340,7 +342,7 @@ private fun GpuBody(o: JSONObject) {
         "FP16 buffers" to "fp16_storage", "INT8 buffers" to "int8_storage", "INT8 dot" to "int8_dot_product",
         "FP64" to "fp64").map { (n, k) -> n to t.optBoolean(k) })
     Line(stringResource(R.string.bench_gpu_numbers, o.optDouble("fp32_gflops", 0.0),
-        if (o.has("fp16_gflops")) f(o.getDouble("fp16_gflops"), 0) else "—", o.optDouble("int32_gops", 0.0),
+        if (o.has("fp16_gflops")) f(o.optDouble("fp16_gflops"), 0) else "—", o.optDouble("int32_gops", 0.0),
         o.optDouble("read_gbs", 0.0)))
     Dim(stringResource(R.string.bench_gpu_note))
 }
@@ -413,13 +415,13 @@ private fun OpenclBody(o: JSONObject) {
         "subgroups" to ("cl_khr_subgroups" in ext || "cl_qcom_reqd_sub_group_size" in ext),
         "recordable queues" to ("cl_qcom_recordable_queues" in ext)))
     if (o.has("error")) {
-        Text(o.getString("error").take(600), color = MaterialTheme.colorScheme.error, fontFamily = FontFamily.Monospace,
+        Text(o.optString("error").take(600), color = MaterialTheme.colorScheme.error, fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall)
         return
     }
     val rd = o.optJSONObject("read_gbs") ?: JSONObject()
     Line(stringResource(R.string.bench_opencl_numbers, o.optDouble("fp32_gflops", 0.0),
-        if (o.has("fp16_gflops")) f(o.getDouble("fp16_gflops"), 0) else "\u2014",
+        if (o.has("fp16_gflops")) f(o.optDouble("fp16_gflops"), 0) else "\u2014",
         rd.optDouble("gpu_buffer", 0.0), rd.optDouble("cpu_memory", 0.0), o.optDouble("launch_wait_us", 0.0)))
 }
 
@@ -438,7 +440,7 @@ private fun NpuCheckBody(o: JSONObject) {
 private fun CheckList(o: JSONObject) {
     val cs = o.optJSONArray("checks") ?: JSONArray()
     for (i in 0 until cs.length()) {
-        val c = cs.getJSONObject(i)
+        val c = cs.optJSONObject(i) ?: continue
         val ok = c.optBoolean("ok")
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Icon(if (ok) Icons.Outlined.Check else Icons.Outlined.Close, null,
@@ -451,8 +453,8 @@ private fun CheckList(o: JSONObject) {
                 c.optDouble("ms").takeIf { !it.isNaN() }?.let { "${f(it, 2)} ms" })
             if (nums.isNotEmpty()) Line(nums.joinToString(" \u00b7 "), mono = true)
         }
-        if (c.has("err_gpu")) Dim(stringResource(R.string.bench_gpucheck_err, f(c.getDouble("err_gpu") * 100, 2),
-            f(c.getDouble("err_cpu_int8") * 100, 2)))
+        if (c.has("err_gpu")) Dim(stringResource(R.string.bench_gpucheck_err, f(c.optDouble("err_gpu") * 100, 2),
+            f(c.optDouble("err_cpu_int8") * 100, 2)))
         c.optString("error").takeIf { it.isNotEmpty() }?.let {
             Text(it.take(600), color = MaterialTheme.colorScheme.error, fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall)
@@ -473,7 +475,7 @@ private fun GpuCheckBody(o: JSONObject) {
     o.optString("device").takeIf { it.isNotEmpty() }?.let { Dim(it) }
     val cs = o.optJSONArray("checks") ?: JSONArray()
     for (i in 0 until cs.length()) {
-        val c = cs.getJSONObject(i)
+        val c = cs.optJSONObject(i) ?: continue
         val ok = c.optBoolean("ok")
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Icon(if (ok) Icons.Outlined.Check else Icons.Outlined.Close, null,
@@ -484,8 +486,8 @@ private fun GpuCheckBody(o: JSONObject) {
                 c.optDouble("ms").takeIf { !it.isNaN() }?.let { "${f(it, 2)} ms" })
             if (nums.isNotEmpty()) Line(nums.joinToString(" · "), mono = true)
         }
-        if (c.has("err_gpu")) Dim(stringResource(R.string.bench_gpucheck_err, f(c.getDouble("err_gpu") * 100, 2),
-            f(c.getDouble("err_cpu_int8") * 100, 2)))
+        if (c.has("err_gpu")) Dim(stringResource(R.string.bench_gpucheck_err, f(c.optDouble("err_gpu") * 100, 2),
+            f(c.optDouble("err_cpu_int8") * 100, 2)))
         c.optString("error").takeIf { it.isNotEmpty() }?.let {
             Text(it.take(600), color = MaterialTheme.colorScheme.error, fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall)

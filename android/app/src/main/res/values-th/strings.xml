@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">แชท</string>
     <string name="nav_models">โมเดล</string>
-    <string name="nav_settings">การตั้งค่า</string>
+    <string name="nav_settings">การตั้งค่าแอป</string>
 
     <!-- chat -->
     <string name="chat_input_hint">ข้อความ</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">พื้นที่ว่าง: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">การตั้งค่า</string>
+    <string name="settings_title">การตั้งค่าแอป</string>
     <string name="settings_section_memory">หน่วยความจำ</string>
     <string name="settings_memory_budget">หน่วยความจำสำหรับโมเดล</string>
     <string name="settings_memory_budget_value">%1$s (แนะนำ %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">บริบทสูงสุด: %1$d โทเค็น</string>
     <string name="settings_context_desc">บริบทไม่ได้ถูกจองไว้ล่วงหน้า แต่จะเพิ่มขึ้นทีละก้อนตามการสนทนา และแต่ละก้อนจะนำหน่วยความจำมาจากแคชผู้เชี่ยวชาญ (จากผู้เชี่ยวชาญที่ใช้น้อยที่สุด) - บริบทที่ยาวทำให้การสร้างข้อความช้าลง แชทใหม่จะคืนหน่วยความจำทั้งหมด</string>
+    <string name="settings_context_desc_dense">บริบทไม่ได้ถูกจองไว้ล่วงหน้า แต่จะเพิ่มขึ้นทีละส่วนตามการแชต และบริบทที่ยาวจะใช้หน่วยความจำมากขึ้นและทำให้การสร้างช้าลง แชตใหม่จะคืนทั้งหมด</string>
     <string name="settings_context_memory">บริบท (แคช KV, int8): %1$s ที่ %2$d โทเค็น (%3$s ต่อ 1000) · ตอนนั้นแคชผู้เชี่ยวชาญจะเหลือ %4$s</string>
     <string name="settings_context_capped">งบหน่วยความจำนี้รองรับได้สูงสุด %1$d โทเค็น: การสนทนาจะหยุดที่จุดนั้น</string>
     <string name="settings_section_performance">ประสิทธิภาพ</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">การสุ่มตัวอย่าง · มีการให้เหตุผล</string>
     <string name="settings_sampling_plain">การสุ่มตัวอย่าง · ไม่มีการให้เหตุผล</string>
     <string name="settings_presence">บทลงโทษการซ้ำ (presence): %1$.2f</string>
-    <string name="settings_presence_desc">ลดโอกาสของโทเค็นที่มีอยู่แล้วในคำตอบ เพื่อไม่ให้การให้เหตุผลที่ยาววนอยู่ที่เดิม Qwen แนะนำ 1.5</string>
-    <string name="settings_sampling_reset">ค่าที่ Qwen แนะนำ</string>
+    <string name="settings_presence_desc">ลดโอกาสของโทเค็นที่มีอยู่แล้วในคำตอบ เพื่อไม่ให้การให้เหตุผลที่ยาววนอยู่ที่เดิม</string>
+    <string name="settings_sampling_reset">ค่าที่โมเดลแนะนำ</string>
+    <string name="settings_section_features">สิ่งที่โมเดลรับได้</string>
+    <string name="settings_feature_images">รูปภาพ</string>
+    <string name="settings_feature_images_desc">ภาพถ่ายและรูปภาพในแชต เมื่อปิด: จะไม่โหลดตัวเข้ารหัสภาพ จึงประหยัดหน่วยความจำ</string>
+    <string name="settings_feature_video">วิดีโอ</string>
+    <string name="settings_feature_video_desc">วิดีโอในแชต: โมเดลจะดูเฟรมภาพและฟังเสียง</string>
+    <string name="settings_feature_audio">เสียง</string>
+    <string name="settings_feature_audio_desc">ข้อความเสียงและไฟล์เสียง เมื่อปิด: จะไม่โหลดตัวเข้ารหัสเสียง จึงประหยัดหน่วยความจำ</string>
+    <string name="settings_feature_draft">การถอดรหัสแบบคาดเดา</string>
+    <string name="settings_feature_draft_desc_mtp">ชั้น MTP ของโมเดลร่างคำถัดไป แล้วโมเดลตรวจสอบทีละสองคำ: ตอบเร็วขึ้นด้วยข้อความเดิม เมื่อปิด: สร้างทีละคำ</string>
+    <string name="settings_feature_draft_desc_drafter">โมเดลช่วยร่างขนาดเล็กของ Gemma คาดเดาคำถัดไป แล้วโมเดลหลักตรวจสอบพร้อมกัน: ตอบเร็วขึ้นด้วยข้อความเดิม เมื่อปิด: สร้างทีละคำ และประหยัดหน่วยความจำของโมเดลช่วยร่าง</string>
+    <string name="settings_sampling_recommended">ค่าแนะนำสำหรับ %1$s ในโหมดนี้: อุณหภูมิ %2$.2f, top-p %3$.2f, top-k %4$d, บทลงโทษการซ้ำ (presence) %5$.1f</string>
+    <string name="settings_context_model_max">โมเดลนี้ฝึกมาสำหรับบริบทสูงสุด %1$d โทเค็น</string>
     <string name="settings_think_budget">งบการให้เหตุผล: %1$s</string>
     <string name="settings_think_budget_desc">เมื่อครบจำนวนโทเค็นการให้เหตุผลนี้ โมเดลจะถูกสั่งให้ตอบทันที</string>
     <string name="settings_max_answer">คำตอบยาวสุด: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">คอร์เล็กช่วยคอร์ใหญ่เมื่อพรอมต์ยาว บน Redmi Note 9 Pro คอร์เล็กทำให้พรอมต์ช้าลง</string>
     <string name="settings_prefetch">อ่านล่วงหน้า</string>
     <string name="settings_prefetch_desc">ระหว่างที่เลเยอร์หนึ่งกำลังคำนวณ จะอ่านผู้เชี่ยวชาญที่คาดว่าเลเยอร์ถัดไปต้องใช้</string>
-    <string name="settings_gpu">ใช้ GPU</string>
-    <string name="settings_gpu_desc">เรียกใช้โมเดลบนชิปกราฟิกของโทรศัพท์เมื่อทำได้: ทั้งคำตอบบน Adreno 7xx ขึ้นไป ส่วนบน Adreno 618 จะทำบางส่วนของการคูณเมทริกซ์ขนาดใหญ่ของพรอมต์</string>
+    <string name="settings_runs_on">ทำงานบน</string>
+    <string name="settings_runs_on_desc">ตัวประมวลผลใดของโทรศัพท์ที่รันโมเดล หากมีสองตัว ตัวแรกอ่านพรอมต์และตัวที่สองเขียนคำตอบ รายการแสดงเฉพาะที่โทรศัพท์นี้มี ค่าเริ่มต้นคือ NPU + GPU ซึ่งเร็วที่สุดเมื่อมีทั้งสองอย่าง</string>
     <string name="settings_route_prior">ตอบเร็วขึ้นเมื่อโมเดลไม่พอดีกับหน่วยความจำ</string>
     <string name="settings_route_prior_desc">เลือกใช้ผู้เชี่ยวชาญที่อยู่ในหน่วยความจำแล้วก่อน จึงอ่านจากที่เก็บข้อมูลน้อยลง คำตอบอาจเปลี่ยนถ้อยคำเล็กน้อยและบางครั้งคุณภาพอาจเปลี่ยนไป ปิดไว้เป็นค่าเริ่มต้น</string>
-    <string name="settings_npu">ใช้ NPU</string>
-    <string name="settings_npu_desc">ใช้หน่วยประมวลผล AI ของโทรศัพท์ (Snapdragon Hexagon) ในส่วนที่ช่วยได้: อ่านพรอมต์ได้เร็วขึ้นและแม่นยำขึ้นเล็กน้อย และบน Snapdragon 8 Elite ยังรับส่วนหนึ่งของผู้เชี่ยวชาญในโมเดล 35B และรันโมเดลขนาดเล็กทั้งหมด หากไม่มีหรือไม่ผ่านการตรวจสอบ GPU และ CPU จะทำงานเหมือนเดิม</string>
     <string name="settings_word_experts">จำนวนผู้เชี่ยวชาญต่อคำ</string>
     <string name="settings_word_experts_desc">8 (ค่าเริ่มต้น): ผู้เชี่ยวชาญทั้งหมดที่โมเดลเลือก คุณภาพเต็มที่ 6 หรือ 4: หากผู้เชี่ยวชาญตัวใดใน 2 หรือ 4 ตัวสุดท้ายที่ถูกเลือกไม่อยู่ในหน่วยความจำ จะข้ามไปแทนการอ่าน เร็วขึ้นเมื่อโมเดลใส่หน่วยความจำไม่พอ แต่คำตอบของโมเดลจะแม่นยำน้อยลง</string>
     <string name="settings_gpu_share">สัดส่วนแถวของ GPU: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">บีบอัดบริบท</string>
     <string name="chat_compressing">โมเดลกำลังสรุปการสนทนา…</string>
     <string name="chat_summary_title">บีบอัดบริบทแล้ว</string>
+    <string name="chat_pruned">ข้อความก่อนหน้าถูกลบหลังจากบีบอัดบริบทแล้ว: โมเดลทำงานต่อจากสรุปของข้อความเหล่านั้น</string>
     <string name="chat_summary_note">นับจากนี้ โมเดลจะเห็นสรุปนี้แทนข้อความด้านบน</string>
     <string name="settings_image_detail">รายละเอียดรูปภาพ</string>
     <string name="settings_image_detail_fast">เร็ว</string>
     <string name="settings_image_detail_fine">ละเอียด</string>
     <string name="settings_image_detail_most">สูงสุด</string>
     <string name="settings_image_detail_desc">ความละเอียดที่โมเดลมองเห็นรูปภาพที่แนบ: สูงสุด 256, 576 หรือ 1024 โทเค็น ยิ่งละเอียดยิ่งอ่านตัวอักษรเล็กได้ดีขึ้น แต่ต้องรอนานขึ้นก่อนเริ่มตอบ (รูปภาพถูกเข้ารหัสบนคอร์ของโทรศัพท์ และน้ำหนักของตัวเข้ารหัสจะถูกอ่านจากที่เก็บข้อมูลเฉพาะตอนนั้น)</string>
-    <string name="settings_auto_compress">บีบอัดบริบทอัตโนมัติ</string>
-    <string name="settings_auto_compress_desc">เมื่อบริบทเต็ม 90% โมเดลจะสรุปการสนทนาและทำงานต่อจากสรุปนั้น (คำตอบจะหยุดก่อนถึง 10% สุดท้าย ซึ่งเป็นส่วนที่ใช้สำหรับสรุป)</string>
     <string name="answer_notif_title">Geode กำลังตอบ</string>
     <string name="answer_notif_text">โมเดลยังคงทำงานต่อขณะที่แอปอยู่เบื้องหลัง</string>
     <string name="answer_notif_stop">หยุด</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">ขอบคุณ ส่งรายงานแล้ว</string>
     <string name="report_queued">ไม่มีการเชื่อมต่อ: จะส่งรายงานในภายหลัง</string>
     <string name="cpu_unsupported">ไม่รองรับโปรเซสเซอร์ของโทรศัพท์เครื่องนี้: Geode ต้องใช้โปรเซสเซอร์ ARM 64 บิตที่มีคำสั่ง dot product (ARMv8.2 โทรศัพท์ส่วนใหญ่ตั้งแต่ปี 2019)</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">ความเป็นส่วนตัว</string>
+    <string name="lock_setting">ล็อกแอป</string>
+    <string name="lock_setting_desc">ขอ PIN หรือรหัสผ่านก่อนแสดงแชท: เมื่อแอปเริ่มทำงานและเมื่อคุณกลับมาที่แอป</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">รหัสผ่าน</string>
+    <string name="lock_repeat">ป้อนอีกครั้ง</string>
+    <string name="lock_short_pin">อย่างน้อย 4 หลัก</string>
+    <string name="lock_short_password">อย่างน้อย 4 ตัวอักษร</string>
+    <string name="lock_mismatch">ทั้งสองไม่ตรงกัน</string>
+    <string name="lock_enter_pin">PIN ของคุณ</string>
+    <string name="lock_enter_password">รหัสผ่านของคุณ</string>
+    <string name="lock_wrong">ไม่ถูกต้อง ลองอีกครั้ง</string>
+    <string name="lock_wait">ลองหลายครั้งเกินไป: ครั้งถัดไปในอีก %1$s</string>
+    <string name="lock_unlock">ปลดล็อก</string>
+    <string name="lock_title">Geode ถูกล็อกอยู่</string>
+    <string name="lock_fingerprint">ปลดล็อกด้วยลายนิ้วมือ</string>
+    <string name="lock_fingerprint_desc">ใช้แทนรหัส ลายนิ้วมือที่เพิ่มลงในโทรศัพท์ภายหลังจะปิดตัวเลือกนี้</string>
+    <string name="lock_fingerprint_none">เพิ่มลายนิ้วมือในการตั้งค่าของโทรศัพท์ก่อน</string>
+    <string name="lock_fingerprint_changed">ลายนิ้วมือในโทรศัพท์เปลี่ยนไป จึงปิดการปลดล็อกด้วยลายนิ้วมือแล้ว: ปลดล็อกด้วยรหัสแล้วเปิดอีกครั้งในการตั้งค่า</string>
+    <string name="lock_prompt_title">ปลดล็อก Geode</string>
+    <string name="lock_prompt_code">ใช้รหัส</string>
+    <string name="lock_after">ล็อกหลังออกจากแอป</string>
+    <string name="lock_after_now">ทันที</string>
+    <string name="lock_after_min">%1$d นาที</string>
+    <string name="lock_change">เปลี่ยน PIN หรือรหัสผ่าน</string>
+    <string name="lock_off">ปิดการล็อก</string>
+    <string name="lock_now">ล็อกตอนนี้</string>
+    <string name="lock_note">ขณะที่เปิดการล็อกอยู่ ภาพตัวอย่างของแอปในแอปล่าสุดจะถูกซ่อน เว็บแชทและ API บนเครือข่ายยังใช้รหัสผ่านและคีย์ของตัวเอง</string>
+    <string name="lock_forgot">ลืมรหัสใช่ไหม</string>
+    <string name="lock_forgot_title">ลบแชททั้งหมดใช่ไหม</string>
+    <string name="lock_forgot_text">หากไม่มีรหัสก็ไม่มีวิธีอื่นที่จะเข้าได้: แชททั้งหมดจะถูกลบพร้อมรูปภาพ เสียง และไฟล์ของเอเจนต์ จากนั้นจึงลบการล็อก โมเดลยังคงอยู่</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">ขนาดตัวอักษรในแชท: %1$d%%</string>
+    <string name="settings_chat_text_desc">ข้อความและช่องพิมพ์ในแชท ใช้สองนิ้วบนบทสนทนาเพื่อปรับได้ด้วย</string>
+    <string name="models_search">ค้นหาโมเดล</string>
+    <string name="models_cap_photos">รูปภาพ</string>
+    <string name="models_cap_video">วิดีโอ</string>
+    <string name="models_cap_sound">เสียง</string>
+    <string name="models_cap_reasoning">การให้เหตุผล</string>
+    <string name="models_no_match">ไม่มีโมเดลที่ตรงกัน</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">หน้าจอ</string>
+    <string name="screen_keep">เปิดหน้าจอค้างไว้</string>
+    <string name="screen_keep_off">ไม่: ตามการตั้งค่าของโทรศัพท์</string>
+    <string name="screen_keep_answering">ขณะที่ Geode ตอบ</string>
+    <string name="screen_keep_always">เสมอ ขณะที่ Geode เปิดอยู่</string>
+    <string name="screen_black_after">จอดำหลังไม่ได้แตะ %1$d นาที</string>
+    <string name="screen_black_never">จอดำ: ไม่ใช้</string>
+    <string name="screen_black_desc">ป้องกันจอเบิร์น: บนจอ OLED ส่วนของภาพที่ไม่เคยขยับ (แถบต่าง ๆ ช่องพิมพ์) อาจเบิร์นติดจอได้ภายในไม่กี่ชั่วโมง จอดำไม่ใช่การล็อก: โทรศัพท์ยังคงปลดล็อกอยู่ แตะหน้าจอเพื่อกลับมาที่ Geode ได้เลย</string>
+    <string name="screen_black_off_warning">หากปิดจอดำ ภาพที่นิ่งอยู่นานหลายชั่วโมงอาจเบิร์นติดจอ OLED อย่างถาวร</string>
+    <string name="screen_black_hint">แตะหน้าจอเพื่อกลับ</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">ทำงานบนหน่วยประมวลผล (NPU อ่านพรอมต์หากมี) บนโทรศัพท์ที่มี RAM 8 GB ขึ้นไป</string>
+    <string name="models_catalog_ram_short">RAM %1$s: น้อยเกินไปสำหรับโมเดลนี้ (ต้องการ 8 GB)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">เสียง</string>
+    <string name="voice_read_aloud">อ่านคำตอบออกเสียง</string>
+    <string name="voice_read_aloud_desc">ทีละประโยคขณะที่คำตอบถูกเขียน ลำโพงใต้คำตอบจะอ่านอีกครั้ง</string>
+    <string name="voice_rate">ความเร็วในการพูด: %1$d%%</string>
+    <string name="voice_none">โทรศัพท์เครื่องนี้ไม่มีเครื่องมืออ่านข้อความ: ติดตั้งในการตั้งค่าระบบ (เช่น บริการเสียงพูดจาก Google)</string>
+    <string name="chat_speak">อ่านออกเสียง</string>
+    <string name="chat_speak_stop">หยุดอ่าน</string>
+    <string name="nav_model_settings">การตั้งค่าโมเดล</string>
+    <string name="model_settings_selected">โมเดลที่เลือก: %1$s</string>
+    <string name="model_settings_none">ยังไม่ได้เลือกโมเดล: การตั้งค่าเหล่านี้ใช้กับโมเดลที่คุณจะเลือก</string>
+    <string name="chat_take_photo">ถ่ายรูป</string>
+    <string name="chat_record_video">อัดวิดีโอ</string>
+    <string name="chat_camera_denied">Geode ถ่ายรูปหรือวิดีโอไม่ได้หากไม่มีสิทธิ์ใช้กล้อง</string>
+    <string name="chat_camera_none">โทรศัพท์เครื่องนี้ไม่มีแอปกล้อง</string>
+    <string name="voice_voice">เสียง</string>
+    <string name="voice_auto">อัตโนมัติ: เสียงเริ่มต้นของแต่ละภาษา</string>
+    <string name="voice_voice_desc">เสียงที่เลือกจะอ่านภาษาของตัวเอง ส่วนภาษาอื่นใช้เสียงเริ่มต้นตามเดิม</string>
+    <string name="voice_pitch">ระดับเสียง: %1$d%%</string>
+    <string name="voice_listen">ฟัง</string>
+    <string name="voice_sample">คำตอบจะฟังดูแบบนี้</string>
+    <string name="voice_engine_settings">การตั้งค่าการอ่านออกเสียงข้อความ</string>
+    <string name="voice_network">ต้องใช้อินเทอร์เน็ต</string>
+    <string name="chat_read_aloud_on">อ่านคำตอบออกเสียง</string>
+    <string name="chat_read_aloud_off">ไม่อ่านคำตอบออกเสียง</string>
+    <string name="voice_engine">สิ่งที่อ่านออกเสียง</string>
+    <string name="voice_engine_system">การอ่านออกเสียงข้อความของโทรศัพท์</string>
+    <string name="voice_engine_geode">เสียงของ Geode เอง</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: อ่าน 31 ภาษาบนโทรศัพท์เครื่องนี้ รวมถึงภาษายูเครน รัสเซีย และอังกฤษ ส่วนภาษาอื่นจะอ่านโดยการอ่านออกเสียงข้อความของโทรศัพท์ เก็บไว้ในพื้นที่จัดเก็บและใช้หน่วยความจำประมาณ 300 MB เฉพาะตอนที่อ่าน</string>
+    <string name="voice_download">ดาวน์โหลดเสียง (%1$s)</string>
+    <string name="voice_downloading">กำลังดาวน์โหลดเสียง: %1$d%%</string>
+    <string name="voice_delete">ลบเสียง</string>
+    <string name="voice_download_failed">ดาวน์โหลดเสียงไม่สำเร็จ: %1$s</string>
+    <string name="voice_female">เสียงผู้หญิง %1$d</string>
+    <string name="voice_male">เสียงผู้ชาย %1$d</string>
+    <string name="voice_license">สัญญาอนุญาตของเสียง</string>
+    <string name="voice_license_note">Supertonic 3 จาก Supertone ภายใต้สัญญาอนุญาต Open RAIL-M: ข้อจำกัดการใช้งานมีผลกับสิ่งที่อ่าน ทำงานด้วย sherpa-onnx</string>
+    <string name="agent_folders">โฟลเดอร์ในโทรศัพท์</string>
+    <string name="agent_folders_desc">โฟลเดอร์ในโทรศัพท์เครื่องนี้ที่เอเจนต์ของทุกแชทใช้ทำงานได้ ใน Linux ของเอเจนต์จะอยู่ที่ /phone เอเจนต์ทำงานกับสำเนาของแต่ละโฟลเดอร์ ซึ่งอัปเดตก่อนทุกข้อความ สำหรับโฟลเดอร์ที่อ่านและเขียนได้ การเปลี่ยนแปลงของเอเจนต์จะถูกส่งกลับเมื่อทำงานเสร็จ การเรียกคืนโฟลเดอร์จะลบเพียงสำเนาเท่านั้น</string>
+    <string name="agent_folders_none">ยังไม่ได้ให้โฟลเดอร์ใด</string>
+    <string name="agent_folders_add">ให้โฟลเดอร์</string>
+    <string name="agent_folder_read">อ่านอย่างเดียว</string>
+    <string name="agent_folder_write">อ่านและเขียน</string>
+    <string name="agent_folder_remove">เรียกคืน</string>
+    <string name="agent_folder_files">ไฟล์: %1$d · %2$s</string>
+    <string name="agent_folder_copying">กำลังคัดลอก…</string>
+    <string name="agent_folder_skipped">ไม่ได้คัดลอก: %1$d (สำเนาหนึ่งชุดเก็บได้สูงสุด 10,000 ไฟล์และ %2$s)</string>
+    <string name="agent_folder_error">อ่านโฟลเดอร์ไม่ได้: %1$s</string>
+    <string name="agent_folder_add_failed">ให้โฟลเดอร์แก่เอเจนต์ไม่ได้</string>
+    <string name="models_services">โมเดลของบริการ</string>
+    <string name="models_services_desc">โมเดลของบริการที่คุณมีคีย์สามารถตอบในแชตแทนโมเดลของโทรศัพท์ได้: DeepSeek, OpenRouter, OpenAI, Anthropic หรือบริการใดก็ได้ที่ใช้ API ของพวกเขา สิ่งที่แชตส่งจะไปยังบริการนั้น ส่วน Linux ของเอเจนต์และไฟล์ยังคงอยู่บนโทรศัพท์</string>
+    <string name="models_service_add">เพิ่มบริการ</string>
+    <string name="models_service_edit">แก้ไข</string>
+    <string name="service_name">ชื่อ</string>
+    <string name="service_url">ที่อยู่ API</string>
+    <string name="service_protocol">โปรโตคอล</string>
+    <string name="service_key">คีย์ API</string>
+    <string name="service_key_kept">เก็บไว้บนโทรศัพท์เครื่องนี้แบบเข้ารหัส พิมพ์คีย์ใหม่เพื่อแทนที่</string>
+    <string name="service_model">โมเดล</string>
+    <string name="service_list">แสดงรายการโมเดล</string>
+    <string name="service_list_failed">แสดงรายการโมเดลไม่ได้: %1$s</string>
+    <string name="service_vision">โมเดลอ่านรูปภาพได้</string>
+    <string name="service_context">บริบท, โทเค็น</string>
+    <string name="service_max">คำตอบที่ยาวที่สุด, โทเค็น</string>
+    <string name="service_leaves">แชตกับโมเดลนี้จะถูกส่งไปยัง %1$s และจัดการตามข้อกำหนดของบริการนั้น คีย์ยังคงอยู่บนโทรศัพท์เครื่องนี้แบบเข้ารหัส</string>
+    <string name="chat_empty_remote">ถามอะไรก็ได้ คำตอบมาจาก %1$s (%2$s): สิ่งที่คุณส่งจะออกไปนอกโทรศัพท์</string>
+    <string name="chat_info_service">แชตถูกส่งไปยัง %1$s</string>
+    <string name="settings_about_services">และเมื่อคุณเลือกโมเดลของบริการในหน้าจอโมเดล แชตของโมเดลนั้นจะถูกส่งไปยังบริการนั้น</string>
 </resources>

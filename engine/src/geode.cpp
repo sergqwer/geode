@@ -166,6 +166,8 @@ extern "C" {
 
 const char *geode_version(void) { return kVersion; }
 
+int geode_mode_from_name(const char *name) { return geode::parse_run_mode(name); }
+
 int geode_open(const geode_config *config, geode_model **out, char *err, size_t err_len) {
     if (!config || !config->model_dir || !out) return fail(err, err_len, GEODE_E_ARG, "missing config or output");
     *out = nullptr;
@@ -184,6 +186,10 @@ int geode_open(const geode_config *config, geode_model **out, char *err, size_t 
     // 0: never (or GEODE_TAIL_SKIP, for measuring); 6 / 4: the last 2 / 4 of the 8 when they would be read
     opt.tail_skip = config->tail_skip > 0 ? config->tail_skip : -1;
     opt.npu = config->npu > 0 ? 1 : 0;
+    opt.mode = config->mode >= GEODE_MODE_AUTO && config->mode <= GEODE_MODE_NPU ? config->mode : GEODE_MODE_AUTO;
+    opt.no_draft = config->no_draft != 0;
+    opt.no_vision = config->no_vision != 0;
+    opt.no_audio = config->no_audio != 0;
     // GEODE_EXACT=1 (measuring): exact FP32 arithmetic, the reference a shortcut's KL is taken against
     if (const char *e = std::getenv("GEODE_EXACT")) opt.exact = std::atoi(e) != 0;
 #if defined(__ANDROID__)
@@ -541,9 +547,9 @@ void geode_profile(geode_model *model, char *buf, size_t len) {
     else std::snprintf(spec, sizeof spec, "gpu:%d", m.spec_tokens());
     const std::string vision = m.has_vision() ? m.vision().profile() : "vision: " + m.vision_status();
     const std::string audio = "audio: " + (m.has_audio() ? m.audio().profile() : m.audio_status());
-    std::snprintf(buf, len, "prompt: %s\nanswer: %s\nGPU: %s\nNPU: %s\nrun: threads=%d spec=%s\n%s\n%s",
+    std::snprintf(buf, len, "prompt: %s\nanswer: %s\nGPU: %s\nNPU: %s\nrun: threads=%d spec=%s mode=%s\n%s\n%s",
                   model->prompt_profile.c_str(), m.profile().c_str(), m.gpu_status().c_str(), m.npu_status().c_str(),
-                  m.compute_threads(), spec, vision.c_str(), audio.c_str());
+                  m.compute_threads(), spec, geode::run_mode_name(m.mode()), vision.c_str(), audio.c_str());
 }
 
 int geode_bench(const char *what, const char *arg, char *out, size_t out_len) {
@@ -558,6 +564,7 @@ int geode_bench(const char *what, const char *arg, char *out, size_t out_len) {
     else if (w == "opencl") r = geode::bench::opencl();
     else if (w == "gpucheck") r = geode::bench::gpu_check(arg ? arg : "");
     else if (w == "npucheck") r = geode::bench::npu_check(arg ? arg : "");
+    else if (w == "units") r = geode::bench::units();
     else return GEODE_E_ARG;
     if (r.size() + 1 > out_len) return GEODE_E_MEMORY;
     std::memcpy(out, r.c_str(), r.size() + 1);

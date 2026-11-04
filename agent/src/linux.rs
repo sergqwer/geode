@@ -170,6 +170,11 @@ impl Proot {
             let _ = std::fs::create_dir_all(chat.join("home/.agents/skills"));
             bind(&mut c, s.clone(), "/root/.agents/skills");
         }
+        // the phone's folders the user gave the agent (the app's copies of them)
+        for f in &self.cfg.folders {
+            let _ = std::fs::create_dir_all(&f.host);
+            bind(&mut c, f.host.clone(), &f.guest);
+        }
         c.args(["-w", cwd, "/usr/bin/env", "-i"]);
         c.args(["HOME=/root", "USER=root", "LANG=C.UTF-8", "TERM=dumb", "SHELL=/bin/bash", "TMPDIR=/tmp"]);
         c.arg(format!("PATH={PATH}"));

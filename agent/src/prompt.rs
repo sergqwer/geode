@@ -4,7 +4,7 @@
 //! guidance sections of the tool packages, dsh-working-directory, dsh-sandbox-policy, dsh-user-approval and
 //! dsh-agent-instructions.
 
-use crate::config::Config;
+use crate::config::{Config, Folder};
 use crate::mcp::McpHub;
 use crate::msg::{Message, Source};
 use crate::paths::Namespace;
@@ -42,18 +42,43 @@ pub const RUNTIME_CONTEXT_HEAD: &str =
 
 /// The runtime context as it is now.
 pub fn runtime_context(cwd: &str) -> String {
-    [
+    runtime_context_with(cwd, &[])
+}
+
+/// The runtime context with the phone's folders the user gave the agent (none: as the harness says it).
+pub fn runtime_context_with(cwd: &str, folders: &[Folder]) -> String {
+    let mut parts = vec![
         RUNTIME_CONTEXT_HEAD.to_string(),
         format!("Current working directory: {}.", json!(cwd)),
         "Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.".into(),
         "Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).".into(),
-    ]
-    .join("\n\n")
+    ];
+    if !folders.is_empty() {
+        let list: Vec<String> = folders
+            .iter()
+            .map(|f| {
+                format!(
+                    "{} ({})",
+                    f.guest,
+                    if f.write {
+                        "read and write: what you change, add or delete there is copied to the phone when your turn ends"
+                    } else {
+                        "read-only: read it, change nothing in it"
+                    }
+                )
+            })
+            .collect();
+        parts.push(format!(
+            "Folders of the user's phone you were given: {}. Each is a copy brought up to date before every message of the user's; work on them only when the user asks.",
+            list.join("; ")
+        ));
+    }
+    parts.join("\n\n")
 }
 
 /// The runtime-context message this step needs (none when the last one shown still holds).
-pub fn runtime_context_for_step(cwd: &str, messages: &[Message]) -> Option<Message> {
-    let current = runtime_context(cwd);
+pub fn runtime_context_for_step(cwd: &str, folders: &[Folder], messages: &[Message]) -> Option<Message> {
+    let current = runtime_context_with(cwd, folders);
     let last = messages.iter().rev().find(|m| m.source() == Some(Source::RuntimeContext)).and_then(Message::only_text);
     if last == Some(current.as_str()) {
         return None;
@@ -163,6 +188,15 @@ mod tests {
         assert_eq!(js_len_sum(&p), 1896);
         let rc = runtime_context("/workspace");
         assert_eq!(rc.chars().count(), 432);
+    }
+
+    #[test]
+    fn phone_folders_told() {
+        let f = |g: &str, w| Folder { guest: g.into(), host: "/h".into(), write: w };
+        assert_eq!(runtime_context_with("/workspace", &[]), runtime_context("/workspace"));
+        let rc = runtime_context_with("/workspace", &[f("/phone/Docs", false), f("/phone/Work", true)]);
+        assert!(rc.starts_with(&runtime_context("/workspace")));
+        assert!(rc.contains("/phone/Docs (read-only: read it, change nothing in it); /phone/Work (read and write:"));
     }
 
     #[test]

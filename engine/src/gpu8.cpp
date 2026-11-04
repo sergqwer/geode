@@ -86,6 +86,7 @@ struct Gpu8::Impl {
     int64_t max_cols = 0, max_rows = 0, hidden = 0, ff = 0;
     int top_k = 0, n_experts = 0;
     int top_k_max = 0, guesses_max = 0;   // what the buffers were made for (reserve, setup_decode)
+    int ag = 0;   // the flash decoding's query heads a KV head (attn_part*: 8 or 4, the programs built for it), else 0
     size_t slots_e = 0;
 
     std::vector<cl_event> events;
@@ -105,6 +106,87 @@ struct Gpu8::Impl {
     int rope_shift = 0;   // set_rope_shift
     std::unordered_map<std::string, cl_kernel> &kmap() { return T == 1 ? k1 : kTok[T]; }
     Gpu8::DecodeShape ds;
+    // Gemma 4's answer (setup_gemma, gemma_step): its shape, the per-layer inputs (ple_model's output, the table's
+    // rows, a layer's gate output)
+    Gpu8::GemmaShape gs;
+    bool gemma = false;
+    Piece d_pin, d_prow, d_pg, d_flag;
+    // ---- a Gemma prompt's layers (gemma_prompt): the rows of its n tokens, the int8 tiles the products read, its
+    // products' jobs (a cursor, as jcur), the attention's parts past two chunks (kGpGroup tokens at a time)
+    Piece gp_x, gp_h, gp_q, gp_k, gp_v, gp_core, gp_mix, gp_gu, gp_pin, gp_pg, gp_X, gp_XS, gp_XB, gp_jobs, gp_ymap,
+        gp_po, gp_pm, gp_pl;
+    int gp_cap = 0, gp_parts = 0, gp_jcur = 0, gp_jobs_n = 0;
+    bool gp_pf = false;   // the attention flash-style (g_attn_pf*: work groups of 256 it can run)
+    bool gp_gemm1 = true;   // the products by gemm1 (its matrix one argument: ~2% faster; GEODE_GP_GEMM1=0: gemm)
+    cl_mem gp_Xi = nullptr;   // gp_X as an image1d_buffer (gemm1x: the activations through the texture path)
+    static constexpr int kGpGroup = 64;
+    std::unordered_map<std::string, cl_kernel> kb8;   // the batch program's Gemma kernels (T = 8: XAT's tiles)
+
+    // a kernel of the batch program onto the one-token queue (go's twin: the prompt's layers run there)
+    template <typename... A>
+    bool bgo(const char *name, size_t g0, size_t g1, size_t l0, size_t l1, std::string &err, const A &...a) {
+        auto it = kb8.find(name);
+        if (it == kb8.end()) {
+            err = std::string("GPU: no kernel ") + name;
+            return false;
+        }
+        cl_uint i = 0;
+        (arg(cl, it->second, i++, a), ...);
+        const size_t g[2] = {g0, g1 ? g1 : 1}, l[2] = {l0, l1 ? l1 : 1};
+        cl_event ev = nullptr;
+        const cl_int e = cl->clEnqueueNDRangeKernel(q1, it->second, g1 ? 2 : 1, nullptr, g, l0 ? l : nullptr, 0,
+                                                    nullptr, dprof ? &ev : nullptr);
+        if (ev) dev_events.emplace_back(std::string("p ") + name, ev);
+        if (e != CL_SUCCESS) {
+            err = std::string("GPU: ") + name + ": " + cl::error_name(e);
+            return false;
+        }
+        ++launches;
+        return true;
+    }
+    // out's rows (ystride floats apart, from yoff) of the n tokens = m . gp_X's tiles: the batch gemm onto the
+    // one-token queue, its jobs a range of gp_jobs
+    bool gp_gemm(const QView &m, int n, const Piece &out, int ystride, int yoff, std::string &err) {
+        const Piece *w = find(m.data);
+        const int tiles = (n + kT - 1) / kT;
+        if (!w || gp_jcur + tiles > gp_jobs_n) {
+            err = "GPU: a prompt's product it cannot take";
+            return false;
+        }
+        auto *jobs = reinterpret_cast<Job *>(gp_jobs.host);
+        const auto off = static_cast<int32_t>((m.data - w->host) / 16);
+        const int first = gp_jcur;
+        for (int j = 0; j < tiles; ++j)
+            jobs[gp_jcur++] = {off, j, yoff, float_bits(m.global * 256.0f), 0, static_cast<int32_t>(m.rows), 0, 0};
+        // (gemm1: the matrix one argument - its loads the texture path; gemm: a buffer of 16 picked a job)
+        auto g1 = kb8.find(gp_Xi ? "gemm1x" : "gemm1");
+        const bool one = g1 != kb8.end() && gp_gemm1;
+        cl_kernel k = one ? g1->second : k_gemm;
+        const cl_uint a0 = one ? 1 : kWBufs;
+        for (cl_uint i = 0; i < a0; ++i) arg(cl, k, i, w->mem);
+        arg(cl, k, a0 + 0, gp_jobs.mem);
+        arg(cl, k, a0 + 1, one && gp_Xi ? gp_Xi : gp_X.mem);
+        arg(cl, k, a0 + 2, gp_XS.mem);
+        arg(cl, k, a0 + 3, gp_XB.mem);
+        arg(cl, k, a0 + 4, gp_ymap.mem);
+        arg(cl, k, a0 + 5, out.mem);
+        arg(cl, k, a0 + 6, static_cast<int>(m.cols));
+        arg(cl, k, a0 + 7, ystride);
+        arg(cl, k, a0 + 8, first);
+        const size_t quads = static_cast<size_t>(m.rows / 4);
+        const size_t g[2] = {static_cast<size_t>(tiles), quads}, l[2] = {1, 64};
+        cl_event ev = nullptr;
+        const cl_int e = cl->clEnqueueNDRangeKernel(q1, k, 2, nullptr, g, quads % 64 == 0 ? l : nullptr, 0, nullptr,
+                                                    dprof ? &ev : nullptr);
+        if (ev)
+            dev_events.emplace_back("p gemm " + std::to_string(m.rows) + "x" + std::to_string(m.cols), ev);
+        if (e != CL_SUCCESS) {
+            err = std::string("GPU: a prompt's gemm: ") + cl::error_name(e);
+            return false;
+        }
+        ++launches;
+        return true;
+    }
     Piece params, d_x, d_h, d_X, d_XS, d_XB, d_proj, d_z, d_ab, d_core, d_qg, d_kb, d_vb, d_mix, d_scores, d_rlog,
         d_glog, d_glog2, d_gids2, d_po, d_pm, d_pl, d_ids, d_gids, d_w, d_gu, d_x2, d_x2s, d_x2b, d_eo, d_jobs, d_ymap, d_logits, d_freq;
     int jcur = 0, seq = 0;
@@ -134,6 +216,7 @@ struct Gpu8::Impl {
             if (q1 != dev.queue) cl->clReleaseCommandQueue(q1);
         }
         for (cl_event ev : events) cl->clReleaseEvent(ev);
+        if (gp_Xi) cl->clReleaseMemObject(gp_Xi);   // (before its buffer)
         for (const Piece &p : pieces) {
             if (!p.imported) cl->clEnqueueUnmapMemObject(dev.queue, p.mem, p.host, 0, nullptr, nullptr);
             cl->clReleaseMemObject(p.mem);
@@ -608,6 +691,12 @@ bool Gpu8::setup_decode(const DecodeShape &s, const float *inv_freq, std::string
     p.gdn_old = std::getenv("GEODE_GPU8_GDN_OLD") != nullptr;
     p.attn_old = std::getenv("GEODE_GPU8_ATTN_OLD") != nullptr;
     p.nb_max = (s.max_ctx + 127) / 128 + 1;
+    // flash decoding for 8 query heads a KV head (Qwen3.6) or 4 (Qwen3.5-2B: the programs built with -DAG=4)
+    {
+        const int grp = s.nkv > 0 && s.nh % s.nkv == 0 ? s.nh / s.nkv : 0;
+        p.ag = s.hd == 256 && (grp == 8 || grp == 4) ? grp : 0;
+    }
+    const std::string ag_opt = p.ag == 4 ? " -DAG=4" : "";
     if (std::getenv("GEODE_GPU8_Q0"))   // measuring: generate on the batch queue (it profiles)
         p.q1 = p.dev.queue;
     else
@@ -616,10 +705,11 @@ bool Gpu8::setup_decode(const DecodeShape &s, const float *inv_freq, std::string
         err = std::string("GPU: a plain queue: ") + cl::error_name(e);
         return false;
     }
-    if (!p.prog1.build_cached(p.dev, kSource, "-cl-std=CL3.0 -cl-mad-enable -DT=1", p.cache_dir, err)) return false;
+    if (!p.prog1.build_cached(p.dev, kSource, "-cl-std=CL3.0 -cl-mad-enable -DT=1" + ag_opt, p.cache_dir, err)) return false;
     for (const char *n : {"gemm", "gemm1", "gemvs", "gemvs1", "swiglu", "norm_q", "mtp_in_q", "bf16_rows", "gdn_conv", "gdn_qk", "gdn_gates", "gdn_delta", "gdn_delta32",
                           "gdn_gnorm_q", "head_norm_rope", "kv_store", "attn_scores", "attn_softmax", "attn_values",
-                          "attn_part", "attn_part8", "kv_store8", "attn_merge", "attn_gate_q", "route", "guess_top", "moe_combine"}) {
+                          "attn_part", "attn_part8", "kv_store8", "attn_merge", "attn_gate_q", "route", "guess_top", "moe_combine",
+                          "mlp_add"}) {
         cl_kernel k = p.prog1.kernel(n, err);
         if (!k) return false;
         p.k1[n] = k;
@@ -630,7 +720,8 @@ bool Gpu8::setup_decode(const DecodeShape &s, const float *inv_freq, std::string
     const size_t f = 4, H = static_cast<size_t>(s.hidden), K = static_cast<size_t>(s.top_k),
                  ff = static_cast<size_t>(s.moe_ff), E = static_cast<size_t>(s.n_experts);
     const size_t vd = static_cast<size_t>(s.nv * s.dv), kd = static_cast<size_t>(s.nk * s.dk);
-    const size_t cw = std::max(vd, static_cast<size_t>(s.nh * s.hd)), mc = std::max(H, cw);
+    // (X's widest vector: the MTP layer's input, 2 H, as wide as a mixer's output only in Qwen3.6's shape)
+    const size_t cw = std::max(vd, static_cast<size_t>(s.nh * s.hd)), mc = std::max(2 * H, cw);
     const size_t kv_row = static_cast<size_t>(s.nkv * s.hd);
     // every token buffer for max_tokens (at least 2: verifying pairs); the experts' for the picks' union of that many
     // tokens (top_k slots a token) + the shared one, a row a token each
@@ -679,11 +770,12 @@ bool Gpu8::setup_verify(std::string &err) {
     }
     const int mt = std::clamp(s.max_tokens, 2, kMaxTokens);
     for (int t = 2; t <= mt; ++t) {
-        const std::string opts = "-cl-std=CL3.0 -cl-mad-enable -DT=" + std::to_string(t);
+        const std::string opts = "-cl-std=CL3.0 -cl-mad-enable -DT=" + std::to_string(t) + (p.ag == 4 ? " -DAG=4" : "");
         if (!p.progT[t].build_cached(p.dev, kSource, opts, p.cache_dir, err)) return false;
         for (const char *n : {"gemvs", "gemvs1", "swiglu", "norm_q", "mtp_in_q", "bf16_rows", "gdn_conv", "gdn_qk", "gdn_gates",
                               "gdn_delta32", "gdn_gnorm_q", "head_norm_rope", "kv_store", "attn_scores", "attn_softmax",
-                              "attn_values", "attn_part", "attn_part8", "kv_store8", "attn_merge", "attn_gate_q", "route", "guess_top", "moe_combine"}) {
+                              "attn_values", "attn_part", "attn_part8", "kv_store8", "attn_merge", "attn_gate_q", "route", "guess_top", "moe_combine",
+                              "mlp_add"}) {
             cl_kernel k = p.progT[t].kernel(n, err);
             if (!k) return false;
             p.kTok[t][n] = k;
@@ -784,11 +876,11 @@ bool Gpu8::dec_front(const DecodeLayer &L, const DecodeLayer *next, int pos, con
             }
         }
         const float scale = 1.0f / std::sqrt(static_cast<float>(s.hd));
-        if (s.kv_i8 && !(s.hd == 256 && group == 8 && s.kv_chunk % 128 == 0)) {
+        if (s.kv_i8 && !(group == p.ag && s.kv_chunk % 128 == 0)) {
             err = "GPU: an int8 KV cache for a shape flash decoding does not take";
             return false;
         }
-        if (s.hd == 256 && group == 8 && s.kv_chunk % 128 == 0 && (!p.attn_old || s.kv_i8)) {
+        if (group == p.ag && s.kv_chunk % 128 == 0 && (!p.attn_old || s.kv_i8)) {
             // flash decoding: the blocks of 128 positions up to the last token's (every token in each), chunk by
             // chunk, then merged
             const int nb = (pos + T + 127) / 128;
@@ -842,8 +934,13 @@ bool Gpu8::dec_front(const DecodeLayer &L, const DecodeLayer *next, int pos, con
             return false;
     }
     if (!p.go("norm_q", 256, tg, 256, 0, err, p.d_x.mem, p.d_mix.mem, 1, P.mem, p.at(P, L.post_norm, 4), p.d_h.mem, H,
-              s.eps, p.d_X.mem, p.d_XS.mem, p.d_XB.mem) ||
-        !p.go("bf16_rows", static_cast<size_t>(E + 1) * 64, 0, 64, 0, err, P.mem, p.at(P, L.router, 2), p.d_h.mem, H,
+              s.eps, p.d_X.mem, p.d_XS.mem, p.d_XB.mem))
+        return false;
+    if (E == 0) {   // a dense model: no router (its MLP: dec_experts' shared slot, dec_mlp_add)
+        p.cl->clFlush(p.q1);
+        return true;
+    }
+    if (!p.go("bf16_rows", static_cast<size_t>(E + 1) * 64, 0, 64, 0, err, P.mem, p.at(P, L.router, 2), p.d_h.mem, H,
               p.d_rlog.mem, 0, E + 1))
         return false;
     if (next && !p.go("bf16_rows", static_cast<size_t>(E) * 64, 0, 64, 0, err, P.mem, p.at(P, next->router, 2),
@@ -949,6 +1046,13 @@ bool Gpu8::dec_combine(const uint32_t *skip, const uint64_t *um, bool renorm, st
     return p.go("moe_combine", static_cast<size_t>(s.hidden), T > 1 ? static_cast<size_t>(T) : 0, 0, 0, err, p.d_x.mem,
                 p.d_eo.mem, p.d_w.mem, skips, renorm ? 1 : 0, p.d_rlog.mem, s.n_experts, s.hidden, s.top_k, ums,
                 T == 1 ? s.top_k : T * s.top_k);
+}
+
+bool Gpu8::dec_mlp_add(std::string &err) {
+    Impl &p = *p_;
+    const int T = p.T;
+    return p.go("mlp_add", static_cast<size_t>(p.ds.hidden), T > 1 ? static_cast<size_t>(T) : 0, 0, 0, err, p.d_x.mem,
+                p.d_eo.mem, p.ds.hidden);
 }
 
 bool Gpu8::dec_head(const float *final_norm, const QView &lm_head, float *logits, std::string &err) {
@@ -1810,6 +1914,472 @@ bool Gpu8::experts(const std::vector<Expert> &ex, int n, const float *const *hs,
         return false;
     p.cur = "batch";
     return p.finish(err);
+}
+
+// ---- Gemma 4's answer on the GPU ----
+
+static const char *const kGemmaKernels[] = {"gemvs",       "gemvs1",   "g_quant",   "g_norm_q", "g_post",
+                                            "g_post_q",    "g_gelu_q", "g_ple_in",  "g_ple_mid", "g_ple_out",
+                                            "g_head",      "g_kv_store8", "g_attn8", "g_attn_merge", "g_softcap",
+                                            "g_done",      "g_attn_small", "g_kv_store8n", "g_attn_chunk", "g_attn_join",
+                                            "g_attn_pf256", "g_attn_pf512"};
+
+bool Gpu8::setup_gemma(const GemmaShape &s, std::string &err) {
+    Impl &p = *p_;
+    const int G = s.nkv > 0 ? s.nh / s.nkv : 0;
+    if (s.hidden % 256 || s.ple <= 0 || s.ple > 256 || (s.ple & (s.ple - 1)) || s.hd_max > 512 || s.nkv <= 0 ||
+        s.nh % s.nkv || G < 1 || G > 8 || s.kv_chunk % 128 || s.ffn_max % 64 || s.max_tokens < 1) {
+        err = "GPU: a Gemma shape the one-token kernels do not take";
+        return false;
+    }
+    if (!p.q4i) {
+        err = "GPU: Gemma's answer needs the q4i programs";
+        return false;
+    }
+    cl_int e = CL_SUCCESS;
+    p.dprof = std::getenv("GEODE_GPU8_PROF") && std::atoi(std::getenv("GEODE_GPU8_PROF")) != 0;
+    p.nb_max = (s.max_ctx + 127) / 128 + 1;
+    if (!p.q1) p.q1 = p.cl->clCreateCommandQueue(p.dev.context, p.dev.id, p.dprof ? CL_QUEUE_PROFILING_ENABLE : 0, &e);
+    if (!p.q1) {
+        err = std::string("GPU: a plain queue: ") + cl::error_name(e);
+        return false;
+    }
+    const int mt = std::clamp(s.max_tokens, 1, kMaxTokens);
+    for (int t = 1; t <= mt; ++t) {
+        cl::Program &prog = t == 1 ? p.prog1 : p.progT[t];
+        auto &km = t == 1 ? p.k1 : p.kTok[t];
+        if (!prog.build_cached(p.dev, kSource, "-cl-std=CL3.0 -cl-mad-enable -DQ4I -DT=" + std::to_string(t), p.cache_dir,
+                               err))
+            return false;
+        for (const char *n : kGemmaKernels) {
+            cl_kernel k = prog.kernel(n, err);
+            if (!k) return false;
+            km[n] = k;
+        }
+    }
+    const size_t f = 4, nt = static_cast<size_t>(mt), H = static_cast<size_t>(s.hidden);
+    const size_t qw = static_cast<size_t>(s.nh) * s.hd_max, kw = static_cast<size_t>(s.nkv) * s.hd_max;
+    const size_t ff = static_cast<size_t>(s.ffn_max), lp = static_cast<size_t>(s.n_layers) * s.ple;
+    const size_t mc = std::max({H, qw, ff});
+    const size_t nb = static_cast<size_t>(p.nb_max), nh = static_cast<size_t>(s.nh);
+    const bool ok =
+        p.alloc(nt * H * f, p.d_x, err) && p.alloc(nt * H * f, p.d_h, err) && p.alloc(nt * mc, p.d_X, err) &&
+        p.alloc(nt * mc / 16 * f, p.d_XS, err) && p.alloc(nt * mc / 16 * f, p.d_XB, err) &&
+        p.alloc(nt * qw * f, p.d_qg, err) && p.alloc(nt * kw * f, p.d_kb, err) && p.alloc(nt * kw * f, p.d_vb, err) &&
+        p.alloc(nt * qw * f, p.d_core, err) && p.alloc(nt * H * f, p.d_mix, err) &&
+        p.alloc(nt * 2 * ff * f, p.d_gu, err) && p.alloc(nt * ff, p.d_x2, err) &&
+        p.alloc(nt * ff / 16 * f, p.d_x2s, err) && p.alloc(nt * ff / 16 * f, p.d_x2b, err) &&
+        p.alloc(nt * lp * f, p.d_pin, err) && p.alloc(nt * lp * f, p.d_prow, err) &&
+        p.alloc(nt * static_cast<size_t>(s.ple) * f, p.d_pg, err) &&
+        p.alloc(nt * nh * nb * 512 * f, p.d_po, err) && p.alloc(nt * nh * nb * f, p.d_pm, err) &&
+        p.alloc(nt * nh * nb * f, p.d_pl, err) && p.alloc(Impl::kJobs * 32, p.d_jobs, err) &&
+        p.alloc(nt * f, p.d_ymap, err) && p.alloc(nt * static_cast<size_t>(s.vocab) * f, p.d_logits, err) &&
+        p.alloc(4096, p.d_flag, err);
+    if (!ok) return false;
+    auto *ym = reinterpret_cast<int32_t *>(p.d_ymap.host);
+    for (size_t i = 0; i < nt; ++i) ym[i] = static_cast<int32_t>(i);
+    std::memset(p.d_flag.host, 0, 4096);
+    p.wait_sleep = std::getenv("GEODE_GPU8_WAIT") != nullptr;
+    p.gs = s;
+    p.gs.max_tokens = mt;
+    p.gemma = true;
+    p.T = 1;
+    return true;
+}
+
+float *Gpu8::gemma_x() { return reinterpret_cast<float *>(p_->d_x.host); }
+float *Gpu8::gemma_ple() { return reinterpret_cast<float *>(p_->d_prow.host); }
+
+bool Gpu8::gemma_step(const std::vector<GemmaLayer> &layers, const QView &ple_model, const float *ple_proj_norm,
+                      const float *final_norm, const QView &lm_head, int pos, const std::vector<uint8_t *> &kv,
+                      float *logits, int first, float *hidden, std::string &err) {
+    Impl &p = *p_;
+    if (!p.gemma) {
+        err = "GPU: Gemma's answer before setup_gemma";
+        return false;
+    }
+    const auto &s = p.gs;
+    const Impl::Piece &P = p.params;
+    const int H = s.hidden, T = p.T, LP = s.n_layers * s.ple, nh = s.nh, nkv = s.nkv, G = nh / nkv;
+    const size_t tg = T > 1 ? static_cast<size_t>(T) : 0;   // the tokens' dimension (one token: a 1-D launch)
+    if (static_cast<size_t>((pos + T - 1) / s.kv_chunk) >= kv.size()) {
+        err = "GPU: the KV cache has no chunk for this position";
+        return false;
+    }
+    const int s0 = 2 * s.n_attn * s.kv_chunk * s.kv_row / 4;   // the scales' first float in a chunk
+    const float mix = 1.0f / std::sqrt(2.0f);
+    p.cur = "gemma";
+    // the per-layer inputs: ple_model(x), each layer's normed and joined with the table's row
+    bool ok = p.go("g_quant", static_cast<size_t>(H / 16), tg, 0, 0, err, p.d_x.mem, H, p.d_X.mem, p.d_XS.mem, p.d_XB.mem) &&
+              p.gemv_many({{&ple_model, 0, 0}}, p.d_X, p.d_XS, p.d_XB, p.d_pin, H, LP, err) &&
+              p.go("g_ple_in", static_cast<size_t>(LP), tg, static_cast<size_t>(s.ple), 0, err, p.d_pin.mem,
+                   p.d_prow.mem, LP, P.mem, p.at(P, ple_proj_norm, 4), s.eps, s.ple_proj, s.ple_tok, mix);
+    for (size_t li = 0; li < layers.size() && ok; ++li) {
+        const GemmaLayer &L = layers[li];
+        const int hd = L.hd, qw = nh * hd, kw = nkv * hd, ff = L.ffn;
+        if (hd != 256 && hd != 512) {
+            err = "GPU: a head size the attention does not take";
+            return false;
+        }
+        ok = p.go("g_norm_q", 256, tg, 256, 0, err, p.d_x.mem, P.mem, p.at(P, L.in_norm, 4), p.d_h.mem, H, s.eps, p.d_X.mem,
+                  p.d_XS.mem, p.d_XB.mem) &&
+             p.gemv_many({{&L.q, 0, 0}}, p.d_X, p.d_XS, p.d_XB, p.d_qg, H, qw, err) &&
+             p.go("g_head", static_cast<size_t>(qw), tg, static_cast<size_t>(hd), 0, err, p.d_qg.mem, qw, P.mem,
+                  p.at(P, L.q_norm, 4), 1, s.eps, L.pairs, pos, p.at(P, L.freq, 4));
+        if (ok && L.own_kv) {
+            ok = p.gemv_many({{&L.k, 0, 0}}, p.d_X, p.d_XS, p.d_XB, p.d_kb, H, kw, err) &&
+                 p.gemv_many({{&L.v, 0, 0}}, p.d_X, p.d_XS, p.d_XB, p.d_vb, H, kw, err) &&
+                 p.go("g_head", static_cast<size_t>(kw), tg, static_cast<size_t>(hd), 0, err, p.d_kb.mem, kw, P.mem,
+                      p.at(P, L.k_norm, 4), 1, s.eps, L.pairs, pos, p.at(P, L.freq, 4)) &&
+                 p.go("g_head", static_cast<size_t>(kw), tg, static_cast<size_t>(hd), 0, err, p.d_vb.mem, kw, P.mem, 0, 0,
+                      s.eps, 0, pos, 0);
+            // each token's K and V into its position's chunk (a batch may straddle chunks)
+            for (int t = 0; t < T && ok; ++t) {
+                const int pt = pos + t, in_chunk = pt % s.kv_chunk;
+                const Impl::Piece *cp = p.find(kv[static_cast<size_t>(pt / s.kv_chunk)]);
+                if (!cp || cp->host != kv[static_cast<size_t>(pt / s.kv_chunk)]) {
+                    err = "GPU: a KV chunk outside shared memory";
+                    return false;
+                }
+                const int ko = ((0 * s.n_attn + L.slot) * s.kv_chunk + in_chunk) * s.kv_row;
+                const int vo = ((1 * s.n_attn + L.slot) * s.kv_chunk + in_chunk) * s.kv_row;
+                const int ksi = s0 + ((0 * s.n_attn + L.slot) * s.kv_chunk + in_chunk) * nkv;
+                const int vsi = s0 + ((1 * s.n_attn + L.slot) * s.kv_chunk + in_chunk) * nkv;
+                ok = p.go("g_kv_store8", static_cast<size_t>(kw), 0, static_cast<size_t>(hd), 0, err, p.d_kb.mem,
+                          p.d_vb.mem, cp->mem, ko, vo, cp->mem, ksi, vsi, t * kw);
+            }
+        }
+        if (!ok) break;
+        // the positions the tokens see (a sliding layer: from the first token's window on): within two chunks and
+        // 2048 positions, a work group a head and token over all of them (g_attn_small); else flash decoding - the
+        // blocks of 128 positions chunk by chunk, then merged
+        const int nb = (pos + T + 127) / 128;
+        const int lo = L.full ? 0 : std::max(0, pos + 1 - s.window), blo = lo / 128;
+        const int cf = lo / s.kv_chunk, cl = (pos + T - 1) / s.kv_chunk;
+        if (cl - cf <= 1 && pos + T - lo <= 2048) {
+            const Impl::Piece *k0 = p.find(kv[static_cast<size_t>(cf)]), *k1 = p.find(kv[static_cast<size_t>(cl)]);
+            if (!k0 || !k1) {
+                err = "GPU: a KV chunk outside shared memory";
+                return false;
+            }
+            ok = p.go("g_attn_small", static_cast<size_t>(nh) * hd, tg, static_cast<size_t>(hd), 0, err, p.d_qg.mem, qw,
+                      k0->mem, k1->mem, L.slot * s.kv_chunk * s.kv_row, (s.n_attn + L.slot) * s.kv_chunk * s.kv_row,
+                      s.kv_row, s0 + L.slot * s.kv_chunk * nkv, s0 + (s.n_attn + L.slot) * s.kv_chunk * nkv, nkv, G,
+                      cf * s.kv_chunk, s.kv_chunk, pos + 1, L.full ? 0 : s.window, p.d_core.mem, qw);
+        }
+        const bool flash = !(cl - cf <= 1 && pos + T - lo <= 2048);
+        // (flash decoding: a work group a KV head's G query heads, as many tokens as local memory takes)
+        const int hpg = G, pt = hd == 256 ? 2 : 1;
+        for (int c = 0, p0 = 0; flash && p0 < pos + T && ok; ++c, p0 += s.kv_chunk) {
+            if (p0 + s.kv_chunk <= blo * 128) continue;
+            const Impl::Piece *ck = p.find(kv[static_cast<size_t>(c)]);
+            if (!ck) {
+                err = "GPU: a KV chunk outside shared memory";
+                return false;
+            }
+            const int b0 = std::max(blo, p0 / 128), b1 = (std::min(pos + T, p0 + s.kv_chunk) + 127) / 128;
+            if (b1 <= b0) continue;
+            for (int tb = 0; tb < T && ok; tb += pt)
+                ok = p.go("g_attn8", static_cast<size_t>(b1 - b0) * hd, static_cast<size_t>(nh / hpg), static_cast<size_t>(hd),
+                          1, err, p.d_qg.mem, qw, ck->mem, L.slot * s.kv_chunk * s.kv_row,
+                          (s.n_attn + L.slot) * s.kv_chunk * s.kv_row, s.kv_row, ck->mem, s0 + L.slot * s.kv_chunk * nkv,
+                          s0 + (s.n_attn + L.slot) * s.kv_chunk * nkv, nkv, p0, b0, pos + 1, L.full ? 0 : s.window,
+                          p.d_po.mem, p.d_pm.mem, p.d_pl.mem, nb, nh, tb, pt, hpg, G);
+        }
+        ok = ok &&
+             (!flash || p.go("g_attn_merge", static_cast<size_t>(qw), tg, static_cast<size_t>(hd), 0, err, p.d_po.mem,
+                             p.d_pm.mem, p.d_pl.mem, nb, blo, p.d_core.mem, qw, nh)) &&
+             p.go("g_quant", static_cast<size_t>(qw / 16), tg, 0, 0, err, p.d_core.mem, qw, p.d_X.mem, p.d_XS.mem,
+                  p.d_XB.mem) &&
+             p.gemv_many({{&L.o, 0, 0}}, p.d_X, p.d_XS, p.d_XB, p.d_mix, qw, H, err) &&
+             p.go("g_post", 256, tg, 256, 0, err, p.d_x.mem, p.d_mix.mem, P.mem, p.at(P, L.post_attn, 4),
+                  p.at(P, L.pre_ff, 4), p.d_h.mem, H, s.eps, p.d_X.mem, p.d_XS.mem, p.d_XB.mem) &&
+             // the MLP: down(gelu(gate) * up)
+             p.gemv_many({{&L.gate, 0, 0}, {&L.up, 0, ff}}, p.d_X, p.d_XS, p.d_XB, p.d_gu, H, 2 * ff, err) &&
+             p.go("g_gelu_q", static_cast<size_t>(ff / 16), tg, 0, 0, err, p.d_gu.mem, ff, p.d_x2.mem, p.d_x2s.mem,
+                  p.d_x2b.mem) &&
+             p.gemv_many({{&L.down, 0, 0}}, p.d_x2, p.d_x2s, p.d_x2b, p.d_mix, ff, H, err) &&
+             p.go("g_post_q", 256, tg, 256, 0, err, p.d_x.mem, p.d_mix.mem, P.mem, p.at(P, L.post_ff, 4), H, s.eps,
+                  p.d_X.mem, p.d_XS.mem, p.d_XB.mem) &&
+             // the per-layer input: x = (x + norm(proj(gelu(gate(x)) * ple_l))) * scalar
+             p.gemv_many({{&L.ple_gate, 0, 0}}, p.d_X, p.d_XS, p.d_XB, p.d_pg, H, s.ple, err) &&
+             p.go("g_ple_mid", static_cast<size_t>(s.ple / 16), tg, 0, 0, err, p.d_pg.mem, s.ple, p.d_pin.mem, LP,
+                  static_cast<int>(li) * s.ple, p.d_x2.mem, p.d_x2s.mem, p.d_x2b.mem) &&
+             p.gemv_many({{&L.ple_proj, 0, 0}}, p.d_x2, p.d_x2s, p.d_x2b, p.d_h, s.ple, H, err) &&
+             p.go("g_ple_out", 256, tg, 256, 0, err, p.d_x.mem, p.d_h.mem, P.mem, p.at(P, L.ple_norm, 4), L.scalar, H, s.eps);
+        if (ok && (li % 8) == 7) p.cl->clFlush(p.q1);   // (the GPU starts while the rest is enqueued)
+    }
+    // the final norm, lm_head, the soft-cap
+    ok = ok &&
+         p.go("g_norm_q", 256, tg, 256, 0, err, p.d_x.mem, P.mem, p.at(P, final_norm, 4), p.d_h.mem, H, s.eps, p.d_X.mem,
+              p.d_XS.mem, p.d_XB.mem) &&
+         (!logits || (p.gemv_many({{&lm_head, 0, 0}}, p.d_X, p.d_XS, p.d_XB, p.d_logits, H, s.vocab, err) &&
+                      (s.softcap <= 0.0f || p.go("g_softcap", static_cast<size_t>(T) * s.vocab, 0, 0, 0, err,
+                                                   p.d_logits.mem, s.softcap))));
+    // the end polled for (GEODE_GPU8_WAIT=1: asleep in the driver - a waiting CPU lets the DDR's clock fall, the GEMVs
+    // with it), then the finish that makes every write the host's (the tag may arrive before the logits' lines)
+    p.seq = p.seq % 0x7fffff + 1;
+    if (ok && !p.wait_sleep && p.go("g_done", 1, 0, 1, 0, err, p.d_flag.mem, p.seq)) {
+        p.cl->clFlush(p.q1);
+        const auto *vf = reinterpret_cast<const volatile int32_t *>(p.d_flag.host);
+        const double t0 = now_seconds();
+        for (int spins = 0; vf[0] != p.seq; ++spins)
+            if (spins % 4096 == 4095 && now_seconds() - t0 > 10.0) break;   // (the finish below says why)
+    }
+    const cl_int e = p.cl->clFinish(p.q1);
+    p.jcur = 0;
+    p.cur = "batch";
+    if (p.dprof) p.collect();
+    if (!ok) return false;
+    if (e != CL_SUCCESS) {
+        err = std::string("GPU: finish: ") + cl::error_name(e);
+        return false;
+    }
+    if (logits && first < T)
+        std::memcpy(logits, p.d_logits.host + static_cast<size_t>(first) * s.vocab * 4,
+                    static_cast<size_t>(T - first) * static_cast<size_t>(s.vocab) * 4);
+    if (hidden) std::memcpy(hidden, p.d_h.host, static_cast<size_t>(T) * H * 4);
+    return true;
+}
+
+// ---- a Gemma prompt's layers on the GPU
+
+bool Gpu8::setup_gemma_prompt(int cap, std::string &err) {
+    Impl &p = *p_;
+    if (!p.gemma) {
+        err = "GPU: the generating programs first (setup_gemma)";
+        return false;
+    }
+    const auto &s = p.gs;
+    const size_t nt = round_up(static_cast<size_t>(std::max(cap, 1)), kT);
+    if (p.gp_cap >= static_cast<int>(nt)) return true;
+    // the batch program's kernels that write int8 tiles (the rest are the one-token program's: token-independent)
+    for (const char *name : {"g_quant", "g_norm_q", "g_post", "g_post_q", "g_gelu_q", "g_ple_mid", "gemm1", "gemm1x"}) {
+        if (p.kb8.count(name)) continue;
+        cl_kernel k = p.prog.kernel(name, err);
+        if (!k) return false;
+        p.kb8[name] = k;
+    }
+    const size_t f = 4, H = static_cast<size_t>(s.hidden), qw = static_cast<size_t>(s.nh) * s.hd_max;
+    const size_t kw = static_cast<size_t>(s.nkv) * s.hd_max, ff = static_cast<size_t>(s.ffn_max);
+    const size_t P = static_cast<size_t>(s.ple), LP = static_cast<size_t>(s.n_layers) * P;
+    const size_t mc = std::max({H, qw, ff, P});   // the widest input a product takes
+    p.gp_parts = (s.max_ctx + s.kv_chunk - 1) / s.kv_chunk + 1;
+    p.gp_jobs_n = s.n_layers * 10 * static_cast<int>(nt / kT) + 64;
+    const size_t parts = static_cast<size_t>(Impl::kGpGroup) * s.nh * p.gp_parts;
+    const bool ok =
+        p.alloc(nt * H * f, p.gp_x, err) && p.alloc(nt * H * f, p.gp_h, err) && p.alloc(nt * qw * f, p.gp_q, err) &&
+        p.alloc(nt * kw * f, p.gp_k, err) && p.alloc(nt * kw * f, p.gp_v, err) && p.alloc(nt * qw * f, p.gp_core, err) &&
+        p.alloc(nt * H * f, p.gp_mix, err) && p.alloc(nt * 2 * ff * f, p.gp_gu, err) &&
+        p.alloc(nt * LP * f, p.gp_pin, err) && p.alloc(nt * P * f, p.gp_pg, err) && p.alloc(nt * mc, p.gp_X, err) &&
+        p.alloc(nt * mc / 16 * f, p.gp_XS, err) && p.alloc(nt * mc / 16 * f, p.gp_XB, err) &&
+        p.alloc(nt * f, p.gp_ymap, err) && p.alloc(static_cast<size_t>(p.gp_jobs_n) * sizeof(Job), p.gp_jobs, err) &&
+        p.alloc(parts * static_cast<size_t>(s.hd_max) * f, p.gp_po, err) && p.alloc(parts * f, p.gp_pm, err) &&
+        p.alloc(parts * f, p.gp_pl, err);
+    if (!ok) return false;
+    // (the tiles a launch reads past the last token: zeros, never NaN - their rows go nowhere, ymap -1)
+    std::memset(p.gp_X.host, 0, nt * mc);
+    std::memset(p.gp_XS.host, 0, nt * mc / 16 * f);
+    std::memset(p.gp_XB.host, 0, nt * mc / 16 * f);
+    // the flash-style attention where its work groups of 256 fit (its registers: the compiler may allow fewer);
+    // GEODE_GEMMA_PF=0: g_attn_small's
+    const char *g1 = std::getenv("GEODE_GP_GEMM1");
+    p.gp_gemm1 = !(g1 && std::atoi(g1) == 0);
+    // the activation tiles as an image too (GEODE_GP_XI=0: not)
+    const char *xi = std::getenv("GEODE_GP_XI");
+    if (p.gp_Xi) p.cl->clReleaseMemObject(p.gp_Xi), p.gp_Xi = nullptr;
+    if (!(xi && std::atoi(xi) == 0) && p.dev.images && p.dev.image_max_buffer >= nt * mc / 16) {
+        cl_image_format fmt{CL_RGBA, CL_UNSIGNED_INT32};
+        cl_image_desc desc{};
+        desc.image_type = CL_MEM_OBJECT_IMAGE1D_BUFFER;
+        desc.image_width = nt * mc / 16;
+        desc.buffer = p.gp_X.mem;
+        cl_int e = CL_SUCCESS;
+        p.gp_Xi = p.cl->clCreateImage(p.dev.context, CL_MEM_READ_ONLY, &fmt, &desc, nullptr, &e);
+    }
+    const char *pf = std::getenv("GEODE_GEMMA_PF");
+    p.gp_pf = !(pf && std::atoi(pf) == 0);
+    for (const char *name : {"g_attn_pf256", "g_attn_pf512"}) {
+        size_t wg = 0;
+        auto it = p.k1.find(name);
+        if (it == p.k1.end() || p.cl->clGetKernelWorkGroupInfo(it->second, p.dev.id, CL_KERNEL_WORK_GROUP_SIZE,
+                                                               sizeof(wg), &wg, nullptr) != CL_SUCCESS || wg < 256)
+            p.gp_pf = false;
+    }
+    p.gp_cap = static_cast<int>(nt);
+    return true;
+}
+
+float *Gpu8::gemma_prompt_x() { return reinterpret_cast<float *>(p_->gp_x.host); }
+float *Gpu8::gemma_prompt_ple() { return reinterpret_cast<float *>(p_->gp_pin.host); }
+
+bool Gpu8::gemma_prompt(const std::vector<GemmaLayer> &layers, int pos, int n, const std::vector<uint8_t *> &kv,
+                        std::string &err) {
+    Impl &p = *p_;
+    if (!p.gemma || n < 1 || n > p.gp_cap) {
+        err = "GPU: a prompt chunk it was not set up for";
+        return false;
+    }
+    const auto &s = p.gs;
+    if (static_cast<size_t>((pos + n - 1) / s.kv_chunk) >= kv.size()) {
+        err = "GPU: the KV cache has no chunk for this position";
+        return false;
+    }
+    const Impl::Piece &P = p.params;
+    const int H = s.hidden, nh = s.nh, nkv = s.nkv, G = nh / nkv, LP = s.n_layers * s.ple;
+    const int s0 = 2 * s.n_attn * s.kv_chunk * s.kv_row / 4;   // the scales' first float in a chunk
+    const size_t tn = static_cast<size_t>(n);
+    const int T0 = p.T;
+    p.T = 1;   // (go: the one-token program's kernels - the ones used here take any number of tokens)
+    auto *ym = reinterpret_cast<int32_t *>(p.gp_ymap.host);
+    for (int i = 0; i < p.gp_cap; ++i) ym[i] = i < n ? i : -1;
+    p.gp_jcur = 0;
+    p.cur = "gemma prompt";
+    bool ok = true;
+    for (size_t li = 0; li < layers.size() && ok; ++li) {
+        const GemmaLayer &L = layers[li];
+        const int hd = L.hd, qw = nh * hd, kw = nkv * hd, ff = L.ffn;
+        if (hd != 256 && hd != 512) {
+            err = "GPU: a head size the attention does not take";
+            ok = false;
+            break;
+        }
+        ok = p.bgo("g_norm_q", 256, tn, 256, 1, err, p.gp_x.mem, P.mem, p.at(P, L.in_norm, 4), p.gp_h.mem, H, s.eps,
+                   p.gp_X.mem, p.gp_XS.mem, p.gp_XB.mem) &&
+             p.gp_gemm(L.q, n, p.gp_q, qw, 0, err) &&
+             p.go("g_head", static_cast<size_t>(qw), tn, static_cast<size_t>(hd), 1, err, p.gp_q.mem, qw, P.mem,
+                  p.at(P, L.q_norm, 4), 1, s.eps, L.pairs, pos, p.at(P, L.freq, 4));
+        if (ok && L.own_kv) {
+            ok = p.gp_gemm(L.k, n, p.gp_k, kw, 0, err) && p.gp_gemm(L.v, n, p.gp_v, kw, 0, err) &&
+                 p.go("g_head", static_cast<size_t>(kw), tn, static_cast<size_t>(hd), 1, err, p.gp_k.mem, kw, P.mem,
+                      p.at(P, L.k_norm, 4), 1, s.eps, L.pairs, pos, p.at(P, L.freq, 4)) &&
+                 p.go("g_head", static_cast<size_t>(kw), tn, static_cast<size_t>(hd), 1, err, p.gp_v.mem, kw, P.mem, 0,
+                      0, s.eps, 0, pos, 0);
+            // the tokens' K and V into their positions' chunks, a run of a chunk a launch
+            for (int t0 = 0; t0 < n && ok;) {
+                const int pt = pos + t0, ch = pt / s.kv_chunk, in_chunk = pt % s.kv_chunk;
+                const int cnt = std::min(n - t0, s.kv_chunk - in_chunk);
+                const Impl::Piece *cp = p.find(kv[static_cast<size_t>(ch)]);
+                if (!cp || cp->host != kv[static_cast<size_t>(ch)]) {
+                    err = "GPU: a KV chunk outside shared memory";
+                    ok = false;
+                    break;
+                }
+                const int ko = ((0 * s.n_attn + L.slot) * s.kv_chunk + in_chunk) * s.kv_row;
+                const int vo = ((1 * s.n_attn + L.slot) * s.kv_chunk + in_chunk) * s.kv_row;
+                const int ksi = s0 + ((0 * s.n_attn + L.slot) * s.kv_chunk + in_chunk) * nkv;
+                const int vsi = s0 + ((1 * s.n_attn + L.slot) * s.kv_chunk + in_chunk) * nkv;
+                ok = p.go("g_kv_store8n", static_cast<size_t>(kw), static_cast<size_t>(cnt), static_cast<size_t>(hd), 1,
+                          err, p.gp_k.mem, p.gp_v.mem, cp->mem, ko, vo, cp->mem, ksi, vsi, t0 * kw, kw, s.kv_row, nkv);
+                t0 += cnt;
+            }
+        }
+        if (!ok) break;
+        // the attention: every token's positions within two chunks and 2048 - one launch; else a group of tokens at a
+        // time, chunk by chunk, joined
+        const int kb = L.slot * s.kv_chunk * s.kv_row, vb = (s.n_attn + L.slot) * s.kv_chunk * s.kv_row;
+        const int ksb = s0 + L.slot * s.kv_chunk * nkv, vsb = s0 + (s.n_attn + L.slot) * s.kv_chunk * nkv;
+        const int window = L.full ? 0 : s.window;
+        const int lo = L.full ? 0 : std::max(0, pos + 1 - s.window);
+        const int cf = lo / s.kv_chunk, cl = (pos + n - 1) / s.kv_chunk;
+        // flash-style (g_attn_pf*): a work group a KV head and TT tokens - R query rows, each K and V row read once
+        // for them; else a work group a head and token (g_attn_small, g_attn_chunk)
+        const int R = hd == 256 ? 32 : 16;
+        const bool pf = p.gp_pf && R % G == 0;
+        const size_t TT = static_cast<size_t>(R / G);
+        const char *pfk = hd == 256 ? "g_attn_pf256" : "g_attn_pf512";
+        if (cl - cf <= 1 && (pf || pos + n - lo <= 2048)) {
+            const Impl::Piece *k0 = p.find(kv[static_cast<size_t>(cf)]), *k1 = p.find(kv[static_cast<size_t>(cl)]);
+            if (!k0 || !k1) {
+                err = "GPU: a KV chunk outside shared memory";
+                ok = false;
+                break;
+            }
+            if (pf) {
+                ok = p.go(pfk, static_cast<size_t>(256) * nkv, (tn + TT - 1) / TT, 256, 1, err, p.gp_q.mem, qw,
+                          k0->mem, k1->mem, kb, vb, s.kv_row, ksb, vsb, nkv, G, cf * s.kv_chunk, s.kv_chunk, pos + 1,
+                          window, p.gp_core.mem, qw, n, 0, 0, INT32_MAX, p.gp_po.mem, p.gp_pm.mem, p.gp_pl.mem, 0, 0);
+            } else {
+                ok = p.go("g_attn_small", static_cast<size_t>(nh) * hd, tn, static_cast<size_t>(hd), 1, err,
+                          p.gp_q.mem, qw, k0->mem, k1->mem, kb, vb, s.kv_row, ksb, vsb, nkv, G, cf * s.kv_chunk,
+                          s.kv_chunk, pos + 1, window, p.gp_core.mem, qw);
+            }
+        } else {
+            for (int t0 = 0, cnt = 0; t0 < n && ok; t0 += cnt) {
+                const int glo = L.full ? 0 : std::max(0, pos + t0 + 1 - s.window);
+                cnt = std::min(Impl::kGpGroup, n - t0);
+                if (pf) {   // (the buffers: kGpGroup tokens x gp_parts; a pair of chunks a part - fewer parts)
+                    const int most = ((pos + n - 1) / s.kv_chunk - glo / s.kv_chunk + 2) / 2, tt = R / G;
+                    cnt = std::min(n - t0, std::max(Impl::kGpGroup * p.gp_parts / most / tt * tt, tt));
+                }
+                const int gf = glo / s.kv_chunk, gl = (pos + t0 + cnt - 1) / s.kv_chunk;
+                const int parts = pf ? (gl - gf + 2) / 2 : gl - gf + 1;   // (flash-style: two chunks a part)
+                if (parts > p.gp_parts) {
+                    err = "GPU: a prompt's attention past its parts";
+                    ok = false;
+                    break;
+                }
+                for (int c = gf; c <= gl && ok && pf; c += 2) {
+                    const Impl::Piece *k0 = p.find(kv[static_cast<size_t>(c)]);
+                    const Impl::Piece *k1 = c < gl ? p.find(kv[static_cast<size_t>(c + 1)]) : k0;
+                    if (!k0 || !k1) {
+                        err = "GPU: a KV chunk outside shared memory";
+                        ok = false;
+                        break;
+                    }
+                    ok = p.go(pfk, static_cast<size_t>(256) * nkv, (static_cast<size_t>(cnt) + TT - 1) / TT, 256, 1,
+                              err, p.gp_q.mem, qw, k0->mem, k1->mem, kb, vb, s.kv_row, ksb, vsb, nkv, G,
+                              c * s.kv_chunk, s.kv_chunk, pos + 1, window, p.gp_core.mem, qw, t0 + cnt, t0,
+                              c * s.kv_chunk, (c + 2) * s.kv_chunk, p.gp_po.mem, p.gp_pm.mem, p.gp_pl.mem, (c - gf) / 2,
+                              parts);
+                }
+                for (int c = gf; c <= gl && ok && !pf; ++c) {
+                    const Impl::Piece *ck = p.find(kv[static_cast<size_t>(c)]);
+                    if (!ck) {
+                        err = "GPU: a KV chunk outside shared memory";
+                        ok = false;
+                        break;
+                    }
+                    ok = p.go("g_attn_chunk", static_cast<size_t>(nh) * hd, static_cast<size_t>(cnt),
+                              static_cast<size_t>(hd), 1, err, p.gp_q.mem, qw, ck->mem, kb, vb, s.kv_row, ksb, vsb, nkv,
+                              G, c * s.kv_chunk, s.kv_chunk, pos + 1, window, p.gp_po.mem, p.gp_pm.mem, p.gp_pl.mem,
+                              c - gf, parts, t0);
+                }
+                ok = ok && p.go("g_attn_join", static_cast<size_t>(nh) * hd, static_cast<size_t>(cnt),
+                                static_cast<size_t>(hd), 1, err, p.gp_po.mem, p.gp_pm.mem, p.gp_pl.mem, parts,
+                                p.gp_core.mem, qw, t0);
+            }
+        }
+        ok = ok &&
+             p.bgo("g_quant", static_cast<size_t>(qw / 16), tn, 0, 0, err, p.gp_core.mem, qw, p.gp_X.mem, p.gp_XS.mem,
+                   p.gp_XB.mem) &&
+             p.gp_gemm(L.o, n, p.gp_mix, H, 0, err) &&
+             p.bgo("g_post", 256, tn, 256, 1, err, p.gp_x.mem, p.gp_mix.mem, P.mem, p.at(P, L.post_attn, 4),
+                   p.at(P, L.pre_ff, 4), p.gp_h.mem, H, s.eps, p.gp_X.mem, p.gp_XS.mem, p.gp_XB.mem) &&
+             // the MLP: down(gelu(gate) * up), gate and up into one row [gate ff | up ff]
+             p.gp_gemm(L.gate, n, p.gp_gu, 2 * ff, 0, err) && p.gp_gemm(L.up, n, p.gp_gu, 2 * ff, ff, err) &&
+             p.bgo("g_gelu_q", static_cast<size_t>(ff / 16), tn, 0, 0, err, p.gp_gu.mem, ff, p.gp_X.mem, p.gp_XS.mem,
+                   p.gp_XB.mem) &&
+             p.gp_gemm(L.down, n, p.gp_mix, H, 0, err) &&
+             p.bgo("g_post_q", 256, tn, 256, 1, err, p.gp_x.mem, p.gp_mix.mem, P.mem, p.at(P, L.post_ff, 4), H, s.eps,
+                   p.gp_X.mem, p.gp_XS.mem, p.gp_XB.mem) &&
+             // the per-layer input: x = (x + norm(proj(gelu(gate(x)) * ple_l))) * scalar
+             p.gp_gemm(L.ple_gate, n, p.gp_pg, s.ple, 0, err) &&
+             p.bgo("g_ple_mid", static_cast<size_t>(s.ple / 16), tn, 0, 0, err, p.gp_pg.mem, s.ple, p.gp_pin.mem, LP,
+                   static_cast<int>(li) * s.ple, p.gp_X.mem, p.gp_XS.mem, p.gp_XB.mem) &&
+             p.gp_gemm(L.ple_proj, n, p.gp_h, H, 0, err) &&
+             p.go("g_ple_out", 256, tn, 256, 1, err, p.gp_x.mem, p.gp_h.mem, P.mem, p.at(P, L.ple_norm, 4), L.scalar, H,
+                  s.eps);
+        if (ok && (li % 4) == 3) p.cl->clFlush(p.q1);   // (the GPU starts while the rest is enqueued)
+    }
+    const cl_int e = p.cl->clFinish(p.q1);
+    p.T = T0;
+    p.cur = "batch";
+    if (ok && e != CL_SUCCESS) {
+        err = std::string("GPU: a prompt's layers: ") + cl::error_name(e);
+        ok = false;
+    }
+    return ok;
 }
 
 }  // namespace geode

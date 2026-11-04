@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">Чат</string>
     <string name="nav_models">Модели</string>
-    <string name="nav_settings">Настройки</string>
+    <string name="nav_settings">Настройки приложения</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Сообщение</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">Свободно: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Настройки</string>
+    <string name="settings_title">Настройки приложения</string>
     <string name="settings_section_memory">Память</string>
     <string name="settings_memory_budget">Память для модели</string>
     <string name="settings_memory_budget_value">%1$s (рекомендуется %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">Максимальный контекст: %1$d токенов</string>
     <string name="settings_context_desc">Контекст не резервируется заранее: он растёт порциями по ходу чата, и каждая порция забирает память у кеша экспертов (у наименее используемых экспертов) - длинный контекст замедляет генерацию. Новый чат всё возвращает.</string>
+    <string name="settings_context_desc_dense">Контекст не резервируется заранее: он растёт блоками по ходу чата, а длинный контекст занимает больше памяти и замедляет генерацию. Новый чат освобождает всё.</string>
     <string name="settings_context_memory">Контекст (KV-кеш, int8): %1$s при %2$d токенах (%3$s на 1000) · в кеше экспертов тогда останется %4$s</string>
     <string name="settings_context_capped">В этот бюджет памяти помещается не больше %1$d токенов: на этом разговор остановится.</string>
     <string name="settings_section_performance">Производительность</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">Сэмплирование · с рассуждением</string>
     <string name="settings_sampling_plain">Сэмплирование · без рассуждения</string>
     <string name="settings_presence">Штраф за повторы (presence): %1$.2f</string>
-    <string name="settings_presence_desc">Снижает вероятность токенов, которые уже есть в ответе, чтобы длинное рассуждение не ходило по кругу. Qwen рекомендует 1.5.</string>
-    <string name="settings_sampling_reset">Рекомендуемые значения Qwen</string>
+    <string name="settings_presence_desc">Снижает вероятность токенов, которые уже есть в ответе, чтобы длинное рассуждение не ходило по кругу.</string>
+    <string name="settings_sampling_reset">Рекомендованные значения модели</string>
+    <string name="settings_section_features">Что принимает модель</string>
+    <string name="settings_feature_images">Изображения</string>
+    <string name="settings_feature_images_desc">Фото и картинки в чате. Выкл.: энкодер зрения не загружается, что экономит память.</string>
+    <string name="settings_feature_video">Видео</string>
+    <string name="settings_feature_video_desc">Видео в чате: модель смотрит его кадры и слушает звук.</string>
+    <string name="settings_feature_audio">Аудио</string>
+    <string name="settings_feature_audio_desc">Голосовые сообщения и аудиофайлы. Выкл.: аудиоэнкодер не загружается, что экономит память.</string>
+    <string name="settings_feature_draft">Спекулятивное декодирование</string>
+    <string name="settings_feature_draft_desc_mtp">Слой MTP модели набрасывает следующее слово, а модель проверяет два слова за раз: ответы быстрее, текст тот же. Выкл.: по одному слову.</string>
+    <string name="settings_feature_draft_desc_drafter">Небольшая вспомогательная модель Gemma угадывает следующие слова, а основная модель проверяет их за раз: ответы быстрее, текст тот же. Выкл.: по одному слову, а память вспомогательной модели свободна.</string>
+    <string name="settings_sampling_recommended">Рекомендовано для %1$s в этом режиме: температура %2$.2f, top-p %3$.2f, top-k %4$d, штраф за повторы %5$.1f.</string>
+    <string name="settings_context_model_max">Эта модель обучена на контексте до %1$d токенов.</string>
     <string name="settings_think_budget">Бюджет рассуждения: %1$s</string>
     <string name="settings_think_budget_desc">После такого числа токенов рассуждения модели велят сразу отвечать.</string>
     <string name="settings_max_answer">Максимальная длина ответа: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">Малые ядра помогают большим на длинных промптах. На Redmi Note 9 Pro промпты с ними читались медленнее.</string>
     <string name="settings_prefetch">Упреждающее чтение</string>
     <string name="settings_prefetch_desc">Пока считается слой, читает экспертов, которые, по прогнозу, понадобятся следующему.</string>
-    <string name="settings_gpu">Использовать GPU</string>
-    <string name="settings_gpu_desc">Запускает модель на графическом чипе телефона, где это возможно: весь ответ на Adreno 7xx и новее; на Adreno 618 — часть больших матричных умножений промпта.</string>
+    <string name="settings_runs_on">Работает на</string>
+    <string name="settings_runs_on_desc">Какие процессоры телефона выполняют модель. Из двух первый читает запросы, а второй пишет ответ. В списке только те, что есть в этом телефоне; по умолчанию NPU + GPU — быстрее всего там, где есть оба.</string>
     <string name="settings_route_prior">Более быстрые ответы, когда модель не помещается в память</string>
     <string name="settings_route_prior_desc">Предпочитает экспертов, уже загруженных в память, поэтому меньше читается из хранилища. Ответы могут немного измениться в формулировках, а иногда и в качестве. По умолчанию выключено.</string>
-    <string name="settings_npu">Использовать NPU</string>
-    <string name="settings_npu_desc">Использует ИИ-процессор телефона (Snapdragon Hexagon) там, где это помогает: читает промпт быстрее и немного точнее, а на Snapdragon 8 Elite ещё берёт часть экспертов модели 35B и полностью выполняет лёгкую модель. Если его нет или он не прошёл проверку, GPU и процессор работают, как раньше.</string>
     <string name="settings_word_experts">Экспертов на каждое слово</string>
     <string name="settings_word_experts_desc">8 (по умолчанию): все эксперты, которых выбирает модель, — её полное качество. 6 или 4: если кого-то из последних 2 или 4 выбранных экспертов нет в памяти, его пропускают, а не читают. Быстрее, когда модель не помещается в память, но ответы модели становятся менее точными.</string>
     <string name="settings_gpu_share">Доля строк на GPU: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">Сжать контекст</string>
     <string name="chat_compressing">Модель пересказывает разговор…</string>
     <string name="chat_summary_title">Контекст сжат</string>
+    <string name="chat_pruned">Более ранние сообщения удалены после сжатия контекста: модель продолжает по их краткому изложению.</string>
     <string name="chat_summary_note">Дальше модель видит этот пересказ вместо сообщений выше.</string>
     <string name="settings_image_detail">Детализация изображений</string>
     <string name="settings_image_detail_fast">Быстро</string>
     <string name="settings_image_detail_fine">Подробно</string>
     <string name="settings_image_detail_most">Максимум</string>
     <string name="settings_image_detail_desc">Насколько детально модель видит прикреплённое изображение: до 256, 576 или 1024 токенов на него. Чем детальнее, тем лучше читается мелкий текст, но ответ начинается позже (изображение кодируется на ядрах телефона; его веса читаются из хранилища только в этот момент).</string>
-    <string name="settings_auto_compress">Сжимать контекст автоматически</string>
-    <string name="settings_auto_compress_desc">Когда контекст заполнен на 90%, модель пересказывает разговор и продолжает с пересказа (ответ останавливается перед последними 10%, которые уходят на пересказ).</string>
     <string name="answer_notif_title">Geode отвечает</string>
     <string name="answer_notif_text">Модель продолжает работать, пока приложение в фоне.</string>
     <string name="answer_notif_stop">Остановить</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">Спасибо, жалоба отправлена</string>
     <string name="report_queued">Нет связи: жалоба будет отправлена позже</string>
     <string name="cpu_unsupported">Процессор этого телефона не поддерживается: Geode нужен 64-битный процессор ARM с инструкциями dot product (ARMv8.2, большинство телефонов с 2019 года).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Защита</string>
+    <string name="lock_setting">Блокировать приложение</string>
+    <string name="lock_setting_desc">PIN-код или пароль, прежде чем показать чаты: при запуске приложения и когда вы к нему возвращаетесь.</string>
+    <string name="lock_kind_pin">PIN-код</string>
+    <string name="lock_kind_password">Пароль</string>
+    <string name="lock_repeat">Ещё раз</string>
+    <string name="lock_short_pin">Не меньше 4 цифр</string>
+    <string name="lock_short_password">Не меньше 4 символов</string>
+    <string name="lock_mismatch">Они не совпадают</string>
+    <string name="lock_enter_pin">Ваш PIN-код</string>
+    <string name="lock_enter_password">Ваш пароль</string>
+    <string name="lock_wrong">Неверно, попробуйте ещё раз</string>
+    <string name="lock_wait">Слишком много попыток: следующая через %1$s</string>
+    <string name="lock_unlock">Разблокировать</string>
+    <string name="lock_title">Geode заблокирован</string>
+    <string name="lock_fingerprint">Разблокировка отпечатком пальца</string>
+    <string name="lock_fingerprint_desc">Вместо кода. Отпечаток, добавленный в телефон позже, отключает это.</string>
+    <string name="lock_fingerprint_none">Сначала добавьте отпечаток пальца в настройках телефона.</string>
+    <string name="lock_fingerprint_changed">Отпечатки в телефоне изменились, поэтому вход по отпечатку отключён: разблокируйте кодом и включите его снова в Настройках.</string>
+    <string name="lock_prompt_title">Разблокировать Geode</string>
+    <string name="lock_prompt_code">Ввести код</string>
+    <string name="lock_after">Блокировать после выхода из приложения</string>
+    <string name="lock_after_now">Сразу</string>
+    <string name="lock_after_min">%1$d мин</string>
+    <string name="lock_change">Изменить PIN-код или пароль</string>
+    <string name="lock_off">Отключить блокировку</string>
+    <string name="lock_now">Заблокировать сейчас</string>
+    <string name="lock_note">Пока блокировка включена, миниатюра приложения в недавних скрыта. У веб-чата и API в сети свои пароль и ключ.</string>
+    <string name="lock_forgot">Забыли код?</string>
+    <string name="lock_forgot_title">Удалить все чаты?</string>
+    <string name="lock_forgot_text">Без кода другого пути внутрь нет: удалятся все чаты с их фото, звуками и файлами агента, а затем и блокировка. Модели останутся.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Размер текста в чате: %1$d%%</string>
+    <string name="settings_chat_text_desc">Сообщения и поле ввода в чате. Изменить его можно и двумя пальцами прямо в разговоре.</string>
+    <string name="models_search">Поиск моделей</string>
+    <string name="models_cap_photos">Фото</string>
+    <string name="models_cap_video">Видео</string>
+    <string name="models_cap_sound">Звук</string>
+    <string name="models_cap_reasoning">Рассуждения</string>
+    <string name="models_no_match">Ни одна модель не подходит</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Экран</string>
+    <string name="screen_keep">Не выключать экран</string>
+    <string name="screen_keep_off">Нет: как в настройках телефона</string>
+    <string name="screen_keep_answering">Пока Geode отвечает</string>
+    <string name="screen_keep_always">Всегда, пока Geode открыт</string>
+    <string name="screen_black_after">Чёрный экран через %1$d мин без касания</string>
+    <string name="screen_black_never">Чёрный экран: никогда</string>
+    <string name="screen_black_desc">От выгорания: на OLED-экране части изображения, которые не двигаются (панели, поле ввода), за часы могут выгореть. Чёрный экран — не блокировка: телефон остаётся разблокированным, и достаточно коснуться экрана, чтобы Geode вернулся.</string>
+    <string name="screen_black_off_warning">Без чёрного экрана изображение, которое часами не меняется, может навсегда выгореть на OLED-экране.</string>
+    <string name="screen_black_hint">Коснитесь экрана, чтобы вернуться</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">Работает на процессоре (промпт читает NPU, где он есть), на телефонах с 8 ГБ RAM и больше</string>
+    <string name="models_catalog_ram_short">%1$s оперативной памяти: мало для этой модели (ей нужно 8 ГБ)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Голос</string>
+    <string name="voice_read_aloud">Читать ответы вслух</string>
+    <string name="voice_read_aloud_desc">Предложение за предложением, пока ответ пишется. Динамик под ответом прочитает его ещё раз.</string>
+    <string name="voice_rate">Скорость речи: %1$d%%</string>
+    <string name="voice_none">На этом телефоне нет синтезатора речи: установите его (например, «Распознавание и синтез речи от Google») в системных настройках.</string>
+    <string name="chat_speak">Прочитать вслух</string>
+    <string name="chat_speak_stop">Остановить чтение</string>
+    <string name="nav_model_settings">Настройки модели</string>
+    <string name="model_settings_selected">Выбранная модель: %1$s</string>
+    <string name="model_settings_none">Модель ещё не выбрана: эти настройки относятся к той, которую вы выберете.</string>
+    <string name="chat_take_photo">Сделать фото</string>
+    <string name="chat_record_video">Записать видео</string>
+    <string name="chat_camera_denied">Без разрешения на камеру Geode не может снимать фото и видео</string>
+    <string name="chat_camera_none">На этом телефоне нет приложения камеры</string>
+    <string name="voice_voice">Голос</string>
+    <string name="voice_auto">Автоматически: голос по умолчанию для каждого языка</string>
+    <string name="voice_voice_desc">Выбранный голос читает свой язык; другие языки читаются их голосом по умолчанию.</string>
+    <string name="voice_pitch">Высота голоса: %1$d%%</string>
+    <string name="voice_listen">Прослушать</string>
+    <string name="voice_sample">Так будут звучать ответы.</string>
+    <string name="voice_engine_settings">Настройки синтеза речи</string>
+    <string name="voice_network">нужен интернет</string>
+    <string name="chat_read_aloud_on">Ответы читаются вслух</string>
+    <string name="chat_read_aloud_off">Ответы не читаются вслух</string>
+    <string name="voice_engine">Чем читать вслух</string>
+    <string name="voice_engine_system">Синтез речи телефона</string>
+    <string name="voice_engine_geode">Собственный голос Geode</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: 31 язык читается на этом телефоне, среди них украинский, русский и английский; остальные языки читает синтез речи телефона. Он хранится в памяти телефона и занимает около 300 МБ оперативной памяти только пока читает.</string>
+    <string name="voice_download">Скачать голос (%1$s)</string>
+    <string name="voice_downloading">Голос скачивается: %1$d%%</string>
+    <string name="voice_delete">Удалить голос</string>
+    <string name="voice_download_failed">Голос не скачался: %1$s</string>
+    <string name="voice_female">Женский голос %1$d</string>
+    <string name="voice_male">Мужской голос %1$d</string>
+    <string name="voice_license">Лицензия голоса</string>
+    <string name="voice_license_note">Supertonic 3 от Supertone, по лицензии Open RAIL-M: её ограничения использования распространяются на то, что он читает. Работает на sherpa-onnx.</string>
+    <string name="agent_folders">Папки телефона</string>
+    <string name="agent_folders_desc">Папки этого телефона, с которыми может работать агент каждого чата: в его Linux они в /phone. Агент работает с копией каждой, обновляемой перед каждым сообщением; в папку с чтением и записью его изменения возвращаются, когда он закончит. Если забрать папку, удаляется только копия.</string>
+    <string name="agent_folders_none">Папок пока не выдано.</string>
+    <string name="agent_folders_add">Выдать папку</string>
+    <string name="agent_folder_read">Только чтение</string>
+    <string name="agent_folder_write">Чтение и запись</string>
+    <string name="agent_folder_remove">Забрать</string>
+    <string name="agent_folder_files">Файлов: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Копирование…</string>
+    <string name="agent_folder_skipped">Не скопировано: %1$d (копия вмещает не более 10 000 файлов и %2$s)</string>
+    <string name="agent_folder_error">Не удаётся прочитать папку: %1$s</string>
+    <string name="agent_folder_add_failed">Не удалось выдать папку агенту</string>
+    <string name="models_services">Модели сервисов</string>
+    <string name="models_services_desc">Модель сервиса, к которому у вас есть ключ, может отвечать в чатах вместо модели телефона: DeepSeek, OpenRouter, OpenAI, Anthropic или любой сервис, работающий с их API. То, что отправляют чаты, уходит в этот сервис; Linux агента и его файлы остаются на телефоне.</string>
+    <string name="models_service_add">Добавить сервис</string>
+    <string name="models_service_edit">Изменить</string>
+    <string name="service_name">Название</string>
+    <string name="service_url">Адрес API</string>
+    <string name="service_protocol">Протокол</string>
+    <string name="service_key">Ключ API</string>
+    <string name="service_key_kept">Хранится на этом телефоне в зашифрованном виде. Введите новый, чтобы заменить.</string>
+    <string name="service_model">Модель</string>
+    <string name="service_list">Показать его модели</string>
+    <string name="service_list_failed">Не удалось получить модели: %1$s</string>
+    <string name="service_vision">Модель читает изображения</string>
+    <string name="service_context">Контекст, токенов</string>
+    <string name="service_max">Самый длинный ответ, токенов</string>
+    <string name="service_leaves">Чаты с этой моделью отправляются в %1$s и обрабатываются по его условиям. Ключ остаётся на этом телефоне в зашифрованном виде.</string>
+    <string name="chat_empty_remote">Спрашивайте что угодно. Ответы приходят от %1$s (%2$s): то, что вы отправляете, покидает телефон.</string>
+    <string name="chat_info_service">Чат отправляется в %1$s</string>
+    <string name="settings_about_services">А когда вы выбираете модель сервиса на экране «Модели», её чаты отправляются в этот сервис.</string>
 </resources>

@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">چیٹ</string>
     <string name="nav_models">ماڈلز</string>
-    <string name="nav_settings">ترتیبات</string>
+    <string name="nav_settings">ایپ کی ترتیبات</string>
 
     <!-- chat -->
     <string name="chat_input_hint">پیغام</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">خالی جگہ: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">ترتیبات</string>
+    <string name="settings_title">ایپ کی ترتیبات</string>
     <string name="settings_section_memory">میموری</string>
     <string name="settings_memory_budget">ماڈل کے لیے میموری</string>
     <string name="settings_memory_budget_value">%1$s (تجویز کردہ %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">سب سے طویل سیاق: %1$d ٹوکن</string>
     <string name="settings_context_desc">سیاق پہلے سے مختص نہیں ہوتا: چیٹ آگے بڑھنے کے ساتھ یہ حصوں میں بڑھتا ہے، اور ہر حصہ اپنی میموری ماہرین کے کیش سے (اس کے سب سے کم استعمال ہونے والے ماہرین سے) لیتا ہے، اس لیے طویل سیاق جنریشن کو سست کر دیتا ہے۔ نئی چیٹ یہ سب واپس کر دیتی ہے۔</string>
+    <string name="settings_context_desc_dense">سیاق پہلے سے محفوظ نہیں کیا جاتا: چیٹ آگے بڑھنے کے ساتھ یہ ٹکڑوں میں بڑھتا ہے، اور لمبا سیاق زیادہ میموری لیتا ہے اور جنریشن کو سست کرتا ہے۔ نئی چیٹ سب واپس کر دیتی ہے۔</string>
     <string name="settings_context_memory">سیاق (KV کیش، int8): %2$d ٹوکن پر %1$s (%3$s فی 1000) · تب ماہرین کا کیش %4$s رکھتا ہے</string>
     <string name="settings_context_capped">یہ میموری بجٹ زیادہ سے زیادہ %1$d ٹوکن کی گنجائش رکھتا ہے: گفتگو وہیں رک جاتی ہے۔</string>
     <string name="settings_section_performance">کارکردگی</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">سیمپلنگ · استدلال کے ساتھ</string>
     <string name="settings_sampling_plain">سیمپلنگ · استدلال کے بغیر</string>
     <string name="settings_presence">موجودگی پینلٹی: %1$.2f</string>
-    <string name="settings_presence_desc">جواب میں پہلے سے موجود ٹوکنز کے امکانات کم کرتا ہے، تاکہ طویل استدلال دائروں میں نہ گھومے۔ Qwen کی تجویز 1.5 ہے۔</string>
-    <string name="settings_sampling_reset">Qwen کی تجویز کردہ قدریں</string>
+    <string name="settings_presence_desc">جواب میں پہلے سے موجود ٹوکنز کے امکانات کم کرتا ہے، تاکہ طویل استدلال دائروں میں نہ گھومے۔</string>
+    <string name="settings_sampling_reset">ماڈل کی تجویز کردہ قدریں</string>
+    <string name="settings_section_features">ماڈل کیا قبول کرتا ہے</string>
+    <string name="settings_feature_images">تصاویر</string>
+    <string name="settings_feature_images_desc">چیٹ میں فوٹو اور تصاویر۔ بند ہونے پر ویژن انکوڈر لوڈ نہیں ہوتا، جس سے میموری بچتی ہے۔</string>
+    <string name="settings_feature_video">ویڈیو</string>
+    <string name="settings_feature_video_desc">چیٹ میں ویڈیوز: ماڈل ان کے فریم دیکھتا اور آواز سنتا ہے۔</string>
+    <string name="settings_feature_audio">آڈیو</string>
+    <string name="settings_feature_audio_desc">صوتی پیغامات اور آڈیو فائلیں۔ بند ہونے پر آڈیو انکوڈر لوڈ نہیں ہوتا، جس سے میموری بچتی ہے۔</string>
+    <string name="settings_feature_draft">اسپیکیولیٹو ڈیکوڈنگ</string>
+    <string name="settings_feature_draft_desc_mtp">ماڈل کی MTP تہہ اگلے لفظ کا مسودہ بناتی ہے اور ماڈل ایک ساتھ دو الفاظ جانچتا ہے: وہی متن، تیز جوابات۔ بند ہونے پر ایک وقت میں ایک لفظ۔</string>
+    <string name="settings_feature_draft_desc_drafter">Gemma کا چھوٹا معاون ماڈل اگلے الفاظ کا اندازہ لگاتا ہے اور مرکزی ماڈل انہیں ایک ساتھ جانچتا ہے: وہی متن، تیز جوابات۔ بند ہونے پر ایک وقت میں ایک لفظ، اور معاون ماڈل کی میموری بھی بچتی ہے۔</string>
+    <string name="settings_sampling_recommended">اس موڈ میں %1$s کے لیے تجویز: ٹمپریچر %2$.2f، top-p %3$.2f، top-k %4$d، موجودگی پینلٹی %5$.1f۔</string>
+    <string name="settings_context_model_max">اس ماڈل کو %1$d ٹوکن تک کے سیاق کے لیے تربیت دی گئی ہے۔</string>
     <string name="settings_think_budget">استدلال کا بجٹ: %1$s</string>
     <string name="settings_think_budget_desc">استدلال کے اتنے ٹوکنز کے بعد ماڈل سے کہا جاتا ہے کہ اب جواب دے۔</string>
     <string name="settings_max_answer">سب سے طویل جواب: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">طویل پرامپٹس پر چھوٹے کور بڑے کورز کا ساتھ دیتے ہیں۔ Redmi Note 9 Pro پر ان سے پرامپٹس سست ہو گئے۔</string>
     <string name="settings_prefetch">پیشگی پڑھائی</string>
     <string name="settings_prefetch_desc">جب ایک لیئر کا حساب ہو رہا ہوتا ہے، تو وہ ماہرین پڑھ لیتا ہے جن کی اگلی لیئر کو ضرورت کی پیش گوئی ہے۔</string>
-    <string name="settings_gpu">GPU استعمال کریں</string>
-    <string name="settings_gpu_desc">جہاں ممکن ہو ماڈل کو فون کی گرافکس چپ پر چلاتا ہے: Adreno 7xx یا نئے پر پورا جواب؛ Adreno 618 پر پرامپٹ کی بڑی ضربوں کا ایک حصہ۔</string>
+    <string name="settings_runs_on">کس پر چلتا ہے</string>
+    <string name="settings_runs_on_desc">فون کے کون سے پروسیسر ماڈل چلاتے ہیں۔ دو ہوں تو پہلا پرامپٹ پڑھتا ہے اور دوسرا جواب لکھتا ہے۔ فہرست میں صرف وہی ہیں جو اس فون میں ہیں؛ طے شدہ NPU + GPU ہے، جہاں دونوں ہوں وہاں سب سے تیز۔</string>
     <string name="settings_route_prior">ماڈل میموری میں پورا نہ آنے پر تیز جوابات</string>
     <string name="settings_route_prior_desc">پہلے سے میموری میں موجود ایکسپرٹس کو ترجیح دیتا ہے، اس لیے اسٹوریج سے کم پڑھنا پڑتا ہے۔ جوابات کے الفاظ تھوڑے بدل سکتے ہیں اور کبھی کبھار معیار بھی۔ ڈیفالٹ طور پر بند۔</string>
-    <string name="settings_npu">NPU استعمال کریں</string>
-    <string name="settings_npu_desc">جہاں مدد ملے وہاں فون کا AI پروسیسر (Snapdragon Hexagon) استعمال کرتا ہے: پرامپٹ کو تیز اور کچھ زیادہ درست پڑھتا ہے، اور Snapdragon 8 Elite پر 35B ماڈل کے ماہرین کا ایک حصہ بھی سنبھالتا ہے اور ہلکا ماڈل پورا چلاتا ہے۔ اگر یہ نہ ہو یا جانچ میں ناکام ہو تو GPU اور CPU پہلے کی طرح کام کرتے ہیں۔</string>
     <string name="settings_word_experts">ہر لفظ کے لیے ایکسپرٹس</string>
     <string name="settings_word_experts_desc">8 (ڈیفالٹ): ماڈل کے چنے ہوئے تمام ایکسپرٹس، یعنی پوری کوالٹی۔ 6 یا 4: اگر چنے گئے آخری 2 یا 4 ایکسپرٹس میں سے کوئی میموری میں نہ ہو تو اسے پڑھنے کے بجائے چھوڑ دیا جاتا ہے۔ جب ماڈل میموری میں پورا نہ آئے تو یہ تیز ہے، لیکن ماڈل کے جوابات کم درست ہو جاتے ہیں۔</string>
     <string name="settings_gpu_share">قطاروں میں GPU کا حصہ: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">سیاق کمپریس کریں</string>
     <string name="chat_compressing">ماڈل گفتگو کا خلاصہ بنا رہا ہے…</string>
     <string name="chat_summary_title">سیاق کمپریس ہو گیا</string>
+    <string name="chat_pruned">سیاق کو سکیڑنے کے بعد پرانے پیغامات ہٹا دیے گئے: ماڈل ان کے خلاصے سے آگے بڑھتا ہے۔</string>
     <string name="chat_summary_note">یہاں سے آگے ماڈل اوپر کے پیغامات کے بجائے یہ خلاصہ دیکھتا ہے۔</string>
     <string name="settings_image_detail">تصویر کی تفصیل</string>
     <string name="settings_image_detail_fast">تیز</string>
     <string name="settings_image_detail_fine">تفصیلی</string>
     <string name="settings_image_detail_most">زیادہ سے زیادہ</string>
     <string name="settings_image_detail_desc">ماڈل منسلک تصویر کو کتنی باریکی سے دیکھتا ہے: اس کے زیادہ سے زیادہ 256، 576 یا 1024 ٹوکن۔ زیادہ باریکی چھوٹا متن بہتر پڑھتی ہے مگر جواب شروع ہونے میں دیر لگتی ہے (تصویر فون کے کورز پر انکوڈ ہوتی ہے؛ اس کے ویٹس صرف تبھی اسٹوریج سے پڑھے جاتے ہیں)۔</string>
-    <string name="settings_auto_compress">سیاق خودکار طور پر کمپریس کریں</string>
-    <string name="settings_auto_compress_desc">جب سیاق 90% بھر جائے تو ماڈل گفتگو کا خلاصہ بناتا ہے اور خلاصے سے آگے چلتا ہے (جواب آخری 10% سے پہلے رک جاتا ہے، جو خلاصہ لیتا ہے)۔</string>
     <string name="answer_notif_title">Geode جواب دے رہا ہے</string>
     <string name="answer_notif_text">ایپ بیک گراؤنڈ میں ہونے پر بھی ماڈل کام کرتا رہتا ہے۔</string>
     <string name="answer_notif_stop">روکیں</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">شکریہ، رپورٹ بھیج دی گئی</string>
     <string name="report_queued">کنکشن نہیں: رپورٹ بعد میں بھیجی جائے گی</string>
     <string name="cpu_unsupported">اس فون کا پروسیسر تعاون یافتہ نہیں ہے: Geode کو dot product ہدایات والا 64 بٹ ARM پروسیسر درکار ہے (ARMv8.2، 2019 سے زیادہ تر فون)۔</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">رازداری</string>
+    <string name="lock_setting">ایپ لاک کریں</string>
+    <string name="lock_setting_desc">چیٹس دکھانے سے پہلے PIN یا پاس ورڈ: ایپ شروع ہونے پر اور جب آپ اس پر واپس آئیں۔</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">پاس ورڈ</string>
+    <string name="lock_repeat">دوبارہ درج کریں</string>
+    <string name="lock_short_pin">کم از کم 4 ہندسے</string>
+    <string name="lock_short_password">کم از کم 4 حروف</string>
+    <string name="lock_mismatch">دونوں ایک جیسے نہیں ہیں</string>
+    <string name="lock_enter_pin">آپ کا PIN</string>
+    <string name="lock_enter_password">آپ کا پاس ورڈ</string>
+    <string name="lock_wrong">غلط ہے، دوبارہ کوشش کریں</string>
+    <string name="lock_wait">بہت زیادہ کوششیں: اگلی کوشش %1$s بعد</string>
+    <string name="lock_unlock">ان لاک کریں</string>
+    <string name="lock_title">Geode لاک ہے</string>
+    <string name="lock_fingerprint">فنگر پرنٹ سے ان لاک کریں</string>
+    <string name="lock_fingerprint_desc">کوڈ کی جگہ۔ بعد میں فون میں شامل کیا گیا فنگر پرنٹ اسے بند کر دیتا ہے۔</string>
+    <string name="lock_fingerprint_none">پہلے فون کی ترتیبات میں فنگر پرنٹ شامل کریں۔</string>
+    <string name="lock_fingerprint_changed">فون کے فنگر پرنٹس بدل گئے ہیں، اس لیے فنگر پرنٹ بند ہے: کوڈ سے ان لاک کریں اور ترتیبات میں اسے دوبارہ آن کریں۔</string>
+    <string name="lock_prompt_title">Geode ان لاک کریں</string>
+    <string name="lock_prompt_code">کوڈ استعمال کریں</string>
+    <string name="lock_after">ایپ چھوڑنے کے بعد لاک کریں</string>
+    <string name="lock_after_now">فوراً</string>
+    <string name="lock_after_min">%1$d منٹ</string>
+    <string name="lock_change">PIN یا پاس ورڈ تبدیل کریں</string>
+    <string name="lock_off">لاک بند کریں</string>
+    <string name="lock_now">ابھی لاک کریں</string>
+    <string name="lock_note">جب تک لاک آن ہے، حالیہ ایپس میں ایپ کا پیش منظر چھپا رہتا ہے۔ ویب چیٹ اور نیٹ ورک پر API کا اپنا پاس ورڈ اور کلید برقرار رہتی ہے۔</string>
+    <string name="lock_forgot">کوڈ بھول گئے؟</string>
+    <string name="lock_forgot_title">تمام چیٹس حذف کریں؟</string>
+    <string name="lock_forgot_text">کوڈ کے بغیر اندر جانے کا کوئی اور راستہ نہیں: تمام چیٹس اپنی تصاویر، آوازوں اور ایجنٹ کی فائلوں سمیت حذف ہو جاتی ہیں، پھر لاک۔ ماڈلز باقی رہتے ہیں۔</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">چیٹ کے متن کا سائز: %1$d%%</string>
+    <string name="settings_chat_text_desc">چیٹ میں پیغامات اور لکھنے کی جگہ۔ گفتگو پر دو انگلیوں سے بھی اسے بدلا جا سکتا ہے۔</string>
+    <string name="models_search">ماڈلز تلاش کریں</string>
+    <string name="models_cap_photos">تصاویر</string>
+    <string name="models_cap_video">ویڈیو</string>
+    <string name="models_cap_sound">آواز</string>
+    <string name="models_cap_reasoning">استدلال</string>
+    <string name="models_no_match">کوئی ماڈل میل نہیں کھاتا</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">اسکرین</string>
+    <string name="screen_keep">اسکرین آن رکھیں</string>
+    <string name="screen_keep_off">نہیں: فون کے اپنے ٹائم آؤٹ کے مطابق</string>
+    <string name="screen_keep_answering">جب Geode جواب دے رہا ہو</string>
+    <string name="screen_keep_always">ہمیشہ، جب تک Geode کھلا ہے</string>
+    <string name="screen_black_after">%1$d منٹ تک نہ چھونے پر سیاہ اسکرین</string>
+    <string name="screen_black_never">سیاہ اسکرین: کبھی نہیں</string>
+    <string name="screen_black_desc">برن اِن سے بچاؤ: OLED اسکرین پر تصویر کے وہ حصے جو کبھی نہیں ہلتے (بارز، لکھنے کی جگہ) گھنٹوں میں اسکرین پر نقش ہو سکتے ہیں۔ سیاہ اسکرین لاک نہیں ہے: فون اَن لاک رہتا ہے، اور اسکرین کو چھونے سے Geode واپس آ جاتا ہے۔</string>
+    <string name="screen_black_off_warning">سیاہ اسکرین کے بغیر، گھنٹوں تک ساکن رہنے والی تصویر OLED اسکرین پر ہمیشہ کے لیے نقش ہو سکتی ہے۔</string>
+    <string name="screen_black_hint">واپس آنے کے لیے اسکرین کو چھوئیں</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">پروسیسر پر چلتا ہے (جہاں NPU ہو وہ پرامپٹ پڑھتا ہے)، 8 GB یا زیادہ RAM والے فونز پر</string>
+    <string name="models_catalog_ram_short">%1$s RAM: اس ماڈل کے لیے کم ہے (اسے 8 GB چاہیے)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">آواز</string>
+    <string name="voice_read_aloud">جوابات بلند آواز سے پڑھیں</string>
+    <string name="voice_read_aloud_desc">جملہ بہ جملہ جب جواب لکھا جا رہا ہو۔ جواب کے نیچے اسپیکر اسے دوبارہ پڑھتا ہے۔</string>
+    <string name="voice_rate">بولنے کی رفتار: %1$d%%</string>
+    <string name="voice_none">اس فون میں ٹیکسٹ ٹو اسپیچ انجن نہیں ہے: سسٹم سیٹنگز میں ایک انسٹال کریں (مثلاً Google کی اسپیچ سروسز)۔</string>
+    <string name="chat_speak">بلند آواز سے پڑھیں</string>
+    <string name="chat_speak_stop">پڑھنا روکیں</string>
+    <string name="nav_model_settings">ماڈل کی ترتیبات</string>
+    <string name="model_settings_selected">منتخب ماڈل: %1$s</string>
+    <string name="model_settings_none">ابھی کوئی ماڈل منتخب نہیں ہوا: یہ ترتیبات اس ماڈل پر لاگو ہوتی ہیں جسے آپ منتخب کریں گے۔</string>
+    <string name="chat_take_photo">تصویر لیں</string>
+    <string name="chat_record_video">ویڈیو ریکارڈ کریں</string>
+    <string name="chat_camera_denied">کیمرے کی اجازت کے بغیر Geode تصویریں یا ویڈیو نہیں لے سکتا</string>
+    <string name="chat_camera_none">اس فون پر کوئی کیمرا ایپ نہیں ہے</string>
+    <string name="voice_voice">آواز</string>
+    <string name="voice_auto">خودکار: ہر زبان کی ڈیفالٹ آواز</string>
+    <string name="voice_voice_desc">منتخب آواز اپنی زبان پڑھتی ہے؛ دوسری زبانیں اپنی ڈیفالٹ آواز رکھتی ہیں۔</string>
+    <string name="voice_pitch">آواز کی پچ: %1$d%%</string>
+    <string name="voice_listen">سنیں</string>
+    <string name="voice_sample">جوابات ایسے سنائی دیں گے۔</string>
+    <string name="voice_engine_settings">متن سے تقریر کی ترتیبات</string>
+    <string name="voice_network">انٹرنیٹ درکار</string>
+    <string name="chat_read_aloud_on">جوابات بلند آواز میں پڑھے جاتے ہیں</string>
+    <string name="chat_read_aloud_off">جوابات بلند آواز میں نہیں پڑھے جاتے</string>
+    <string name="voice_engine">کیا بلند آواز میں پڑھتا ہے</string>
+    <string name="voice_engine_system">فون کا ٹیکسٹ ٹو اسپیچ</string>
+    <string name="voice_engine_geode">Geode کی اپنی آواز</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: اس فون پر 31 زبانیں پڑھی جاتی ہیں، جن میں یوکرینی، روسی اور انگریزی شامل ہیں؛ باقی زبانیں فون کا ٹیکسٹ ٹو اسپیچ پڑھتا ہے۔ یہ اسٹوریج میں رہتی ہے اور صرف پڑھتے وقت تقریباً 300 MB میموری لیتی ہے۔</string>
+    <string name="voice_download">آواز ڈاؤن لوڈ کریں (%1$s)</string>
+    <string name="voice_downloading">آواز ڈاؤن لوڈ ہو رہی ہے: %1$d%%</string>
+    <string name="voice_delete">آواز حذف کریں</string>
+    <string name="voice_download_failed">آواز ڈاؤن لوڈ نہیں ہوئی: %1$s</string>
+    <string name="voice_female">خاتون کی آواز %1$d</string>
+    <string name="voice_male">مرد کی آواز %1$d</string>
+    <string name="voice_license">آواز کا لائسنس</string>
+    <string name="voice_license_note">Supertone کی Supertonic 3، Open RAIL-M لائسنس کے تحت: یہ جو پڑھتی ہے اس پر اس کے استعمال کی پابندیاں لاگو ہوتی ہیں۔ sherpa-onnx سے چلتی ہے۔</string>
+    <string name="agent_folders">فون کے فولڈر</string>
+    <string name="agent_folders_desc">اس فون کے وہ فولڈر جن پر ہر چیٹ کا ایجنٹ کام کر سکتا ہے: اس کے Linux میں یہ ‎/phone میں ہوتے ہیں۔ ایجنٹ ہر فولڈر کی ایک کاپی پر کام کرتا ہے، جو ہر پیغام سے پہلے تازہ کی جاتی ہے؛ پڑھنے اور لکھنے والے فولڈر میں ایجنٹ کی تبدیلیاں اس کا کام ختم ہونے پر واپس پہنچتی ہیں۔ فولڈر واپس لینے سے صرف کاپی حذف ہوتی ہے۔</string>
+    <string name="agent_folders_none">ابھی کوئی فولڈر نہیں دیا گیا۔</string>
+    <string name="agent_folders_add">فولڈر دیں</string>
+    <string name="agent_folder_read">صرف پڑھنا</string>
+    <string name="agent_folder_write">پڑھنا اور لکھنا</string>
+    <string name="agent_folder_remove">واپس لیں</string>
+    <string name="agent_folder_files">فائلیں: %1$d · %2$s</string>
+    <string name="agent_folder_copying">کاپی ہو رہا ہے…</string>
+    <string name="agent_folder_skipped">کاپی نہیں ہوئیں: %1$d (ایک کاپی میں زیادہ سے زیادہ 10,000 فائلیں اور %2$s سماتے ہیں)</string>
+    <string name="agent_folder_error">فولڈر پڑھا نہیں جا سکتا: %1$s</string>
+    <string name="agent_folder_add_failed">فولڈر ایجنٹ کو نہیں دیا جا سکا</string>
+    <string name="models_services">سروسز کے ماڈل</string>
+    <string name="models_services_desc">جس سروس کی کلید آپ کے پاس ہے، اس کا ماڈل فون کے ماڈل کی جگہ چیٹ میں جواب دے سکتا ہے: DeepSeek، OpenRouter، OpenAI، Anthropic یا ان کی API بولنے والی کوئی بھی سروس۔ چیٹ جو بھیجتی ہیں وہ اس سروس کو جاتا ہے؛ ایجنٹ کا Linux اور اس کی فائلیں فون پر ہی رہتی ہیں۔</string>
+    <string name="models_service_add">سروس شامل کریں</string>
+    <string name="models_service_edit">ترمیم</string>
+    <string name="service_name">نام</string>
+    <string name="service_url">API پتا</string>
+    <string name="service_protocol">پروٹوکول</string>
+    <string name="service_key">API کلید</string>
+    <string name="service_key_kept">اس فون پر خفیہ کر کے رکھی گئی ہے۔ بدلنے کے لیے نئی لکھیں۔</string>
+    <string name="service_model">ماڈل</string>
+    <string name="service_list">اس کے ماڈل دکھائیں</string>
+    <string name="service_list_failed">ماڈل حاصل نہیں ہو سکے: %1$s</string>
+    <string name="service_vision">ماڈل تصاویر پڑھتا ہے</string>
+    <string name="service_context">سیاق، ٹوکن</string>
+    <string name="service_max">سب سے لمبا جواب، ٹوکن</string>
+    <string name="service_leaves">اس ماڈل والی چیٹ %1$s کو بھیجی جاتی ہیں اور اس کی شرائط کے مطابق سنبھالی جاتی ہیں۔ کلید اس فون پر خفیہ رہتی ہے۔</string>
+    <string name="chat_empty_remote">کچھ بھی پوچھیں۔ جواب %1$s (%2$s) سے آتے ہیں: آپ جو بھیجتے ہیں وہ فون سے باہر جاتا ہے۔</string>
+    <string name="chat_info_service">چیٹ %1$s کو بھیجی جاتی ہے</string>
+    <string name="settings_about_services">اور جب آپ ماڈل اسکرین پر کسی سروس کا ماڈل چنتے ہیں تو اس کی چیٹ اس سروس کو بھیجی جاتی ہیں۔</string>
 </resources>

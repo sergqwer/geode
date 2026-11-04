@@ -19,11 +19,16 @@ import xyz.tifu.geode.GeodeApp
 import xyz.tifu.geode.R
 import xyz.tifu.geode.data.ChatStats
 import xyz.tifu.geode.data.ChatStore
+import xyz.tifu.geode.data.Compactions
 import xyz.tifu.geode.agent.AgentEvent
 import xyz.tifu.geode.agent.AgentTurns
 import xyz.tifu.geode.agent.finished
 import xyz.tifu.geode.agent.withAgent
 import xyz.tifu.geode.ui.chat.ChatMessage
+import xyz.tifu.geode.ui.chat.ChatVideo
+import xyz.tifu.geode.agent.VideoInput
+import xyz.tifu.geode.media.AudioStore
+import xyz.tifu.geode.media.Wav
 import xyz.tifu.geode.util.Json
 import xyz.tifu.geode.util.list
 import xyz.tifu.geode.util.str
@@ -46,6 +51,7 @@ import java.util.concurrent.ConcurrentHashMap
 class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private val password: () -> String?) {
     private val store = ChatStore(app)
     private val images = ImageStore(app)
+    private val clips = AudioStore(app)
     private val random = SecureRandom()
     /** Session token -> when it expires. */
     private val sessions = ConcurrentHashMap<String, Long>()
@@ -79,6 +85,7 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
                 req.method == "GET" && path.startsWith("/web/chats/") -> chat(r, path.removePrefix("/web/chats/"))
                 req.method == "DELETE" && path.startsWith("/web/chats/") -> delete(r, path.removePrefix("/web/chats/"))
                 req.method == "GET" && path.startsWith("/web/img/") -> image(r, path.removePrefix("/web/img/"))
+                req.method == "GET" && path.startsWith("/web/audio/") -> audio(r, path.removePrefix("/web/audio/"))
                 req.method == "POST" && path == "/web/send" -> send(req, r)
                 req.method == "POST" && path == "/web/stop" -> stop(r)
                 else -> r.json(404, mapOf("error" to "No such page: ${req.method} ${req.path}"))
@@ -104,7 +111,7 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
             "Cache-Control" to "no-cache",
             "X-Frame-Options" to "DENY",
             "Referrer-Policy" to "no-referrer",
-            "Content-Security-Policy" to "default-src 'self'; img-src 'self' data: blob:; style-src 'self' " +
+            "Content-Security-Policy" to "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' " +
                 "'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
         ))
     }
@@ -139,6 +146,10 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
             "noModel" to t(R.string.chat_info_no_model),
             "signOut" to t(R.string.web_sign_out),
             "attach" to t(R.string.chat_attach_image),
+            "attachAny" to t(R.string.chat_attach),
+            "audioBad" to t(R.string.chat_audio_unreadable),
+            "videoBad" to t(R.string.chat_video_unreadable),
+            "preparing" to t(R.string.chat_video_preparing),
             "waiting" to t(R.string.web_waiting),
             // with their %1$d / %1$.1f: the page puts the number in
             "reading" to t(R.string.agent_reading),
@@ -219,7 +230,9 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
     private suspend fun me(r: HttpResponder) {
         val m = runCatching { engine.model() }.getOrNull()
         val s = app.settings.flow.first()
-        r.json(200, linkedMapOf("model" to m?.title, "vision" to (m?.vision == true), "thinking" to s.thinking,
+        // (videoSound: a video's sound goes with it - the pack's audio encoder, whatever the audio switch says)
+        r.json(200, linkedMapOf("model" to m?.title, "vision" to (m?.vision == true), "audio" to (m?.audio == true),
+            "video" to (m?.video == true), "videoSound" to (m?.video == true && m.hasAudio), "thinking" to s.thinking,
             "running" to running))
     }
 
@@ -228,7 +241,14 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
         m.error?.let { put("error", it) }
         if (m.tokensPerSecond > 0f) put("tps", m.tokensPerSecond.toDouble())
         if (m.summary) put("summary", true)
+        if (m.compacted) put("compacted", true)
         if (m.images.isNotEmpty()) put("images", m.images)
+        // a clip: its name (/web/audio/<name> plays it) and length; a video: its frames (the first is its poster), its
+        // length, its sound's clip
+        if (m.audio.isNotEmpty()) put("audio", m.audio.map { linkedMapOf("name" to it, "seconds" to clips.seconds(it).toDouble()) })
+        if (m.videos.isNotEmpty()) put("videos", m.videos.map { v ->
+            linkedMapOf("frames" to v.frames, "ms" to v.ms, "audio" to v.audio)
+        })
         // what the agent did on the way: its words between the tools, a line per tool (its main argument, how it ended)
         if (m.steps.isNotEmpty()) put("steps", m.steps.map { st ->
             if (st.tool.isEmpty()) linkedMapOf("words" to st.title)
@@ -264,6 +284,16 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
         r.send(200, "image/jpeg", bytes, mapOf("Cache-Control" to "private, max-age=86400"))
     }
 
+    /** A chat clip as a WAV the browser plays (16 kHz, PCM16). */
+    private suspend fun audio(r: HttpResponder, name: String) {
+        if (name.isEmpty() || name.length > 80 || !name.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' } ||
+            name.startsWith(".") || !name.endsWith(".f32")) throw ApiError(404, "No such clip.")
+        val wav = withContext(Dispatchers.IO) {
+            clips.file(name).takeIf { it.isFile }?.let { Wav.encode(AudioStore.read(it)) }
+        } ?: throw ApiError(404, "No such clip.")
+        r.send(200, "audio/wav", wav, mapOf("Cache-Control" to "private, max-age=86400"))
+    }
+
     /** The browser's own answer stopped whole (the agent's turn, its console and whatever it started). */
     private fun stop(r: HttpResponder) {
         if (running != null) {
@@ -285,10 +315,19 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
             ?: throw ApiError(400, "The body is not a JSON object.")
         val text = b.str("text").orEmpty().trim()
         val sent = b.list("images").orEmpty().filterIsInstance<String>()
-        if (text.isEmpty() && sent.isEmpty()) throw ApiError(400, "Nothing to send.")
+        // clips and videos as the page made them of the picked files: WAVs (16 kHz mono, the first 30 s) and frames
+        // (JPEGs at their seconds) with their sound - the app's own shapes, the file itself never sent
+        val sentClips = b.list("audio").orEmpty().filterIsInstance<String>()
+        val sentVideos = b.list("videos").orEmpty().filterIsInstance<Map<*, *>>()
+        if (text.isEmpty() && sent.isEmpty() && sentClips.isEmpty() && sentVideos.isEmpty()) throw ApiError(400, "Nothing to send.")
+        // each clip is up to 30 s of samples once decoded, each video up to 32 frames: a message's few at most
+        if (sent.size > MAX_IMAGES || sentClips.size > MAX_CLIPS || sentVideos.size > MAX_VIDEOS)
+            throw ApiError(413, "Too many attachments: at most $MAX_IMAGES images, $MAX_CLIPS clips and $MAX_VIDEOS videos a message.")
         if (running != null) throw ApiError(409, "An answer is being written already.")
         val model = engine.model()
         if (sent.isNotEmpty() && !model.vision) throw ApiError(400, "The selected model reads no images.")
+        if (sentClips.isNotEmpty() && !model.audio) throw ApiError(400, "The selected model hears no audio.")
+        if (sentVideos.isNotEmpty() && !model.video) throw ApiError(400, "The selected model watches no video.")
         val id = b.str("chat")?.takeIf(::validId) ?: System.currentTimeMillis().toString()
         // the phone's agent is answering this very chat: its answer first
         if (app.agent.turn.value == id) throw ApiError(409, "An answer is being written already.")
@@ -300,9 +339,18 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
                 runCatching { images.importChatBytes(bytes) }.getOrElse { throw ApiError(400, "An image could not be read.") }
             }
         }
+        val heard = withContext(Dispatchers.IO) { sentClips.map { clip(it) } }
+        val watched = withContext(Dispatchers.IO) { sentVideos.map { video(it, model.hasAudio) } }
         var nextId = (saved?.messages?.maxOfOrNull { it.id } ?: 0L) + 1
-        val question = ChatMessage(nextId++, user = true, text = text, images = names)
-        val title = saved?.title ?: text.lineSequence().first().take(60).ifBlank { app.getString(R.string.chat_image_title) }
+        val question = ChatMessage(nextId++, user = true, text = text, images = names, audio = heard, videos = watched)
+        val title = saved?.title ?: text.lineSequence().first().take(60).ifBlank {
+            app.getString(when {
+                names.isNotEmpty() -> R.string.chat_image_title
+                watched.isNotEmpty() -> R.string.chat_video_title
+                heard.isNotEmpty() -> R.string.chat_voice_title
+                else -> R.string.chat_image_title
+            })
+        }
         val created = id.toLongOrNull() ?: System.currentTimeMillis()
         val before = saved?.messages.orEmpty() + question
         var stats = saved?.stats ?: ChatStats()
@@ -328,6 +376,10 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
             // a chat the agent has no session of yet (one from before every chat was the agent's): its messages so far
             val task = (if (session == null) AgentTurns.earlier(saved?.messages.orEmpty()) else "") + text
             val files = withContext(Dispatchers.IO) { names.map { images.file(it) }.filter { it.isFile } }
+            val sounds = withContext(Dispatchers.IO) { heard.map { clips.file(it) }.filter { it.isFile } }
+            val films = watched.map { v ->
+                VideoInput(v.frames.map { images.file(it) }.zip(v.seconds), v.audio?.let { clips.file(it) }, v.ms)
+            }
             val stop = coroutineScope {
                 // the counts of the agent's requests (the chat's), and the answer's speed
                 val figures = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -338,7 +390,7 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
                     }
                 }
                 try {
-                    app.agent.prompt(id, session, task, files) { e ->
+                    app.agent.prompt(id, session, task, files, sounds, films) { e ->
                         when (e) {
                             is AgentEvent.Session -> session = e.id
                             AgentEvent.Waiting -> out("status", mapOf("waiting" to true))
@@ -349,6 +401,7 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
                             is AgentEvent.ToolCall -> out("tool", linkedMapOf("id" to e.id, "tool" to e.tool,
                                 "args" to AgentTurns.brief(e.input)))
                             is AgentEvent.ToolResult -> out("tool_done", linkedMapOf("id" to e.id, "ok" to e.ok))
+                            is AgentEvent.Compacted -> stats = stats.copy(compactions = stats.compactions + 1)
                         }
                         answer = answer.withAgent(e)
                     }
@@ -376,10 +429,42 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
         }
     }
 
+    /** A clip the page sent (a WAV's base64) into the chat's store; its name. */
+    private fun clip(b64: String): String {
+        val bytes = runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()
+            ?: throw ApiError(400, "A clip's base64 is broken.")
+        val pcm = runCatching { Wav.decode(bytes) }.getOrElse { throw ApiError(400, "A clip is not a WAV the phone reads.") }
+        if (AudioStore.tokens(minOf(pcm.size, AudioStore.MAX_SAMPLES).toLong()) <= 0) throw ApiError(400, "A clip is too short to hear.")
+        return clips.save(pcm)
+    }
+
+    /** A video the page sent - its frames (JPEGs at their seconds) and its sound, when the model [hears] - into the
+     *  chat's stores. */
+    private fun video(v: Map<*, *>, hears: Boolean): ChatVideo {
+        val frames = (v["frames"] as? List<*>).orEmpty().filterIsInstance<Map<*, *>>()
+        if (frames.isEmpty() || frames.size > xyz.tifu.geode.media.VideoDecoder.MAX_FRAMES)
+            throw ApiError(400, "A video has no frames or more than ${xyz.tifu.geode.media.VideoDecoder.MAX_FRAMES}.")
+        val names = frames.map { f ->
+            val bytes = runCatching { Base64.decode(f["data"] as String, Base64.DEFAULT) }.getOrNull()
+                ?: throw ApiError(400, "A video frame's base64 is broken.")
+            runCatching { images.importChatBytes(bytes) }.getOrElse { throw ApiError(400, "A video frame could not be read.") }
+        }
+        val seconds = frames.map { f -> ((f["second"] as? Number)?.toInt() ?: 0).coerceAtLeast(0) }
+        // a sound too short to hear is no sound
+        val sound = (v["audio"] as? String)?.takeIf { hears && it.isNotEmpty() }?.let { b64 ->
+            runCatching { clip(b64) }.getOrNull()
+        }
+        val ms = ((v["ms"] as? Number)?.toLong() ?: 0L).coerceAtLeast(0L)
+        return ChatVideo(names, seconds, sound, ms)
+    }
+
     /** The chat saved as the app saves it (every chat is the agent's: its session goes with it). */
     private suspend fun save(id: String, title: String, created: Long, messages: List<ChatMessage>, stats: ChatStats,
                              session: String?) {
-        withContext(Dispatchers.IO) { runCatching { store.save(id, title, created, messages, stats, true, session) } }
+        // what came before the compactions a chat keeps goes, as in the phone's chat (Compactions)
+        withContext(Dispatchers.IO) {
+            runCatching { store.save(id, title, created, Compactions.prune(messages), stats, true, session) }
+        }
         _changes.tryEmit(id)
     }
 
@@ -387,6 +472,10 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
         private const val COOKIE = "geode_session"
         private const val SESSION_MS = 30L * 24 * 3600_000
         private const val MAX_FAILURES = 10
+        /** A message's attachments at most (each decoded on the phone: images, clips up to 30 s, videos' frames). */
+        private const val MAX_IMAGES = 16
+        private const val MAX_CLIPS = 8
+        private const val MAX_VIDEOS = 4
 
         private val _changes = MutableSharedFlow<String>(extraBufferCapacity = 64)
 

@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">அரட்டை</string>
     <string name="nav_models">மாடல்கள்</string>
-    <string name="nav_settings">அமைப்புகள்</string>
+    <string name="nav_settings">ஆப் அமைப்புகள்</string>
 
     <!-- chat -->
     <string name="chat_input_hint">மெசேஜ்</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">காலி இடம்: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">அமைப்புகள்</string>
+    <string name="settings_title">ஆப் அமைப்புகள்</string>
     <string name="settings_section_memory">நினைவகம்</string>
     <string name="settings_memory_budget">மாடலுக்கான நினைவகம்</string>
     <string name="settings_memory_budget_value">%1$s (பரிந்துரை %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">அதிகபட்ச சூழல்: %1$d டோக்கன்கள்</string>
     <string name="settings_context_desc">சூழலுக்கான இடம் முன்கூட்டியே ஒதுக்கப்படுவதில்லை: அரட்டை தொடரும்போது அது பகுதி பகுதியாக வளர்கிறது, ஒவ்வொரு பகுதியும் தனக்கான நினைவகத்தை நிபுணர் கேஷிலிருந்து (குறைவாகப் பயன்படும் நிபுணர்களிடமிருந்து) எடுக்கிறது - நீண்ட சூழல் உருவாக்கத்தை மெதுவாக்கும். புதிய அரட்டை அனைத்தையும் திருப்பித் தருகிறது.</string>
+    <string name="settings_context_desc_dense">சூழல் முன்கூட்டியே ஒதுக்கப்படுவதில்லை: உரையாடல் தொடரும்போது அது துண்டுகளாக வளர்கிறது, நீண்ட சூழல் அதிக நினைவகத்தை எடுத்து உருவாக்கத்தை மெதுவாக்குகிறது. புதிய உரையாடல் அனைத்தையும் திருப்பித் தருகிறது.</string>
     <string name="settings_context_memory">சூழல் (KV cache, int8): %2$d டோக்கன்களில் %1$s (1000-க்கு %3$s) · அப்போது நிபுணர் கேஷில் %4$s இருக்கும்</string>
     <string name="settings_context_capped">இந்த நினைவக அளவில் அதிகபட்சம் %1$d டோக்கன்கள் மட்டுமே பொருந்தும்: உரையாடல் அங்கேயே நின்றுவிடும்.</string>
     <string name="settings_section_performance">செயல்திறன்</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">சாம்ப்ளிங் · சிந்தனையுடன்</string>
     <string name="settings_sampling_plain">சாம்ப்ளிங் · சிந்தனை இல்லாமல்</string>
     <string name="settings_presence">Presence penalty: %1$.2f</string>
-    <string name="settings_presence_desc">பதிலில் ஏற்கெனவே உள்ள டோக்கன்களின் வாய்ப்பைக் குறைக்கிறது, இதனால் நீண்ட சிந்தனை ஒரே இடத்தில் சுற்றிக்கொண்டிருக்காது. Qwen 1.5-ஐப் பரிந்துரைக்கிறது.</string>
-    <string name="settings_sampling_reset">Qwen பரிந்துரைக்கும் மதிப்புகள்</string>
+    <string name="settings_presence_desc">பதிலில் ஏற்கெனவே உள்ள டோக்கன்களின் வாய்ப்பைக் குறைக்கிறது, இதனால் நீண்ட சிந்தனை ஒரே இடத்தில் சுற்றிக்கொண்டிருக்காது.</string>
+    <string name="settings_sampling_reset">மாதிரியின் பரிந்துரைக்கப்பட்ட மதிப்புகள்</string>
+    <string name="settings_section_features">மாதிரி ஏற்கும் உள்ளீடுகள்</string>
+    <string name="settings_feature_images">படங்கள்</string>
+    <string name="settings_feature_images_desc">அரட்டையில் புகைப்படங்களும் படங்களும். ஆஃப் செய்தால் காட்சி என்கோடர் ஏற்றப்படாது, இதனால் நினைவகம் சேமிக்கப்படும்.</string>
+    <string name="settings_feature_video">வீடியோ</string>
+    <string name="settings_feature_video_desc">அரட்டையில் வீடியோக்கள்: மாதிரி அவற்றின் ஃபிரேம்களைப் பார்த்து ஒலியைக் கேட்கும்.</string>
+    <string name="settings_feature_audio">ஆடியோ</string>
+    <string name="settings_feature_audio_desc">குரல் செய்திகளும் ஆடியோ கோப்புகளும். ஆஃப் செய்தால் ஆடியோ என்கோடர் ஏற்றப்படாது, இதனால் நினைவகம் சேமிக்கப்படும்.</string>
+    <string name="settings_feature_draft">ஸ்பெகுலேட்டிவ் டீகோடிங்</string>
+    <string name="settings_feature_draft_desc_mtp">மாதிரியின் MTP அடுக்கு அடுத்த சொல்லை வரைவு செய்கிறது; மாதிரி ஒரே நேரத்தில் இரண்டு சொற்களைச் சரிபார்க்கிறது: அதே உரை, விரைவான பதில்கள். ஆஃப் செய்தால் ஒரு நேரத்தில் ஒரு சொல்.</string>
+    <string name="settings_feature_draft_desc_drafter">Gemmaவின் சிறிய துணை மாதிரி அடுத்த சொற்களை ஊகிக்கிறது; முதன்மை மாதிரி அவற்றை ஒரே நேரத்தில் சரிபார்க்கிறது: அதே உரை, விரைவான பதில்கள். ஆஃப் செய்தால் ஒரு நேரத்தில் ஒரு சொல், துணை மாதிரியின் நினைவகமும் சேமிக்கப்படும்.</string>
+    <string name="settings_sampling_recommended">இந்தப் பயன்முறையில் %1$sக்கான பரிந்துரை: வெப்பநிலை %2$.2f, top-p %3$.2f, top-k %4$d, presence penalty %5$.1f.</string>
+    <string name="settings_context_model_max">இந்த மாதிரி %1$d டோக்கன்கள் வரையிலான சூழலுக்குப் பயிற்றுவிக்கப்பட்டது.</string>
     <string name="settings_think_budget">சிந்தனை வரம்பு: %1$s</string>
     <string name="settings_think_budget_desc">இத்தனை சிந்தனை டோக்கன்களுக்குப் பிறகு, உடனே பதிலளிக்குமாறு மாடலுக்குச் சொல்லப்படும்.</string>
     <string name="settings_max_answer">அதிகபட்ச பதில் நீளம்: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">நீண்ட ப்ராம்ப்ட்களில் சிறிய கோர்கள் பெரியவற்றுடன் சேர்ந்து வேலை செய்கின்றன. Redmi Note 9 Pro-வில் அவை ப்ராம்ப்ட்களை மெதுவாக்கின.</string>
     <string name="settings_prefetch">முன்கூட்டியே வாசி</string>
     <string name="settings_prefetch_desc">ஒரு லேயர் கணக்கிடும்போது, அடுத்த லேயருக்குத் தேவைப்படும் என்று கணிக்கப்படும் நிபுணர்களை வாசிக்கிறது.</string>
-    <string name="settings_gpu">GPU-வைப் பயன்படுத்து</string>
-    <string name="settings_gpu_desc">முடிந்த இடங்களில் மாடலை ஃபோனின் கிராஃபிக்ஸ் சிப்பில் இயக்குகிறது: Adreno 7xx அல்லது புதியவற்றில் முழுப் பதிலும்; Adreno 618-இல், ப்ராம்ப்டின் பெரிய பெருக்கல்களில் ஒரு பகுதி.</string>
+    <string name="settings_runs_on">இயங்கும் இடம்</string>
+    <string name="settings_runs_on_desc">மாடலை தொலைபேசியின் எந்தச் செயலிகள் இயக்குகின்றன. இரண்டு என்றால் முதலாவது ப்ராம்ப்ட்களைப் படிக்கும், இரண்டாவது பதிலை எழுதும். இந்தத் தொலைபேசியில் உள்ளவை மட்டுமே பட்டியலில் இருக்கும்; இயல்புநிலை NPU + GPU, இரண்டும் உள்ள இடத்தில் மிக வேகமானது.</string>
     <string name="settings_route_prior">மாடல் நினைவகத்தில் முழுமையாகப் பொருந்தாதபோது வேகமான பதில்கள்</string>
     <string name="settings_route_prior_desc">ஏற்கெனவே நினைவகத்தில் உள்ள நிபுணர்களுக்கு முன்னுரிமை அளிக்கிறது, அதனால் சேமிப்பகத்திலிருந்து குறைவாகப் படிக்கப்படுகிறது. பதில்களின் சொற்கள் சற்று மாறலாம், சில நேரங்களில் தரமும். இயல்பாக முடக்கப்பட்டுள்ளது.</string>
-    <string name="settings_npu">NPU-ஐப் பயன்படுத்து</string>
-    <string name="settings_npu_desc">உதவும் இடங்களில் போனின் AI செயலியை (Snapdragon Hexagon) பயன்படுத்துகிறது: ப்ராம்ப்டை வேகமாகவும் சற்று துல்லியமாகவும் படிக்கிறது, Snapdragon 8 Elite-இல் 35B மாடலின் நிபுணர்களில் ஒரு பகுதியையும் ஏற்று, இலகு மாடலை முழுமையாக இயக்குகிறது. அது இல்லையெனில் அல்லது சோதனையில் தோல்வியடைந்தால் GPU-வும் CPU-வும் முன்பு போலவே வேலை செய்யும்.</string>
     <string name="settings_word_experts">ஒவ்வொரு சொல்லுக்குமான நிபுணர்கள்</string>
     <string name="settings_word_experts_desc">8 (இயல்புநிலை): மாடல் தேர்ந்தெடுக்கும் அனைத்து நிபுணர்களும், அதாவது முழுத் தரம். 6 அல்லது 4: தேர்ந்தெடுக்கப்பட்ட கடைசி 2 அல்லது 4 நிபுணர்களில் ஒன்று நினைவகத்தில் இல்லையெனில், அதைப் படிப்பதற்குப் பதிலாகத் தவிர்க்கப்படும். மாடல் நினைவகத்தில் பொருந்தாதபோது இது வேகமானது, ஆனால் மாடலின் பதில்கள் துல்லியம் குறையும்.</string>
     <string name="settings_gpu_share">வரிசைகளில் GPU-வின் பங்கு: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">சூழலைச் சுருக்கு</string>
     <string name="chat_compressing">மாடல் உரையாடலைச் சுருக்கமாக்குகிறது…</string>
     <string name="chat_summary_title">சூழல் சுருக்கப்பட்டது</string>
+    <string name="chat_pruned">சூழல் சுருக்கப்பட்ட பிறகு பழைய செய்திகள் நீக்கப்பட்டன: மாதிரி அவற்றின் சுருக்கத்திலிருந்து தொடர்கிறது.</string>
     <string name="chat_summary_note">இனி மாடல் மேலே உள்ள மெசேஜ்களுக்குப் பதிலாக இந்தச் சுருக்கத்தைப் பார்க்கும்.</string>
     <string name="settings_image_detail">படத்தின் விவரம்</string>
     <string name="settings_image_detail_fast">வேகமான</string>
     <string name="settings_image_detail_fine">விரிவான</string>
     <string name="settings_image_detail_most">அதிகபட்சம்</string>
     <string name="settings_image_detail_desc">இணைக்கப்பட்ட படத்தை மாடல் எவ்வளவு நுணுக்கமாகப் பார்க்கிறது: அதன் 256, 576 அல்லது 1024 டோக்கன்கள் வரை. நுணுக்கம் அதிகமானால் சிறிய எழுத்துகளை நன்றாக வாசிக்கும், ஆனால் பதில் தொடங்க அதிக நேரம் ஆகும் (படம் ஃபோனின் கோர்களில் என்கோட் செய்யப்படுகிறது; அதன் எடைகள் அப்போது மட்டுமே சேமிப்பகத்திலிருந்து வாசிக்கப்படும்).</string>
-    <string name="settings_auto_compress">சூழலைத் தானாகச் சுருக்கு</string>
-    <string name="settings_auto_compress_desc">சூழல் 90% நிரம்பியதும், மாடல் உரையாடலைச் சுருக்கி அந்தச் சுருக்கத்திலிருந்து தொடர்கிறது (சுருக்கத்துக்குத் தேவையான கடைசி 10% இடத்துக்கு முன்பே பதில் நின்றுவிடும்).</string>
     <string name="answer_notif_title">Geode பதிலளிக்கிறது</string>
     <string name="answer_notif_text">ஆப்ஸ் பின்னணியில் இருக்கும்போதும் மாடல் வேலை செய்துகொண்டிருக்கும்.</string>
     <string name="answer_notif_stop">நிறுத்து</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">நன்றி, புகார் அனுப்பப்பட்டது</string>
     <string name="report_queued">இணைப்பு இல்லை: புகார் பின்னர் அனுப்பப்படும்</string>
     <string name="cpu_unsupported">இந்தத் தொலைபேசியின் செயலி ஆதரிக்கப்படவில்லை: Geode-க்கு dot product கட்டளைகள் கொண்ட 64-பிட் ARM செயலி தேவை (ARMv8.2, 2019 முதல் பெரும்பாலான தொலைபேசிகள்).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">தனியுரிமை</string>
+    <string name="lock_setting">ஆப்ஸைப் பூட்டு</string>
+    <string name="lock_setting_desc">அரட்டைகளைக் காட்டும் முன் PIN அல்லது கடவுச்சொல்: ஆப்ஸ் தொடங்கும்போதும் நீங்கள் அதற்குத் திரும்பும்போதும்.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">கடவுச்சொல்</string>
+    <string name="lock_repeat">மீண்டும் உள்ளிடுக</string>
+    <string name="lock_short_pin">குறைந்தது 4 இலக்கங்கள்</string>
+    <string name="lock_short_password">குறைந்தது 4 எழுத்துகள்</string>
+    <string name="lock_mismatch">இரண்டும் ஒன்றாக இல்லை</string>
+    <string name="lock_enter_pin">உங்கள் PIN</string>
+    <string name="lock_enter_password">உங்கள் கடவுச்சொல்</string>
+    <string name="lock_wrong">தவறு, மீண்டும் முயலவும்</string>
+    <string name="lock_wait">அதிக முயற்சிகள்: அடுத்த முயற்சி %1$s பிறகு</string>
+    <string name="lock_unlock">திற</string>
+    <string name="lock_title">Geode பூட்டப்பட்டுள்ளது</string>
+    <string name="lock_fingerprint">கைரேகை மூலம் திற</string>
+    <string name="lock_fingerprint_desc">குறியீட்டுக்குப் பதிலாக. பின்னர் மொபைலில் சேர்க்கப்படும் கைரேகை இதை அணைக்கும்.</string>
+    <string name="lock_fingerprint_none">முதலில் மொபைலின் அமைப்புகளில் ஒரு கைரேகையைச் சேர்க்கவும்.</string>
+    <string name="lock_fingerprint_changed">மொபைலின் கைரேகைகள் மாறிவிட்டன, அதனால் கைரேகை அணைக்கப்பட்டது: குறியீட்டால் திறந்து அமைப்புகளில் அதை மீண்டும் இயக்கவும்.</string>
+    <string name="lock_prompt_title">Geode-ஐத் திற</string>
+    <string name="lock_prompt_code">குறியீட்டைப் பயன்படுத்து</string>
+    <string name="lock_after">ஆப்ஸை விட்டு வெளியேறிய பின் பூட்டு</string>
+    <string name="lock_after_now">உடனே</string>
+    <string name="lock_after_min">%1$d நிமி</string>
+    <string name="lock_change">PIN அல்லது கடவுச்சொல்லை மாற்று</string>
+    <string name="lock_off">பூட்டை அணை</string>
+    <string name="lock_now">இப்போதே பூட்டு</string>
+    <string name="lock_note">பூட்டு இயக்கத்தில் இருக்கும்வரை, சமீபத்திய ஆப்ஸில் இந்த ஆப்ஸின் முன்னோட்டம் மறைக்கப்படும். வெப் அரட்டையும் நெட்வொர்க்கில் உள்ள API-யும் தங்களின் சொந்தக் கடவுச்சொல்லையும் விசையையும் வைத்திருக்கும்.</string>
+    <string name="lock_forgot">குறியீட்டை மறந்துவிட்டீர்களா?</string>
+    <string name="lock_forgot_title">எல்லா அரட்டைகளையும் நீக்கவா?</string>
+    <string name="lock_forgot_text">குறியீடு இல்லாமல் உள்ளே வர வேறு வழியில்லை: எல்லா அரட்டைகளும் அவற்றின் படங்கள், ஒலிகள், ஏஜென்ட்டின் கோப்புகளுடன் நீக்கப்படும், பின்னர் பூட்டு. மாடல்கள் அப்படியே இருக்கும்.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">அரட்டை எழுத்தின் அளவு: %1$d%%</string>
+    <string name="settings_chat_text_desc">அரட்டையின் செய்திகளும் உள்ளீட்டுப் பெட்டியும். உரையாடலின் மீது இரண்டு விரல்களாலும் இதை மாற்றலாம்.</string>
+    <string name="models_search">மாடல்களைத் தேடு</string>
+    <string name="models_cap_photos">படங்கள்</string>
+    <string name="models_cap_video">வீடியோ</string>
+    <string name="models_cap_sound">ஒலி</string>
+    <string name="models_cap_reasoning">பகுத்தறிவு</string>
+    <string name="models_no_match">பொருந்தும் மாடல் இல்லை</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">திரை</string>
+    <string name="screen_keep">திரையை இயக்கத்தில் வைத்திரு</string>
+    <string name="screen_keep_off">இல்லை: தொலைபேசியின் சொந்த நேர வரம்பு</string>
+    <string name="screen_keep_answering">Geode பதிலளிக்கும்போது</string>
+    <string name="screen_keep_always">எப்போதும், Geode திறந்திருக்கும் வரை</string>
+    <string name="screen_black_after">%1$d நிமிடம் தொடாவிட்டால் கருப்புத் திரை</string>
+    <string name="screen_black_never">கருப்புத் திரை: ஒருபோதும் இல்லை</string>
+    <string name="screen_black_desc">பர்ன்-இன் தடுப்பு: OLED திரையில் ஒருபோதும் அசையாத படப் பகுதிகள் (பட்டைகள், உள்ளீட்டுப் பெட்டி) சில மணிநேரங்களில் திரையில் பதிந்துவிடலாம். கருப்புத் திரை பூட்டு அல்ல: தொலைபேசி திறந்தபடியே இருக்கும், திரையைத் தொட்டால் Geode திரும்ப வரும்.</string>
+    <string name="screen_black_off_warning">கருப்புத் திரை இல்லாமல், மணிக்கணக்கில் அசையாமல் இருக்கும் படம் OLED திரையில் நிரந்தரமாகப் பதிந்துவிடலாம்.</string>
+    <string name="screen_black_hint">திரும்ப திரையைத் தொடவும்</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">செயலியில் இயங்கும் (NPU இருந்தால் அது ப்ராம்ப்டைப் படிக்கும்), 8 GB அல்லது அதற்கு மேல் RAM உள்ள தொலைபேசிகளில்</string>
+    <string name="models_catalog_ram_short">%1$s RAM: இந்த மாடலுக்குப் போதாது (இதற்கு 8 GB தேவை)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">குரல்</string>
+    <string name="voice_read_aloud">பதில்களை உரக்கப் படி</string>
+    <string name="voice_read_aloud_desc">பதில் எழுதப்படும்போதே வாக்கியம் வாக்கியமாக. பதிலின் கீழ் உள்ள ஸ்பீக்கர் அதை மீண்டும் படிக்கும்.</string>
+    <string name="voice_rate">பேச்சு வேகம்: %1$d%%</string>
+    <string name="voice_none">இந்தத் தொலைபேசியில் உரையிலிருந்து பேச்சு இயந்திரம் இல்லை: கணினி அமைப்புகளில் ஒன்றை நிறுவவும் (எ.கா. Google இன் பேச்சுச் சேவைகள்).</string>
+    <string name="chat_speak">உரக்கப் படி</string>
+    <string name="chat_speak_stop">படிப்பதை நிறுத்து</string>
+    <string name="nav_model_settings">மாடல் அமைப்புகள்</string>
+    <string name="model_settings_selected">தேர்ந்தெடுத்த மாடல்: %1$s</string>
+    <string name="model_settings_none">இன்னும் மாடல் எதுவும் தேர்ந்தெடுக்கப்படவில்லை: நீங்கள் தேர்ந்தெடுக்கும் மாடலுக்கு இந்த அமைப்புகள் பொருந்தும்.</string>
+    <string name="chat_take_photo">படம் எடு</string>
+    <string name="chat_record_video">வீடியோ பதிவுசெய்</string>
+    <string name="chat_camera_denied">கேமரா அனுமதி இல்லாமல் Geode படம் அல்லது வீடியோ எடுக்க முடியாது</string>
+    <string name="chat_camera_none">இந்த ஃபோனில் கேமரா ஆப் எதுவும் இல்லை</string>
+    <string name="voice_voice">குரல்</string>
+    <string name="voice_auto">தானியங்கு: ஒவ்வொரு மொழியின் இயல்புக் குரல்</string>
+    <string name="voice_voice_desc">தேர்ந்தெடுத்த குரல் அதன் மொழியைப் படிக்கும்; மற்ற மொழிகள் அவற்றின் இயல்புக் குரலை வைத்திருக்கும்.</string>
+    <string name="voice_pitch">குரலின் சுருதி: %1$d%%</string>
+    <string name="voice_listen">கேள்</string>
+    <string name="voice_sample">பதில்கள் இப்படி ஒலிக்கும்.</string>
+    <string name="voice_engine_settings">உரையிலிருந்து பேச்சு அமைப்புகள்</string>
+    <string name="voice_network">இணையம் தேவை</string>
+    <string name="chat_read_aloud_on">பதில்கள் உரக்கப் படிக்கப்படும்</string>
+    <string name="chat_read_aloud_off">பதில்கள் உரக்கப் படிக்கப்படாது</string>
+    <string name="voice_engine">எது உரக்கப் படிக்கிறது</string>
+    <string name="voice_engine_system">ஃபோனின் உரையிலிருந்து பேச்சு</string>
+    <string name="voice_engine_geode">Geode இன் சொந்தக் குரல்</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: இந்த ஃபோனில் 31 மொழிகள் படிக்கப்படுகின்றன, அவற்றில் உக்ரைனியன், ரஷ்யன், ஆங்கிலம் உண்டு; மற்ற மொழிகளை ஃபோனின் உரையிலிருந்து பேச்சு படிக்கிறது. இது சேமிப்பகத்தில் இருக்கும், படிக்கும்போது மட்டும் சுமார் 300 MB நினைவகத்தை எடுக்கும்.</string>
+    <string name="voice_download">குரலைப் பதிவிறக்கு (%1$s)</string>
+    <string name="voice_downloading">குரல் பதிவிறக்கப்படுகிறது: %1$d%%</string>
+    <string name="voice_delete">குரலை நீக்கு</string>
+    <string name="voice_download_failed">குரல் பதிவிறக்கப்படவில்லை: %1$s</string>
+    <string name="voice_female">பெண் குரல் %1$d</string>
+    <string name="voice_male">ஆண் குரல் %1$d</string>
+    <string name="voice_license">குரலின் உரிமம்</string>
+    <string name="voice_license_note">Supertone இன் Supertonic 3, Open RAIL-M உரிமத்தின் கீழ்: அது படிப்பவற்றுக்கு அதன் பயன்பாட்டுக் கட்டுப்பாடுகள் பொருந்தும். sherpa-onnx மூலம் இயங்குகிறது.</string>
+    <string name="agent_folders">ஃபோனின் கோப்புறைகள்</string>
+    <string name="agent_folders_desc">ஒவ்வொரு அரட்டையின் ஏஜென்ட்டும் பயன்படுத்தக்கூடிய இந்த ஃபோனின் கோப்புறைகள்: அதன் Linux-இல் அவை /phone-இல் இருக்கும். ஏஜென்ட் ஒவ்வொன்றின் நகலிலும் வேலை செய்கிறது, அது ஒவ்வொரு செய்திக்கும் முன் புதுப்பிக்கப்படும்; படிக்கவும் எழுதவும் அனுமதி உள்ள கோப்புறைக்கு, ஏஜென்ட் வேலையை முடித்ததும் அதன் மாற்றங்கள் திரும்பச் செல்லும். கோப்புறையைத் திரும்பப் பெற்றால் நகல் மட்டுமே நீக்கப்படும்.</string>
+    <string name="agent_folders_none">இன்னும் கோப்புறை எதுவும் கொடுக்கப்படவில்லை.</string>
+    <string name="agent_folders_add">கோப்புறையைக் கொடு</string>
+    <string name="agent_folder_read">படிக்க மட்டும்</string>
+    <string name="agent_folder_write">படிக்கவும் எழுதவும்</string>
+    <string name="agent_folder_remove">திரும்பப் பெறு</string>
+    <string name="agent_folder_files">கோப்புகள்: %1$d · %2$s</string>
+    <string name="agent_folder_copying">நகலெடுக்கிறது…</string>
+    <string name="agent_folder_skipped">நகலெடுக்கப்படாதவை: %1$d (ஒரு நகலில் அதிகபட்சம் 10,000 கோப்புகள், %2$s அடங்கும்)</string>
+    <string name="agent_folder_error">கோப்புறையைப் படிக்க முடியவில்லை: %1$s</string>
+    <string name="agent_folder_add_failed">கோப்புறையை ஏஜென்ட்டுக்குக் கொடுக்க முடியவில்லை</string>
+    <string name="models_services">சேவைகளின் மாதிரிகள்</string>
+    <string name="models_services_desc">உங்களிடம் சாவி உள்ள ஒரு சேவையின் மாதிரி, தொலைபேசியின் மாதிரிக்குப் பதிலாக அரட்டைகளில் பதிலளிக்கலாம்: DeepSeek, OpenRouter, OpenAI, Anthropic அல்லது அவற்றின் API-களைப் பேசும் எந்தச் சேவையும். அரட்டைகள் அனுப்புவது அந்தச் சேவைக்குச் செல்லும்; முகவரின் Linux-உம் அதன் கோப்புகளும் தொலைபேசியிலேயே இருக்கும்.</string>
+    <string name="models_service_add">சேவையைச் சேர்</string>
+    <string name="models_service_edit">திருத்து</string>
+    <string name="service_name">பெயர்</string>
+    <string name="service_url">API முகவரி</string>
+    <string name="service_protocol">நெறிமுறை</string>
+    <string name="service_key">API சாவி</string>
+    <string name="service_key_kept">இந்தத் தொலைபேசியில் மறையாக்கம் செய்து வைக்கப்பட்டுள்ளது. மாற்ற புதியதை உள்ளிடவும்.</string>
+    <string name="service_model">மாதிரி</string>
+    <string name="service_list">அதன் மாதிரிகளைக் காட்டு</string>
+    <string name="service_list_failed">மாதிரிகளைப் பெற முடியவில்லை: %1$s</string>
+    <string name="service_vision">மாதிரி படங்களைப் படிக்கும்</string>
+    <string name="service_context">சூழல், டோக்கன்கள்</string>
+    <string name="service_max">மிக நீண்ட பதில், டோக்கன்கள்</string>
+    <string name="service_leaves">இந்த மாதிரியுடனான அரட்டைகள் %1$s-க்கு அனுப்பப்பட்டு அதன் விதிமுறைகளின்படி கையாளப்படும். சாவி இந்தத் தொலைபேசியில் மறையாக்கத்துடன் இருக்கும்.</string>
+    <string name="chat_empty_remote">எதையும் கேளுங்கள். பதில்கள் %1$s (%2$s) இலிருந்து வருகின்றன: நீங்கள் அனுப்புவது தொலைபேசியை விட்டு வெளியேறும்.</string>
+    <string name="chat_info_service">அரட்டை %1$s-க்கு அனுப்பப்படுகிறது</string>
+    <string name="settings_about_services">மாதிரிகள் திரையில் ஒரு சேவையின் மாதிரியைத் தேர்ந்தெடுத்தால், அதன் அரட்டைகள் அந்தச் சேவைக்கு அனுப்பப்படும்.</string>
 </resources>

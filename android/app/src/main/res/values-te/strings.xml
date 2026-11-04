@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">చాట్</string>
     <string name="nav_models">మోడల్స్</string>
-    <string name="nav_settings">సెట్టింగ్‌లు</string>
+    <string name="nav_settings">యాప్ సెట్టింగ్‌లు</string>
 
     <!-- chat -->
     <string name="chat_input_hint">సందేశం</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">ఖాళీ స్థలం: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">సెట్టింగ్‌లు</string>
+    <string name="settings_title">యాప్ సెట్టింగ్‌లు</string>
     <string name="settings_section_memory">మెమరీ</string>
     <string name="settings_memory_budget">మోడల్‌కు మెమరీ</string>
     <string name="settings_memory_budget_value">%1$s (సిఫార్సు %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">గరిష్ఠ కాంటెక్స్ట్: %1$d టోకెన్‌లు</string>
     <string name="settings_context_desc">కాంటెక్స్ట్ ముందుగానే రిజర్వ్ చేయబడదు: చాట్ కొనసాగే కొద్దీ అది భాగాలుగా పెరుగుతుంది, ప్రతి భాగం తన మెమరీని ఎక్స్‌పర్ట్ కాష్ నుండి (తక్కువగా వాడే ఎక్స్‌పర్ట్‌ల నుండి) తీసుకుంటుంది - పొడవైన కాంటెక్స్ట్ జనరేషన్‌ను నెమ్మదిస్తుంది. కొత్త చాట్ దాన్నంతా తిరిగి ఇస్తుంది.</string>
+    <string name="settings_context_desc_dense">సందర్భం ముందుగా రిజర్వ్ చేయబడదు: చాట్ సాగుతున్న కొద్దీ అది ముక్కలుగా పెరుగుతుంది, పొడవైన సందర్భం ఎక్కువ మెమరీ తీసుకుని ఉత్పత్తిని నెమ్మదిస్తుంది. కొత్త చాట్ అంతా తిరిగి ఇస్తుంది.</string>
     <string name="settings_context_memory">కాంటెక్స్ట్ (KV కాష్, int8): %2$d టోకెన్‌ల వద్ద %1$s (1000కి %3$s) · అప్పుడు ఎక్స్‌పర్ట్ కాష్‌కు %4$s మిగులుతుంది</string>
     <string name="settings_context_capped">ఈ మెమరీ బడ్జెట్‌లో గరిష్ఠంగా %1$d టోకెన్‌లు మాత్రమే సరిపోతాయి: సంభాషణ అక్కడ ఆగిపోతుంది.</string>
     <string name="settings_section_performance">పనితీరు</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">శాంప్లింగ్ · ఆలోచనతో</string>
     <string name="settings_sampling_plain">శాంప్లింగ్ · ఆలోచన లేకుండా</string>
     <string name="settings_presence">ప్రెజెన్స్ పెనాల్టీ: %1$.2f</string>
-    <string name="settings_presence_desc">సమాధానంలో ఇప్పటికే ఉన్న టోకెన్‌ల అవకాశాన్ని తగ్గిస్తుంది, తద్వారా పొడవైన ఆలోచన వలయాల్లో తిరగదు. Qwen 1.5 సిఫార్సు చేస్తుంది.</string>
-    <string name="settings_sampling_reset">Qwen సిఫార్సు చేసిన విలువలు</string>
+    <string name="settings_presence_desc">సమాధానంలో ఇప్పటికే ఉన్న టోకెన్‌ల అవకాశాన్ని తగ్గిస్తుంది, తద్వారా పొడవైన ఆలోచన వలయాల్లో తిరగదు.</string>
+    <string name="settings_sampling_reset">మోడల్ సిఫార్సు చేసిన విలువలు</string>
+    <string name="settings_section_features">మోడల్ స్వీకరించే ఇన్‌పుట్‌లు</string>
+    <string name="settings_feature_images">చిత్రాలు</string>
+    <string name="settings_feature_images_desc">చాట్‌లో ఫోటోలు, చిత్రాలు. ఆఫ్ చేస్తే విజన్ ఎన్‌కోడర్ లోడ్ కాదు, దీంతో మెమరీ ఆదా అవుతుంది.</string>
+    <string name="settings_feature_video">వీడియో</string>
+    <string name="settings_feature_video_desc">చాట్‌లో వీడియోలు: మోడల్ వాటి ఫ్రేమ్‌లను చూస్తుంది, శబ్దాన్ని వింటుంది.</string>
+    <string name="settings_feature_audio">ఆడియో</string>
+    <string name="settings_feature_audio_desc">వాయిస్ మెసేజ్‌లు, ఆడియో ఫైల్‌లు. ఆఫ్ చేస్తే ఆడియో ఎన్‌కోడర్ లోడ్ కాదు, దీంతో మెమరీ ఆదా అవుతుంది.</string>
+    <string name="settings_feature_draft">స్పెక్యులేటివ్ డీకోడింగ్</string>
+    <string name="settings_feature_draft_desc_mtp">మోడల్‌లోని MTP పొర తదుపరి పదానికి ముసాయిదా తయారు చేస్తుంది, మోడల్ ఒకేసారి రెండు పదాలను తనిఖీ చేస్తుంది: అదే టెక్స్ట్‌తో వేగమైన సమాధానాలు. ఆఫ్ చేస్తే ఒక్కోసారి ఒక్కో పదం.</string>
+    <string name="settings_feature_draft_desc_drafter">Gemma చిన్న సహాయక మోడల్ తదుపరి పదాలను ఊహిస్తుంది, ప్రధాన మోడల్ వాటిని ఒకేసారి తనిఖీ చేస్తుంది: అదే టెక్స్ట్‌తో వేగమైన సమాధానాలు. ఆఫ్ చేస్తే ఒక్కోసారి ఒక్కో పదం, అలాగే సహాయక మోడల్ మెమరీ ఆదా అవుతుంది.</string>
+    <string name="settings_sampling_recommended">ఈ మోడ్‌లో %1$sకు సిఫార్సు: టెంపరేచర్ %2$.2f, top-p %3$.2f, top-k %4$d, ప్రెజెన్స్ పెనాల్టీ %5$.1f.</string>
+    <string name="settings_context_model_max">ఈ మోడల్‌కు %1$d టోకెన్‌ల వరకు కాంటెక్స్ట్ కోసం శిక్షణ ఇచ్చారు.</string>
     <string name="settings_think_budget">ఆలోచన బడ్జెట్: %1$s</string>
     <string name="settings_think_budget_desc">ఇన్ని ఆలోచన టోకెన్‌ల తర్వాత ఇప్పుడే సమాధానం ఇవ్వమని మోడల్‌కు చెప్పబడుతుంది.</string>
     <string name="settings_max_answer">గరిష్ఠ సమాధానం: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">పొడవైన ప్రాంప్ట్‌లపై చిన్న కోర్‌లు పెద్ద కోర్‌లతో కలిసి పనిచేస్తాయి. Redmi Note 9 Proలో అవి ప్రాంప్ట్‌లను నెమ్మదింపజేశాయి.</string>
     <string name="settings_prefetch">ముందుగా చదవడం</string>
     <string name="settings_prefetch_desc">ఒక లేయర్ లెక్కిస్తున్నప్పుడు, తర్వాతి లేయర్‌కు అవసరమవుతాయని అంచనా వేసిన ఎక్స్‌పర్ట్‌లను చదువుతుంది.</string>
-    <string name="settings_gpu">GPUని ఉపయోగించండి</string>
-    <string name="settings_gpu_desc">సాధ్యమైన చోట మోడల్‌ను ఫోన్ గ్రాఫిక్స్ చిప్‌పై నడుపుతుంది: Adreno 7xx లేదా కొత్తదానిపై మొత్తం సమాధానం; Adreno 618పై ప్రాంప్ట్ పెద్ద గుణకారాలలో కొంత భాగం.</string>
+    <string name="settings_runs_on">దేనిపై నడుస్తుంది</string>
+    <string name="settings_runs_on_desc">ఫోన్‌లోని ఏ ప్రాసెసర్‌లు మోడల్‌ను నడుపుతాయి. రెండు ఉంటే మొదటిది ప్రాంప్ట్‌లను చదువుతుంది, రెండోది సమాధానం రాస్తుంది. ఈ ఫోన్‌లో ఉన్నవి మాత్రమే జాబితాలో ఉంటాయి; డిఫాల్ట్ NPU + GPU, రెండూ ఉన్నచోట అత్యంత వేగవంతమైనది.</string>
     <string name="settings_route_prior">మోడల్ మెమరీలో పూర్తిగా పట్టనప్పుడు వేగంగా సమాధానాలు</string>
     <string name="settings_route_prior_desc">ఇప్పటికే మెమరీలో ఉన్న ఎక్స్‌పర్ట్‌లకు ప్రాధాన్యం ఇస్తుంది, కాబట్టి స్టోరేజ్ నుండి తక్కువ చదవాల్సి వస్తుంది. సమాధానాల పదజాలం కొద్దిగా మారవచ్చు, అప్పుడప్పుడు నాణ్యత కూడా. డిఫాల్ట్‌గా ఆఫ్.</string>
-    <string name="settings_npu">NPUని వాడండి</string>
-    <string name="settings_npu_desc">సహాయపడే చోట ఫోన్ AI ప్రాసెసర్ (Snapdragon Hexagon)ను వాడుతుంది: ప్రాంప్ట్‌ను వేగంగా, కొంచెం ఖచ్చితంగా చదువుతుంది, Snapdragon 8 Elite‌లో 35B మోడల్ ఎక్స్‌పర్ట్‌లలో కొంత భాగాన్నీ తీసుకుని, తేలికపాటి మోడల్‌ను పూర్తిగా నడుపుతుంది. అది లేకపోతే లేదా తనిఖీలో విఫలమైతే GPU, CPU మునుపటిలా పని చేస్తాయి.</string>
     <string name="settings_word_experts">ప్రతి పదానికి ఎక్స్‌పర్ట్‌లు</string>
     <string name="settings_word_experts_desc">8 (డిఫాల్ట్): మోడల్ ఎంచుకున్న అన్ని ఎక్స్‌పర్ట్‌లు, అంటే పూర్తి నాణ్యత. 6 లేదా 4: ఎంచుకున్న చివరి 2 లేదా 4 ఎక్స్‌పర్ట్‌లలో ఏదైనా మెమరీలో లేకపోతే, దాన్ని చదవకుండా దాటవేస్తారు. మోడల్ మెమరీలో పూర్తిగా పట్టనప్పుడు ఇది వేగంగా ఉంటుంది, కానీ మోడల్ సమాధానాలు తక్కువ ఖచ్చితంగా అవుతాయి.</string>
     <string name="settings_gpu_share">వరుసలలో GPU వాటా: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">కాంటెక్స్ట్‌ను కుదించండి</string>
     <string name="chat_compressing">మోడల్ సంభాషణను సంగ్రహిస్తోంది…</string>
     <string name="chat_summary_title">కాంటెక్స్ట్ కుదించబడింది</string>
+    <string name="chat_pruned">సందర్భాన్ని కుదించిన తర్వాత పాత సందేశాలు తొలగించబడ్డాయి: మోడల్ వాటి సారాంశం నుండి కొనసాగుతుంది.</string>
     <string name="chat_summary_note">ఇక్కడి నుండి మోడల్ పై సందేశాలకు బదులుగా ఈ సారాంశాన్ని చూస్తుంది.</string>
     <string name="settings_image_detail">చిత్ర వివరాలు</string>
     <string name="settings_image_detail_fast">వేగం</string>
     <string name="settings_image_detail_fine">వివరంగా</string>
     <string name="settings_image_detail_most">గరిష్ఠం</string>
     <string name="settings_image_detail_desc">జోడించిన చిత్రాన్ని మోడల్ ఎంత సూక్ష్మంగా చూస్తుంది: గరిష్ఠంగా 256, 576 లేదా 1024 టోకెన్‌లు. సూక్ష్మంగా చూస్తే చిన్న అక్షరాలను బాగా చదువుతుంది, కానీ సమాధానం మొదలవడానికి ఎక్కువ సమయం పడుతుంది (చిత్రం ఫోన్ కోర్‌లపై ఎన్‌కోడ్ అవుతుంది; దాని వెయిట్‌లు అప్పుడు మాత్రమే స్టోరేజ్ నుండి చదవబడతాయి).</string>
-    <string name="settings_auto_compress">కాంటెక్స్ట్‌ను ఆటోమేటిక్‌గా కుదించండి</string>
-    <string name="settings_auto_compress_desc">కాంటెక్స్ట్ 90% నిండినప్పుడు, మోడల్ సంభాషణను సంగ్రహించి ఆ సారాంశం నుండి కొనసాగుతుంది (సమాధానం చివరి 10%కి ముందే ఆగుతుంది, అది సారాంశానికి కేటాయించబడింది).</string>
     <string name="answer_notif_title">Geode సమాధానం ఇస్తోంది</string>
     <string name="answer_notif_text">యాప్ బ్యాక్‌గ్రౌండ్‌లో ఉన్నప్పుడు కూడా మోడల్ పని చేస్తూనే ఉంటుంది.</string>
     <string name="answer_notif_stop">ఆపండి</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">ధన్యవాదాలు, రిపోర్ట్ పంపబడింది</string>
     <string name="report_queued">కనెక్షన్ లేదు: రిపోర్ట్ తర్వాత పంపబడుతుంది</string>
     <string name="cpu_unsupported">ఈ ఫోన్ ప్రాసెసర్‌కు మద్దతు లేదు: Geode‌కు dot product సూచనలు ఉన్న 64-బిట్ ARM ప్రాసెసర్ కావాలి (ARMv8.2, 2019 నుంచి చాలా ఫోన్లు).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">గోప్యత</string>
+    <string name="lock_setting">యాప్‌ను లాక్ చేయండి</string>
+    <string name="lock_setting_desc">చాట్‌లు చూపే ముందు PIN లేదా పాస్‌వర్డ్: యాప్ ప్రారంభమైనప్పుడు, మీరు దానికి తిరిగి వచ్చినప్పుడు.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">పాస్‌వర్డ్</string>
+    <string name="lock_repeat">మళ్లీ నమోదు చేయండి</string>
+    <string name="lock_short_pin">కనీసం 4 అంకెలు</string>
+    <string name="lock_short_password">కనీసం 4 అక్షరాలు</string>
+    <string name="lock_mismatch">రెండూ ఒకేలా లేవు</string>
+    <string name="lock_enter_pin">మీ PIN</string>
+    <string name="lock_enter_password">మీ పాస్‌వర్డ్</string>
+    <string name="lock_wrong">తప్పు, మళ్లీ ప్రయత్నించండి</string>
+    <string name="lock_wait">చాలా ఎక్కువ ప్రయత్నాలు: తర్వాతి ప్రయత్నం %1$s తర్వాత</string>
+    <string name="lock_unlock">అన్‌లాక్ చేయండి</string>
+    <string name="lock_title">Geode లాక్ చేయబడింది</string>
+    <string name="lock_fingerprint">వేలిముద్రతో అన్‌లాక్ చేయండి</string>
+    <string name="lock_fingerprint_desc">కోడ్‌కు బదులుగా. తర్వాత ఫోన్‌కు జోడించిన వేలిముద్ర దీన్ని ఆఫ్ చేస్తుంది.</string>
+    <string name="lock_fingerprint_none">ముందుగా ఫోన్ సెట్టింగ్‌లలో వేలిముద్రను జోడించండి.</string>
+    <string name="lock_fingerprint_changed">ఫోన్‌లోని వేలిముద్రలు మారాయి, కాబట్టి వేలిముద్ర ఆఫ్ అయింది: కోడ్‌తో అన్‌లాక్ చేసి సెట్టింగ్‌లలో దాన్ని మళ్లీ ఆన్ చేయండి.</string>
+    <string name="lock_prompt_title">Geodeను అన్‌లాక్ చేయండి</string>
+    <string name="lock_prompt_code">కోడ్ ఉపయోగించండి</string>
+    <string name="lock_after">యాప్ నుండి నిష్క్రమించిన తర్వాత లాక్ చేయండి</string>
+    <string name="lock_after_now">వెంటనే</string>
+    <string name="lock_after_min">%1$d నిమి</string>
+    <string name="lock_change">PIN లేదా పాస్‌వర్డ్ మార్చండి</string>
+    <string name="lock_off">లాక్ ఆఫ్ చేయండి</string>
+    <string name="lock_now">ఇప్పుడే లాక్ చేయండి</string>
+    <string name="lock_note">లాక్ ఆన్‌లో ఉన్నంతవరకు, ఇటీవలి యాప్‌లలో యాప్ ప్రివ్యూ దాచబడుతుంది. వెబ్ చాట్, నెట్‌వర్క్‌లోని API తమ సొంత పాస్‌వర్డ్, కీని ఉంచుకుంటాయి.</string>
+    <string name="lock_forgot">కోడ్ మర్చిపోయారా?</string>
+    <string name="lock_forgot_title">అన్ని చాట్‌లను తొలగించాలా?</string>
+    <string name="lock_forgot_text">కోడ్ లేకుండా లోపలికి రావడానికి వేరే మార్గం లేదు: అన్ని చాట్‌లు వాటి ఫోటోలు, శబ్దాలు, ఏజెంట్ ఫైల్‌లతో సహా తొలగించబడతాయి, ఆ తర్వాత లాక్. మోడల్స్ అలాగే ఉంటాయి.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">చాట్ అక్షరాల పరిమాణం: %1$d%%</string>
+    <string name="settings_chat_text_desc">చాట్‌లోని సందేశాలు, టైప్ చేసే చోటు. సంభాషణపై రెండు వేళ్లతో కూడా దీన్ని మార్చవచ్చు.</string>
+    <string name="models_search">మోడల్స్‌ను వెతకండి</string>
+    <string name="models_cap_photos">ఫోటోలు</string>
+    <string name="models_cap_video">వీడియో</string>
+    <string name="models_cap_sound">ధ్వని</string>
+    <string name="models_cap_reasoning">తర్కం</string>
+    <string name="models_no_match">సరిపోలే మోడల్ ఏదీ లేదు</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">స్క్రీన్</string>
+    <string name="screen_keep">స్క్రీన్‌ను ఆన్‌లో ఉంచు</string>
+    <string name="screen_keep_off">వద్దు: ఫోన్ సొంత టైమ్‌అవుట్ ప్రకారం</string>
+    <string name="screen_keep_answering">Geode సమాధానం ఇస్తున్నప్పుడు</string>
+    <string name="screen_keep_always">ఎల్లప్పుడూ, Geode తెరిచి ఉన్నంత వరకు</string>
+    <string name="screen_black_after">%1$d నిమిషాలు తాకకపోతే నల్ల స్క్రీన్</string>
+    <string name="screen_black_never">నల్ల స్క్రీన్: ఎప్పుడూ వద్దు</string>
+    <string name="screen_black_desc">బర్న్-ఇన్ నుండి రక్షణ: OLED స్క్రీన్‌పై ఎప్పుడూ కదలని చిత్ర భాగాలు (బార్‌లు, టైప్ చేసే చోటు) గంటల్లో స్క్రీన్‌పై ముద్రపడిపోవచ్చు. నల్ల స్క్రీన్ లాక్ కాదు: ఫోన్ అన్‌లాక్‌గానే ఉంటుంది, స్క్రీన్‌ను తాకితే Geode తిరిగి వస్తుంది.</string>
+    <string name="screen_black_off_warning">నల్ల స్క్రీన్ లేకుండా, గంటల తరబడి కదలకుండా ఉన్న చిత్రం OLED స్క్రీన్‌పై శాశ్వతంగా ముద్రపడిపోవచ్చు.</string>
+    <string name="screen_black_hint">తిరిగి రావడానికి స్క్రీన్‌ను తాకండి</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">ప్రాసెసర్‌పై నడుస్తుంది (NPU ఉన్నచోట అది ప్రాంప్ట్‌ను చదువుతుంది), 8 GB లేదా అంతకంటే ఎక్కువ RAM ఉన్న ఫోన్‌లలో</string>
+    <string name="models_catalog_ram_short">%1$s RAM: ఈ మోడల్‌కు సరిపోదు (దీనికి 8 GB కావాలి)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">స్వరం</string>
+    <string name="voice_read_aloud">సమాధానాలను బిగ్గరగా చదువు</string>
+    <string name="voice_read_aloud_desc">సమాధానం రాస్తుండగానే వాక్యం వాక్యంగా. సమాధానం కింది స్పీకర్ దాన్ని మళ్లీ చదువుతుంది.</string>
+    <string name="voice_rate">మాట్లాడే వేగం: %1$d%%</string>
+    <string name="voice_none">ఈ ఫోన్‌లో టెక్స్ట్-టు-స్పీచ్ ఇంజిన్ లేదు: సిస్టమ్ సెట్టింగ్‌లలో ఒకదాన్ని ఇన్‌స్టాల్ చేయండి (ఉదా. Google స్పీచ్ సేవలు).</string>
+    <string name="chat_speak">బిగ్గరగా చదువు</string>
+    <string name="chat_speak_stop">చదవడం ఆపు</string>
+    <string name="nav_model_settings">మోడల్ సెట్టింగ్‌లు</string>
+    <string name="model_settings_selected">ఎంచుకున్న మోడల్: %1$s</string>
+    <string name="model_settings_none">ఇంకా ఏ మోడల్‌నూ ఎంచుకోలేదు: ఈ సెట్టింగ్‌లు మీరు ఎంచుకునే మోడల్‌కు వర్తిస్తాయి.</string>
+    <string name="chat_take_photo">ఫోటో తీయండి</string>
+    <string name="chat_record_video">వీడియో రికార్డ్ చేయండి</string>
+    <string name="chat_camera_denied">కెమెరా అనుమతి లేకుండా Geode ఫోటోలు లేదా వీడియోలు తీయలేదు</string>
+    <string name="chat_camera_none">ఈ ఫోన్‌లో కెమెరా యాప్ లేదు</string>
+    <string name="voice_voice">స్వరం</string>
+    <string name="voice_auto">ఆటోమేటిక్: ప్రతి భాషకు డిఫాల్ట్ స్వరం</string>
+    <string name="voice_voice_desc">ఎంచుకున్న స్వరం తన భాషను చదువుతుంది; ఇతర భాషలు తమ డిఫాల్ట్ స్వరాన్నే ఉంచుకుంటాయి.</string>
+    <string name="voice_pitch">స్వరం పిచ్: %1$d%%</string>
+    <string name="voice_listen">వినండి</string>
+    <string name="voice_sample">సమాధానాలు ఇలా వినిపిస్తాయి.</string>
+    <string name="voice_engine_settings">టెక్స్ట్-టు-స్పీచ్ సెట్టింగ్‌లు</string>
+    <string name="voice_network">ఇంటర్నెట్ అవసరం</string>
+    <string name="chat_read_aloud_on">సమాధానాలను బిగ్గరగా చదువుతుంది</string>
+    <string name="chat_read_aloud_off">సమాధానాలను బిగ్గరగా చదవదు</string>
+    <string name="voice_engine">ఏది బిగ్గరగా చదువుతుంది</string>
+    <string name="voice_engine_system">ఫోన్ యొక్క టెక్స్ట్-టు-స్పీచ్</string>
+    <string name="voice_engine_geode">Geode సొంత గొంతు</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: ఈ ఫోన్‌లో 31 భాషలు చదవబడతాయి, వాటిలో ఉక్రేనియన్, రష్యన్, ఇంగ్లీష్ ఉన్నాయి; ఇతర భాషలను ఫోన్ యొక్క టెక్స్ట్-టు-స్పీచ్ చదువుతుంది. ఇది స్టోరేజ్‌లో ఉంటుంది, చదువుతున్నప్పుడు మాత్రమే సుమారు 300 MB మెమరీ తీసుకుంటుంది.</string>
+    <string name="voice_download">గొంతును డౌన్‌లోడ్ చేయండి (%1$s)</string>
+    <string name="voice_downloading">గొంతు డౌన్‌లోడ్ అవుతోంది: %1$d%%</string>
+    <string name="voice_delete">గొంతును తొలగించండి</string>
+    <string name="voice_download_failed">గొంతు డౌన్‌లోడ్ కాలేదు: %1$s</string>
+    <string name="voice_female">స్త్రీ గొంతు %1$d</string>
+    <string name="voice_male">పురుష గొంతు %1$d</string>
+    <string name="voice_license">గొంతు లైసెన్స్</string>
+    <string name="voice_license_note">Supertone యొక్క Supertonic 3, Open RAIL-M లైసెన్స్ కింద: అది చదివే వాటికి దాని వినియోగ పరిమితులు వర్తిస్తాయి. sherpa-onnx తో నడుస్తుంది.</string>
+    <string name="agent_folders">ఫోన్ ఫోల్డర్‌లు</string>
+    <string name="agent_folders_desc">ప్రతి చాట్ ఏజెంట్ పని చేయగల ఈ ఫోన్ ఫోల్డర్‌లు: దాని Linuxలో అవి /phoneలో ఉంటాయి. ఏజెంట్ ప్రతి దాని కాపీపై పని చేస్తుంది, అది ప్రతి సందేశానికి ముందు నవీకరించబడుతుంది; చదవడం-రాయడం ఫోల్డర్‌కు ఏజెంట్ పని పూర్తయ్యాక దాని మార్పులు తిరిగి చేరతాయి. ఫోల్డర్‌ను వెనక్కి తీసుకుంటే కాపీ మాత్రమే తొలగించబడుతుంది.</string>
+    <string name="agent_folders_none">ఇంకా ఏ ఫోల్డర్ ఇవ్వలేదు.</string>
+    <string name="agent_folders_add">ఫోల్డర్ ఇవ్వండి</string>
+    <string name="agent_folder_read">చదవడం మాత్రమే</string>
+    <string name="agent_folder_write">చదవడం మరియు రాయడం</string>
+    <string name="agent_folder_remove">వెనక్కి తీసుకోండి</string>
+    <string name="agent_folder_files">ఫైల్‌లు: %1$d · %2$s</string>
+    <string name="agent_folder_copying">కాపీ చేస్తోంది…</string>
+    <string name="agent_folder_skipped">కాపీ కానివి: %1$d (ఒక కాపీలో గరిష్ఠంగా 10,000 ఫైల్‌లు, %2$s పడతాయి)</string>
+    <string name="agent_folder_error">ఫోల్డర్‌ను చదవలేకపోతోంది: %1$s</string>
+    <string name="agent_folder_add_failed">ఫోల్డర్‌ను ఏజెంట్‌కు ఇవ్వలేకపోయింది</string>
+    <string name="models_services">సేవల మోడళ్లు</string>
+    <string name="models_services_desc">మీ దగ్గర కీ ఉన్న సేవ యొక్క మోడల్ ఫోన్ మోడల్‌కు బదులుగా చాట్‌లలో జవాబు ఇవ్వగలదు: DeepSeek, OpenRouter, OpenAI, Anthropic లేదా వాటి API లను మాట్లాడే ఏ సేవ అయినా. చాట్‌లు పంపేది ఆ సేవకు వెళ్తుంది; ఏజెంట్ Linux మరియు దాని ఫైళ్లు ఫోన్‌లోనే ఉంటాయి.</string>
+    <string name="models_service_add">సేవను జోడించు</string>
+    <string name="models_service_edit">మార్చు</string>
+    <string name="service_name">పేరు</string>
+    <string name="service_url">API చిరునామా</string>
+    <string name="service_protocol">ప్రోటోకాల్</string>
+    <string name="service_key">API కీ</string>
+    <string name="service_key_kept">ఈ ఫోన్‌లో ఎన్‌క్రిప్ట్ చేసి ఉంచబడింది. మార్చడానికి కొత్తది టైప్ చేయండి.</string>
+    <string name="service_model">మోడల్</string>
+    <string name="service_list">దాని మోడళ్లను చూపించు</string>
+    <string name="service_list_failed">మోడళ్లను పొందలేకపోయాం: %1$s</string>
+    <string name="service_vision">మోడల్ చిత్రాలను చదువుతుంది</string>
+    <string name="service_context">సందర్భం, టోకెన్లు</string>
+    <string name="service_max">అతి పొడవైన జవాబు, టోకెన్లు</string>
+    <string name="service_leaves">ఈ మోడల్‌తో చాట్‌లు %1$s కు పంపబడతాయి మరియు దాని నిబంధనల ప్రకారం నిర్వహించబడతాయి. కీ ఈ ఫోన్‌లో ఎన్‌క్రిప్ట్ చేయబడి ఉంటుంది.</string>
+    <string name="chat_empty_remote">ఏదైనా అడగండి. జవాబులు %1$s (%2$s) నుండి వస్తాయి: మీరు పంపేది ఫోన్ దాటి వెళ్తుంది.</string>
+    <string name="chat_info_service">చాట్ %1$s కు పంపబడుతుంది</string>
+    <string name="settings_about_services">మోడళ్ల తెరపై మీరు ఒక సేవ మోడల్‌ను ఎంచుకుంటే, దాని చాట్‌లు ఆ సేవకు పంపబడతాయి.</string>
 </resources>

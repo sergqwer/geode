@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">對話</string>
     <string name="nav_models">模型</string>
-    <string name="nav_settings">設定</string>
+    <string name="nav_settings">應用程式設定</string>
 
     <!-- chat -->
     <string name="chat_input_hint">訊息</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">可用空間：%1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">設定</string>
+    <string name="settings_title">應用程式設定</string>
     <string name="settings_section_memory">記憶體</string>
     <string name="settings_memory_budget">模型可用記憶體</string>
     <string name="settings_memory_budget_value">%1$s（建議 %2$s）</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k：%1$d</string>
     <string name="settings_context">最長上下文：%1$d 個 token</string>
     <string name="settings_context_desc">上下文不會預先保留：它會隨著對話分段增長，每段都從專家快取（最少使用的專家）中取用記憶體，因此上下文越長，生成越慢。開啟新對話會全部歸還。</string>
+    <string name="settings_context_desc_dense">上下文不會預先保留：它隨對話分塊增長，長上下文會佔用更多記憶體並讓生成變慢。新對話會全部釋放。</string>
     <string name="settings_context_memory">上下文（KV 快取，int8）：%2$d 個 token 時為 %1$s（每 1000 個 %3$s）· 屆時專家快取保留 %4$s</string>
     <string name="settings_context_capped">此記憶體預算最多容納 %1$d 個 token，對話會在此停止。</string>
     <string name="settings_section_performance">效能</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">取樣 · 有思考</string>
     <string name="settings_sampling_plain">取樣 · 無思考</string>
     <string name="settings_presence">存在懲罰：%1$.2f</string>
-    <string name="settings_presence_desc">降低回答中已出現 token 的機率，讓長時間思考不會原地打轉。Qwen 建議 1.5。</string>
-    <string name="settings_sampling_reset">Qwen 建議值</string>
+    <string name="settings_presence_desc">降低回答中已出現 token 的機率，讓長時間思考不會原地打轉。</string>
+    <string name="settings_sampling_reset">模型的建議值</string>
+    <string name="settings_section_features">模型接受的輸入</string>
+    <string name="settings_feature_images">圖片</string>
+    <string name="settings_feature_images_desc">聊天中的照片和圖片。關閉後不載入視覺編碼器，可節省記憶體。</string>
+    <string name="settings_feature_video">影片</string>
+    <string name="settings_feature_video_desc">聊天中的影片：模型會觀看畫面並聆聽聲音。</string>
+    <string name="settings_feature_audio">音訊</string>
+    <string name="settings_feature_audio_desc">語音訊息和音訊檔案。關閉後不載入音訊編碼器，可節省記憶體。</string>
+    <string name="settings_feature_draft">推測解碼</string>
+    <string name="settings_feature_draft_desc_mtp">模型的 MTP 層預擬下一個詞，模型一次驗證兩個詞：回答更快，文字不變。關閉後每次產生一個詞。</string>
+    <string name="settings_feature_draft_desc_drafter">Gemma 的小型草稿模型預測接下來的詞，模型一次驗證這些詞：回答更快，文字不變。關閉後每次產生一個詞，並節省草稿模型佔用的記憶體。</string>
+    <string name="settings_sampling_recommended">此模式下 %1$s 的建議值：溫度 %2$.2f，top-p %3$.2f，top-k %4$d，存在懲罰 %5$.1f。</string>
+    <string name="settings_context_model_max">此模型訓練時支援的上下文長度最多為 %1$d 個 token。</string>
     <string name="settings_think_budget">思考預算：%1$s</string>
     <string name="settings_think_budget_desc">思考 token 達到此數量後，模型會被要求立即回答。</string>
     <string name="settings_max_answer">最長回答：%1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">處理長提示詞時，小核心會與大核心一起運算。在 Redmi Note 9 Pro 上，這反而讓提示詞變慢。</string>
     <string name="settings_prefetch">預先讀取</string>
     <string name="settings_prefetch_desc">在一層運算時，預先讀取預測下一層需要的專家。</string>
-    <string name="settings_gpu">使用 GPU</string>
-    <string name="settings_gpu_desc">盡可能在手機的圖形晶片上執行模型：在 Adreno 7xx 或更新晶片上處理整個回答；在 Adreno 618 上處理提示詞中部分大型矩陣乘積。</string>
+    <string name="settings_runs_on">執行於</string>
+    <string name="settings_runs_on_desc">由手機的哪些處理器執行模型。選擇兩個時，前一個讀取提示，後一個寫回答。只列出這支手機具備的處理器；預設 NPU + GPU，兩者都有時最快。</string>
     <string name="settings_route_prior">模型無法完全放入記憶體時加快回答</string>
     <string name="settings_route_prior_desc">優先使用已在記憶體中的專家，從儲存空間讀取更少。回答的措辭可能略有變化，偶爾也會影響品質。預設關閉。</string>
-    <string name="settings_npu">使用 NPU</string>
-    <string name="settings_npu_desc">在有幫助的地方使用手機的 AI 處理器（Snapdragon Hexagon）：更快、更精確地讀取提示；在 Snapdragon 8 Elite 上還會承擔 35B 模型的部分專家，並完整執行輕量模型。如果沒有或未通過檢查，則像以前一樣由 GPU 和 CPU 處理。</string>
     <string name="settings_word_experts">每個詞使用的專家數</string>
     <string name="settings_word_experts_desc">8（預設）：模型選中的所有專家，即完整品質。6 或 4：如果最後選中的 2 個或 4 個專家中有不在記憶體中的，就略過它而不讀取。模型放不進記憶體時更快，但模型的回答會變得不那麼準確。</string>
     <string name="settings_gpu_share">GPU 負責的列比例：%1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">壓縮上下文</string>
     <string name="chat_compressing">模型正在摘要對話…</string>
     <string name="chat_summary_title">上下文已壓縮</string>
+    <string name="chat_pruned">上下文壓縮後，較早的訊息已被刪除：模型會根據它們的摘要繼續。</string>
     <string name="chat_summary_note">從這裡開始，模型會看到這份摘要，而不是上方的訊息。</string>
     <string name="settings_image_detail">圖片細節</string>
     <string name="settings_image_detail_fast">快速</string>
     <string name="settings_image_detail_fine">詳細</string>
     <string name="settings_image_detail_most">最高</string>
     <string name="settings_image_detail_desc">模型查看附加圖片的精細程度：最多 256、576 或 1024 個 token。越精細越能看清小字，但回答開始前需要更久（圖片在手機的處理器核心上編碼；其權重也要到那時才從儲存空間讀取）。</string>
-    <string name="settings_auto_compress">自動壓縮上下文</string>
-    <string name="settings_auto_compress_desc">當上下文用到 90% 時，模型會摘要對話並從摘要繼續（回答會在最後 10% 之前停止，這部分留給摘要）。</string>
     <string name="answer_notif_title">Geode 正在回答</string>
     <string name="answer_notif_text">應用程式在背景時，模型仍會繼續運作。</string>
     <string name="answer_notif_stop">停止</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">謝謝，檢舉已送出</string>
     <string name="report_queued">沒有網路連線：檢舉將稍後送出</string>
     <string name="cpu_unsupported">不支援此手機的處理器：Geode 需要支援 dot product 指令的 64 位元 ARM 處理器（ARMv8.2，2019 年以後的大多數手機）。</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">隱私</string>
+    <string name="lock_setting">鎖定應用程式</string>
+    <string name="lock_setting_desc">顯示對話前先要求輸入 PIN 或密碼：應用程式啟動時，以及回到應用程式時。</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">密碼</string>
+    <string name="lock_repeat">再輸入一次</string>
+    <string name="lock_short_pin">至少 4 位數字</string>
+    <string name="lock_short_password">至少 4 個字元</string>
+    <string name="lock_mismatch">兩次輸入不一致</string>
+    <string name="lock_enter_pin">輸入 PIN</string>
+    <string name="lock_enter_password">輸入密碼</string>
+    <string name="lock_wrong">不正確，請再試一次</string>
+    <string name="lock_wait">嘗試次數過多：請在 %1$s 後再試</string>
+    <string name="lock_unlock">解鎖</string>
+    <string name="lock_title">Geode 已鎖定</string>
+    <string name="lock_fingerprint">使用指紋解鎖</string>
+    <string name="lock_fingerprint_desc">代替 PIN 或密碼使用。之後在手機上新增的指紋會關閉此選項。</string>
+    <string name="lock_fingerprint_none">請先在手機設定中新增指紋。</string>
+    <string name="lock_fingerprint_changed">手機上的指紋已變更，因此指紋解鎖已關閉：請用 PIN 或密碼解鎖，然後在設定中重新開啟。</string>
+    <string name="lock_prompt_title">解鎖 Geode</string>
+    <string name="lock_prompt_code">使用 PIN 或密碼</string>
+    <string name="lock_after">離開應用程式後多久鎖定</string>
+    <string name="lock_after_now">立即</string>
+    <string name="lock_after_min">%1$d 分鐘</string>
+    <string name="lock_change">變更 PIN 或密碼</string>
+    <string name="lock_off">關閉鎖定</string>
+    <string name="lock_now">立即鎖定</string>
+    <string name="lock_note">鎖定開啟期間，應用程式在最近使用的應用程式中的預覽會隱藏。網頁對話和網路上的 API 仍使用各自的密碼和金鑰。</string>
+    <string name="lock_forgot">忘記 PIN 或密碼？</string>
+    <string name="lock_forgot_title">要刪除所有對話嗎？</string>
+    <string name="lock_forgot_text">沒有 PIN 或密碼就無法進入：所有對話連同照片、聲音和代理的檔案都會被刪除，然後解除鎖定。模型會保留。</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">對話文字大小：%1$d%%</string>
+    <string name="settings_chat_text_desc">對話中的訊息和輸入框。也可以在對話上用兩指縮放來調整。</string>
+    <string name="models_search">搜尋模型</string>
+    <string name="models_cap_photos">相片</string>
+    <string name="models_cap_video">影片</string>
+    <string name="models_cap_sound">聲音</string>
+    <string name="models_cap_reasoning">推理</string>
+    <string name="models_no_match">沒有符合的模型</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">螢幕</string>
+    <string name="screen_keep">保持螢幕常亮</string>
+    <string name="screen_keep_off">否：依手機本身的逾時</string>
+    <string name="screen_keep_answering">Geode 回答時</string>
+    <string name="screen_keep_always">一律（Geode 開啟期間）</string>
+    <string name="screen_black_after">%1$d 分鐘未觸碰後黑屏</string>
+    <string name="screen_black_never">黑屏：永不</string>
+    <string name="screen_black_desc">防止烙印：在 OLED 螢幕上，畫面中從不移動的部分（列、輸入框）顯示數小時後可能烙印。黑屏不是鎖定：手機保持解鎖，觸碰螢幕即可回到 Geode。</string>
+    <string name="screen_black_off_warning">關閉黑屏後，數小時不變的畫面可能在 OLED 螢幕上留下永久烙印。</string>
+    <string name="screen_black_hint">觸碰螢幕即可返回</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">在處理器上執行（有 NPU 時由 NPU 讀取提示），適用於 8 GB 以上記憶體的手機</string>
+    <string name="models_catalog_ram_short">%1$s 記憶體：不足以執行此模型（需要 8 GB）</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">語音</string>
+    <string name="voice_read_aloud">朗讀回答</string>
+    <string name="voice_read_aloud_desc">在回答寫出時逐句朗讀。回答下方的喇叭可再讀一次。</string>
+    <string name="voice_rate">語速：%1$d%%</string>
+    <string name="voice_none">此手機沒有文字轉語音引擎：請在系統設定中安裝一個（例如 Google 語音服務）。</string>
+    <string name="chat_speak">朗讀</string>
+    <string name="chat_speak_stop">停止朗讀</string>
+    <string name="nav_model_settings">模型設定</string>
+    <string name="model_settings_selected">所選模型：%1$s</string>
+    <string name="model_settings_none">尚未選擇模型：這些設定適用於你選擇的模型。</string>
+    <string name="chat_take_photo">拍照</string>
+    <string name="chat_record_video">錄製影片</string>
+    <string name="chat_camera_denied">沒有相機權限，Geode 無法拍照或錄影</string>
+    <string name="chat_camera_none">這支手機上沒有相機應用程式</string>
+    <string name="voice_voice">聲音</string>
+    <string name="voice_auto">自動：每種語言的預設聲音</string>
+    <string name="voice_voice_desc">所選聲音朗讀它自己的語言；其他語言保留預設聲音。</string>
+    <string name="voice_pitch">音調：%1$d%%</string>
+    <string name="voice_listen">試聽</string>
+    <string name="voice_sample">回答聽起來就是這樣。</string>
+    <string name="voice_engine_settings">文字轉語音設定</string>
+    <string name="voice_network">需要網路</string>
+    <string name="chat_read_aloud_on">回答會被朗讀</string>
+    <string name="chat_read_aloud_off">回答不會被朗讀</string>
+    <string name="voice_engine">朗讀方式</string>
+    <string name="voice_engine_system">手機的文字轉語音</string>
+    <string name="voice_engine_geode">Geode 自己的聲音</string>
+    <string name="voice_engine_geode_desc">Supertonic 3：在本機朗讀 31 種語言，包括烏克蘭語、俄語和英語；其他語言由手機的文字轉語音朗讀。它存放在儲存空間中，只在朗讀時佔用約 300 MB 記憶體。</string>
+    <string name="voice_download">下載聲音（%1$s）</string>
+    <string name="voice_downloading">正在下載聲音：%1$d%%</string>
+    <string name="voice_delete">刪除聲音</string>
+    <string name="voice_download_failed">聲音未能下載：%1$s</string>
+    <string name="voice_female">女聲 %1$d</string>
+    <string name="voice_male">男聲 %1$d</string>
+    <string name="voice_license">聲音的授權條款</string>
+    <string name="voice_license_note">Supertonic 3 由 Supertone 提供，採用 Open RAIL-M 授權：其使用限制適用於它朗讀的內容。透過 sherpa-onnx 執行。</string>
+    <string name="agent_folders">手機資料夾</string>
+    <string name="agent_folders_desc">每個對話的代理都可以使用的本機資料夾：在它的 Linux 中位於 /phone。代理使用每個資料夾的副本，副本會在每則訊息之前更新；對於可讀寫的資料夾，代理完成後會把它的變更寫回手機。收回資料夾只會刪除副本。</string>
+    <string name="agent_folders_none">尚未提供資料夾。</string>
+    <string name="agent_folders_add">提供資料夾</string>
+    <string name="agent_folder_read">唯讀</string>
+    <string name="agent_folder_write">讀寫</string>
+    <string name="agent_folder_remove">收回</string>
+    <string name="agent_folder_files">檔案：%1$d · %2$s</string>
+    <string name="agent_folder_copying">正在複製…</string>
+    <string name="agent_folder_skipped">未複製：%1$d（副本最多容納 10,000 個檔案和 %2$s）</string>
+    <string name="agent_folder_error">無法讀取資料夾：%1$s</string>
+    <string name="agent_folder_add_failed">無法將資料夾提供給代理</string>
+    <string name="models_services">服務的模型</string>
+    <string name="models_services_desc">您擁有金鑰的服務的模型可以代替手機上的模型在聊天中回答:DeepSeek、OpenRouter、OpenAI、Anthropic,或任何支援其 API 的服務。聊天傳送的內容會送往該服務;代理的 Linux 及其檔案仍留在手機上。</string>
+    <string name="models_service_add">新增服務</string>
+    <string name="models_service_edit">編輯</string>
+    <string name="service_name">名稱</string>
+    <string name="service_url">API 位址</string>
+    <string name="service_protocol">協定</string>
+    <string name="service_key">API 金鑰</string>
+    <string name="service_key_kept">已加密保存在這支手機上。輸入新的金鑰即可取代。</string>
+    <string name="service_model">模型</string>
+    <string name="service_list">列出其模型</string>
+    <string name="service_list_failed">無法列出模型:%1$s</string>
+    <string name="service_vision">此模型能讀取圖片</string>
+    <string name="service_context">上下文(token)</string>
+    <string name="service_max">最長回答(token)</string>
+    <string name="service_leaves">使用此模型的聊天會傳送到 %1$s,並依其條款處理。金鑰加密保存在這支手機上。</string>
+    <string name="chat_empty_remote">儘管問吧。回答來自 %1$s(%2$s):您傳送的內容會離開手機。</string>
+    <string name="chat_info_service">聊天會傳送到 %1$s</string>
+    <string name="settings_about_services">當您在「模型」頁面選擇某個服務的模型時,其聊天會傳送到該服務。</string>
 </resources>

@@ -1,7 +1,9 @@
 package xyz.tifu.geode
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.getValue
@@ -29,6 +31,9 @@ class MainActivity : AppCompatActivity() {
         val app = application as GeodeApp
         // the local server comes back with the app while it is on (a foreground service starts only from here)
         lifecycleScope.launch { if (app.settings.flow.first().serverRuns) ServerService.start(app) }
+        // with the lock on, the app's preview in recent apps is hidden (before Android 13 only FLAG_SECURE can do that,
+        // which keeps screenshots out too)
+        lifecycleScope.launch { app.lock.config.collect { hideFromRecents(it.on) } }
         signIn(intent)
         deviceCheck(intent)
         setContent {
@@ -47,8 +52,28 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
         if (isChangingConfigurations) return
         val app = application as GeodeApp
+        app.lock.away()
         app.agent.stopIfIdle()
         app.appScope.launch { app.gate.flush() }
+    }
+
+    /** Back in front: the lock comes up when the app was away long enough; the black screen's minutes start again. */
+    override fun onStart() {
+        super.onStart()
+        (application as GeodeApp).lock.back()
+        xyz.tifu.geode.ui.Touches.touched()
+    }
+
+    /** A touch on the app's window (or a key): the black screen's minutes start again (ScreenGuard). */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        xyz.tifu.geode.ui.Touches.touched()
+    }
+
+    private fun hideFromRecents(hide: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(!hide)
+        else if (hide) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
     }
 
     override fun onNewIntent(intent: Intent) {

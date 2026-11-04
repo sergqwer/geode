@@ -63,3 +63,4 @@ keystore.properties
 
 # Screen recordings for the Play Console review (served from the site), not source
 /playstore_assets/videos/
+/android/app/src/main/jniLibs/arm64-v8a/libsherpa-onnx-jni.so

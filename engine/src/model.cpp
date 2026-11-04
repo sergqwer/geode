@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -25,6 +26,7 @@
 #endif
 #include "../../npu/dec_cfg.h"   // the decoder's model description (the DSP reads the same bytes)
 #include "../../npu/moe_cfg.h"   // a prompt's experts on the NPU (moe_gpu8)
+#include "../../npu/gdec_cfg.h"  // Gemma 4's layers on the DSP (npu_status reads its times)
 
 #if defined(__aarch64__) && defined(__ARM_NEON)
 #include <arm_neon.h>
@@ -33,6 +35,50 @@
 
 namespace geode {
 
+int parse_run_mode(const char *s) {
+    if (!s) return -1;
+    std::string k;
+    for (const char *p = s; *p; ++p)
+        if (*p != '+' && *p != '-' && *p != '_' && *p != ' ') k += static_cast<char>(std::tolower(static_cast<unsigned char>(*p)));
+    static const char *const names[] = {"auto", "cpu", "gpu", "npucpu", "npugpu", "cpugpu", "npu"};
+    for (int i = 0; i < kRunModes; ++i)
+        if (k == names[i]) return i;
+    if (k == "cpunpu") return static_cast<int>(RunMode::NpuCpu);   // (either order)
+    if (k == "gpunpu") return static_cast<int>(RunMode::NpuGpu);
+    if (k == "gpucpu") return static_cast<int>(RunMode::CpuGpu);
+    return -1;
+}
+
+const char *run_mode_name(int mode) {
+    static const char *const names[] = {"auto", "cpu", "gpu", "npu+cpu", "npu+gpu", "cpu+gpu", "npu"};
+    return mode >= 0 && mode < kRunModes ? names[mode] : "auto";
+}
+
+void Model::decide_mode(const ModelOptions &opt) {
+    mode_ = opt.mode >= 0 && opt.mode < kRunModes ? opt.mode : 0;
+    if (const char *e = std::getenv("GEODE_MODE")) {
+        const int m = parse_run_mode(e);
+        if (m >= 0) mode_ = m;
+    }
+    // auto: the settings (GEODE_NPU / GEODE_GPU override them), each unit where it serves - the GPU the prompt and
+    // the answer both
+    const char *en = std::getenv("GEODE_NPU"), *eg = std::getenv("GEODE_GPU");
+    const bool npu = en ? std::atoi(en) != 0 : opt.npu > 0, gpu = eg ? std::atoi(eg) != 0 : opt.gpu;
+    switch (static_cast<RunMode>(mode_)) {
+    case RunMode::Cpu: want_npu_ = want_gpu_prompt_ = want_gpu_answer_ = false; break;
+    case RunMode::Gpu: want_npu_ = false, want_gpu_prompt_ = want_gpu_answer_ = true; break;
+    case RunMode::NpuCpu: want_npu_ = true, want_gpu_prompt_ = want_gpu_answer_ = false; break;
+    // (the GPU takes what of the prompt the NPU does not: Qwen's routed experts, a prompt the NPU refuses)
+    case RunMode::NpuGpu: want_npu_ = want_gpu_prompt_ = want_gpu_answer_ = true; break;
+    case RunMode::CpuGpu: want_npu_ = false, want_gpu_prompt_ = true, want_gpu_answer_ = false; break;
+    case RunMode::Npu: want_npu_ = true, want_gpu_prompt_ = want_gpu_answer_ = false; break;
+    default: want_npu_ = npu, want_gpu_prompt_ = want_gpu_answer_ = gpu; break;
+    }
+    // the answer the NPU's in its own mode only: the DSP's decoder of a dense Qwen (prompt and answer on the DSP)
+    // lost to the NPU's products beside the CPU on the 8 Elite (Qwen3.5-2B, 1300 tokens: 360 against 672 tokens/s,
+    // the answer 39-45 against 44-50), so auto and NPU + GPU leave it be
+    want_npu_answer_ = mode_ == static_cast<int>(RunMode::Npu);
+}
 
 namespace {
 
@@ -126,7 +172,7 @@ bool Model::bind(std::string &err) {
                         attn ? n_attn++ : n_gdn++, err))
             return false;
     }
-    if (c.mtp_layers) {
+    if (c.mtp_layers && !no_draft_) {   // (no_draft_: left unread, no speculating)
         // a full-attention layer behind fc; its KV after the main attention layers'
         if (!bind_layer(mtp_layer_, "mtp.layers.0.", true, n_attn, err)) return false;
         const Tensor *fc = need(pack_, "mtp.fc.weight", err);
@@ -179,7 +225,9 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
     open_clock.start();
     if (!pack_.open(dir, err)) return false;
     open_clock.mark("pack");
-    {
+    if (opt.no_vision) {
+        vision_status_ = "off (the setting)";
+    } else {
         std::string ve;
         if (vision_.open(pack_, opt.direct_io, ve)) {
             vision_status_ = "ok";
@@ -192,7 +240,9 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
             vision_status_ = ve;   // the model works without it
         }
     }
-    {
+    if (opt.no_audio) {
+        audio_status_ = "off (the setting)";
+    } else {
         std::string ae;
         if (audio_.open(pack_, opt.direct_io, ae)) {
             audio_status_ = "ok";
@@ -207,6 +257,7 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
     }
     open_clock.mark("vision");
     cfg_ = pack_.config();
+    no_draft_ = opt.no_draft || (std::getenv("GEODE_NO_DRAFT") && std::atoi(std::getenv("GEODE_NO_DRAFT")) != 0);
     new_conversation();
     if (!bind(err)) return false;
     open_clock.mark("bind");
@@ -245,18 +296,20 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
     routed_rows_ = !(std::getenv("GEODE_ROUTED_ROWS") && std::atoi(std::getenv("GEODE_ROUTED_ROWS")) == 0);
     little_dense_ = !(std::getenv("GEODE_LITTLE_DENSE") && std::atoi(std::getenv("GEODE_LITTLE_DENSE")) == 0);
     open_clock.mark("threads");
+    decide_mode(opt);
     if (c.gemma) return open_gemma(opt, err);   // Gemma 4: its own KV layout and scratch (gemma.cpp)
     // the NPU first: it takes the pack's layout, before anything is laid out anew
-    const bool npu_on = std::getenv("GEODE_NPU") ? std::atoi(std::getenv("GEODE_NPU")) != 0 : opt.npu > 0;
     if (exact_ || check_) npu_.status = "off (exact / checked arithmetic)";
-    else if (!npu_on) npu_.status = "off (the setting)";
+    else if (!want_npu_) npu_.status = mode_ ? std::string("off (the mode: ") + run_mode_name(mode_) + ")" : "off (the setting)";
     else {
         setup_npu();
         open_clock.mark("npu");
     }
-    if (opt.gpu) {
+    if (!want_gpu_prompt_ && !want_gpu_answer_) {
+        if (mode_) gpu_status_ = std::string("off (the mode: ") + run_mode_name(mode_) + ")";
+    } else {
         if (exact_ || check_) gpu_status_ = "off (exact / checked arithmetic)";
-        else if (c.dense) gpu_status_ = "off (a dense model: the GPU paths are built around the experts)";
+        else if (c.dense && npu_.dec_planned) gpu_status_ = "off (the NPU takes this dense model's prompts and answer)";
         else setup_gpu(opt);
     }
     npu_rekey();
@@ -296,11 +349,11 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
     n_attn_ = n_attn;
     kv_row_ = kv_row;
     // the KV cache grows with the conversation, kv_chunk_ positions at a time: int8 with a scale a position and KV
-    // head (the GPU's flash decoding reads it: head_dim 256, 8 query heads a KV head), else FP16; FP32 when exact
+    // head (the GPU's flash decoding reads it: head_dim 256, 8 or 4 query heads a KV head), else FP16; FP32 when exact
     kv_chunk_ = opt.kv_chunk > 0 ? opt.kv_chunk : gpu8_ && pack_.experts_tile8() ? 4096 : kKvChunk;
     kv_heads_ = c.n_kv_heads;
     kv_i8_ = !exact_ && opt.kv_int8 && !std::getenv("GEODE_KV_FP16") &&
-             (!gpu8_ || (c.head_dim == 256 && c.n_heads == 8 * c.n_kv_heads));
+             (!gpu8_ || (c.head_dim == 256 && (c.n_heads == 8 * c.n_kv_heads || c.n_heads == 4 * c.n_kv_heads)));
     kv_chunk_bytes_ = kv_i8_ ? 2 * static_cast<size_t>(n_attn) * kv_chunk_ * (kv_row + static_cast<size_t>(c.n_kv_heads) * sizeof(float))
                              : 2 * static_cast<size_t>(n_attn) * kv_chunk_ * kv_row * (exact_ ? sizeof(float) : sizeof(_Float16));
     const uint64_t state_bytes =
@@ -604,7 +657,8 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
     prefetch_.assign(static_cast<size_t>(c.n_layers + c.mtp_layers), {});
     conv_n_ = static_cast<size_t>(n_gdn) * conv_dim * (c.conv_kernel - 1);
     gdn_n_ = static_cast<size_t>(n_gdn) * c.gdn_v_heads * c.gdn_k_dim * c.gdn_v_dim;
-    if (gpu8_ && gpu8_experts_ && !exact_) {
+    // (a dense model: whenever the GPU is on - the NPU's decoder, which wants them, keeps the GPU off)
+    if (gpu8_ && (gpu8_experts_ || c.dense) && !exact_) {
         // the GPU may generate: the states in shared memory (a prompt's CPU arithmetic reads them there too)
         std::string e;
         conv_st_ = reinterpret_cast<float *>(gpu8_->alloc(conv_n_ * sizeof(float), e));
@@ -679,7 +733,33 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
     for (int i = 0; i < half; ++i)
         inv_freq_[static_cast<size_t>(i)] =
             1.0f / std::pow(c.rope_theta, static_cast<float>(2 * i) / static_cast<float>(c.rope_dim));
-    // the cache starts as it ended last time: the hottest blocks of the profile read in the background, after any
+    if (gpu8_ && (gpu8_experts_ || c.dense) && conv_st_ != conv_state_.data() && !std::getenv("GEODE_NO_GPU_DECODE")) {
+        std::string why;
+        dec8_ = dec8_ok_ = setup_decode8(why);
+        // (CPU + GPU: the GPU's decoding set up all the same - a prompt's mixers there need its buffers - the answer
+        // on the CPU)
+        if (dec8_ && !want_gpu_answer_) {
+            dec8_ = false;
+            why = std::string("the mode: ") + run_mode_name(mode_);
+        }
+        gpu_status_ += dec8_ ? "; generating on the GPU" : "; generating on the CPU (" + why + ")";
+        if (dec8_ && std::getenv("GEODE_GPU8_SELFTEST")) {   // measuring: lm_head and a GDN qkv alone
+            gpu8_->dec_selftest(lm_head_, 10);
+            for (const Layer &L : layers_)
+                if (!L.attn) {
+                    gpu8_->dec_selftest(L.qkv, 20);
+                    break;
+                }
+        }
+    }
+    // (the states in the process's memory, or in the GPU's with its backups there - CPU + GPU: the GPU set up to
+    // generate, the answer the CPU's; a rejected draft swaps the states with their backups)
+    if (mtp_ && !dec8_ && (conv_st_ == conv_state_.data() || (dec8_ok_ && gdn_bk_)) &&
+        !(std::getenv("GEODE_CPU_SPEC") && std::atoi(std::getenv("GEODE_CPU_SPEC")) == 0))
+        cpu_spec_ = setup_cpu_spec();
+    open_clock.mark("decode setup");
+    // the cache starts as it ended last time: the hottest blocks of the profile read in the background (after the
+    // speculation's backups took their slots: the slots being read could not be taken - CPU mode lost its MTP), after any
     // read the model asks for (GEODE_WARM_WAIT=1: open() waits for them - measuring a warm cache)
     if (!std::getenv("GEODE_NO_WARM")) {
         const int E = c.n_experts;
@@ -695,51 +775,37 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
         warm_queued_ = queued;
     }
     open_clock.mark("cache profile");
-    if (gpu8_ && gpu8_experts_ && conv_st_ != conv_state_.data() && !std::getenv("GEODE_NO_GPU_DECODE")) {
-        std::string why;
-        dec8_ = dec8_ok_ = setup_decode8(why);
-        gpu_status_ += dec8_ ? "; generating on the GPU" : "; generating on the CPU (" + why + ")";
-        if (dec8_ && std::getenv("GEODE_GPU8_SELFTEST")) {   // measuring: lm_head and a GDN qkv alone
-            gpu8_->dec_selftest(lm_head_, 10);
-            for (const Layer &L : layers_)
-                if (!L.attn) {
-                    gpu8_->dec_selftest(L.qkv, 20);
-                    break;
-                }
-        }
-    }
-    // (only with the states in the process's memory: a rejected draft swaps them with their backups)
-    if (mtp_ && !dec8_ok_ && conv_st_ == conv_state_.data() &&
-        !(std::getenv("GEODE_CPU_SPEC") && std::atoi(std::getenv("GEODE_CPU_SPEC")) == 0))
-        cpu_spec_ = setup_cpu_spec();
-    open_clock.mark("decode setup");
     apply_experts();
     open_clock.mark("apply experts");
     return true;
 }
 
 bool Model::setup_cpu_spec() {
-    // the states' backups: as much again as the states (Qwen3.6: 63 MB), taken from the expert cache's budget
-    try {
-        conv_bk_mem_.assign(conv_n_, 0.0f);
-        gdn_bk_mem_.assign(gdn_n_, 0.0f);
-    } catch (const std::bad_alloc &) {
-        conv_bk_mem_ = {};
-        gdn_bk_mem_ = {};
-        return false;
+    // the states' backups: as much again as the states (Qwen3.6: 63 MB), taken from the expert cache's budget - or
+    // the GPU's, made for its own verifying (CPU + GPU)
+    if (!gdn_bk_) {
+        try {
+            conv_bk_mem_.assign(conv_n_, 0.0f);
+            gdn_bk_mem_.assign(gdn_n_, 0.0f);
+        } catch (const std::bad_alloc &) {
+            conv_bk_mem_ = {};
+            gdn_bk_mem_ = {};
+            return false;
+        }
+        conv_bk_ = conv_bk_mem_.data();
+        gdn_bk_ = gdn_bk_mem_.data();
     }
-    conv_bk_ = conv_bk_mem_.data();
-    gdn_bk_ = gdn_bk_mem_.data();
     // the draft head: lm_head's rows of draft_vocab.bin's tokens (a draft is one of them; without the file, the whole
     // vocabulary - a full lm_head read for every draft)
+    // (the GPU's when it made one: in tile8, which the CPU reads as well - lm_head itself is in tile8 then)
     std::vector<int32_t> ids;
-    if (std::FILE *f = std::fopen((pack_.dir() + "/draft_vocab.bin").c_str(), "rb")) {
+    if (std::FILE *f = draft_ids_.empty() ? std::fopen((pack_.dir() + "/draft_vocab.bin").c_str(), "rb") : nullptr) {
         int32_t id;
         while (std::fread(&id, 4, 1, f) == 1)
             if (id >= 0 && id < cfg_.vocab) ids.push_back(id);
         std::fclose(f);
     }
-    if (!ids.empty()) {
+    if (!ids.empty() && !lm_head_.tile8) {
         const size_t rb = lm_head_.row_bytes;
         draft_mem_ = aligned_bytes(ids.size() * rb);
         if (draft_mem_) {
@@ -766,12 +832,14 @@ bool Model::setup_cpu_spec() {
             if (got < need - from_spare) {
                 store_.give_back(spec_slots_);
                 spec_slots_.clear();
+                if (!conv_bk_mem_.empty()) conv_bk_ = gdn_bk_ = nullptr;   // (the GPU's stay its own)
                 conv_bk_mem_ = {};
                 gdn_bk_mem_ = {};
-                conv_bk_ = gdn_bk_ = nullptr;
-                draft_mem_.reset();
-                draft_head_ = QView{};
-                draft_ids_.clear();
+                if (draft_mem_) {
+                    draft_mem_.reset();
+                    draft_head_ = QView{};
+                    draft_ids_.clear();
+                }
                 return false;
             }
         }
@@ -786,7 +854,10 @@ uint64_t Model::spec_bytes() const {
 }
 
 bool Model::new_kv_chunk(std::string &err) {
-    if (npu_.dec_planned) {   // memory the DSP maps too, kept for reuse after a reset; the DSP told where it goes
+    // memory the DSP maps too (its decoder's, or a prompt's attention on HMX), kept for reuse after a reset; the
+    // decoder told where it goes
+    const bool spare_shared = npu_.g && !kv_spare_.empty() && npu_.kv_fds.count(kv_spare_.back());
+    if (npu_.dec_planned || npu_.attn_on || spare_shared) {
         uint8_t *m = nullptr;
         if (!kv_spare_.empty()) {
             m = kv_spare_.back();
@@ -794,20 +865,45 @@ bool Model::new_kv_chunk(std::string &err) {
         } else {
             int fd = -1;
             m = static_cast<uint8_t *>(npu_.shared(npu_.g, kv_chunk_bytes_, 1, &fd));
+            if (!m && !npu_.dec_planned) {
+                // past the DSP's reach (its mapping window): this chunk the CPU's own, the prompts' attention there
+                npu_.attn_on = false;
+                npu_.attn_status = "off (the KV cache outgrew the DSP's reach)";
+                if (npu_.gdec) npu_.gdec_status = "off (the KV cache outgrew the DSP's reach)";
+                npu_.gdec = false;
+                AlignedBuffer b = aligned_bytes(kv_chunk_bytes_);
+                if (!b) {
+                    err = "not enough memory to grow the context";
+                    return false;
+                }
+                kv_ptrs_.push_back(b.get());
+                kv_chunks_.push_back(std::move(b));
+                return true;
+            }
             if (!m) {
                 err = "not enough memory to grow the context";
                 return false;
             }
             npu_.kv_fds[m] = fd;
+            // NPU + GPU: the chunk the GPU's to read and write as well (the answer's attention, its tokens' K and V)
+            std::string e;
+            if (gemma_gpu_want_ && gpu8_ && !gpu8_->import(fd, m, kv_chunk_bytes_, e)) {
+                gemma_gpu_want_ = gemma_gpu_ = false;
+                gpu_status_ += "; the answer back on the CPU (" + e + ")";
+            }
         }
         kv_ptrs_.push_back(m);
         if (npu_.dec && npu_.dec_kv(npu_.g, static_cast<int>(kv_ptrs_.size()) - 1, npu_.kv_fds[m])) {
             err = "the DSP could not take a KV chunk";
             return false;
         }
+        if (npu_.gdec && npu_.gdec_kv(npu_.g, static_cast<int>(kv_ptrs_.size()) - 1, npu_.kv_fds[m])) {
+            npu_.gdec = false;   // (the chunk is the CPU's as well: the layers go its way from now on)
+            npu_.gdec_status = "off (the DSP could not take a KV chunk)";
+        }
         return true;
     }
-    if (gpu8_ && gpu8_experts_ && !exact_) {   // shared memory, kept for reuse after a reset
+    if (gpu8_ && (gpu8_experts_ || cfg_.dense || gemma_gpu_want_ || gemma_prompt_want_) && !exact_) {   // (kept after a reset)
         if (!kv_spare_.empty()) {
             kv_ptrs_.push_back(kv_spare_.back());
             kv_spare_.pop_back();
@@ -836,7 +932,7 @@ bool Model::setup_decode8(std::string &why) {
     const auto &c = cfg_;
     const int H = c.hidden, E = c.n_experts, nv = c.gdn_v_heads;
     const int kd = c.gdn_k_heads * c.gdn_k_dim, vd = nv * c.gdn_v_dim, conv_dim = 2 * kd + vd;
-    if (c.shared_ff != c.moe_ff) {
+    if (!c.dense && c.shared_ff != c.moe_ff) {   // (a dense model: its MLP alone, in the shared slot)
         why = "the shared expert's width differs from the routed ones'";
         return false;
     }
@@ -878,7 +974,7 @@ bool Model::setup_decode8(std::string &why) {
         const Layer &L = *Lp;
         room(fH);
         room(fH);
-        room(static_cast<size_t>(E + 1) * H * 2);
+        if (!c.dense) room(static_cast<size_t>(E + 1) * H * 2);
         if (L.attn) {
             room(static_cast<size_t>(c.head_dim) * 4);
             room(static_cast<size_t>(c.head_dim) * 4);
@@ -915,11 +1011,13 @@ bool Model::setup_decode8(std::string &why) {
         D.sh_gate = L.sh_gate, D.sh_up = L.sh_up, D.sh_down = L.sh_down;
         D.in_norm = reinterpret_cast<const float *>(put(L.in_norm, fH));
         D.post_norm = reinterpret_cast<const float *>(put(L.post_norm, fH));
-        uint8_t *r = put(L.router, static_cast<size_t>(E) * H * 2);   // the router's rows, then the shared gate's
-        std::memcpy(r + static_cast<size_t>(E) * H * 2, L.shared_gate, static_cast<size_t>(H) * 2);
-        D.router = reinterpret_cast<const uint16_t *>(r);
-        at += static_cast<size_t>(H) * 2;   // (the room counted E + 1 rows)
-        at = (at + 63) / 64 * 64;
+        if (!c.dense) {
+            uint8_t *r = put(L.router, static_cast<size_t>(E) * H * 2);   // the router's rows, then the shared gate's
+            std::memcpy(r + static_cast<size_t>(E) * H * 2, L.shared_gate, static_cast<size_t>(H) * 2);
+            D.router = reinterpret_cast<const uint16_t *>(r);
+            at += static_cast<size_t>(H) * 2;   // (the room counted E + 1 rows)
+            at = (at + 63) / 64 * 64;
+        }
         if (L.attn) {
             D.q_norm = reinterpret_cast<const float *>(put(L.q_norm, static_cast<size_t>(c.head_dim) * 4));
             D.k_norm = reinterpret_cast<const float *>(put(L.k_norm, static_cast<size_t>(c.head_dim) * 4));
@@ -954,7 +1052,9 @@ bool Model::setup_decode8(std::string &why) {
         return false;
     }
     Gpu8::DecodeShape sh;
-    sh.hidden = H, sh.vocab = c.vocab, sh.n_experts = E, sh.top_k = c.top_k, sh.moe_ff = c.moe_ff;
+    // (a dense model: no experts, its MLP as wide as the shared slot)
+    sh.hidden = H, sh.vocab = c.vocab, sh.n_experts = c.dense ? 0 : E, sh.top_k = c.dense ? 0 : c.top_k;
+    sh.moe_ff = c.dense ? c.shared_ff : c.moe_ff;
     sh.nh = c.n_heads, sh.nkv = c.n_kv_heads, sh.hd = c.head_dim, sh.half = c.rope_dim / 2;
     sh.n_attn = n_attn_, sh.kv_chunk = kv_chunk_, sh.max_ctx = ctx_;
     sh.nk = c.gdn_k_heads, sh.nv = nv, sh.dk = c.gdn_k_dim, sh.dv = c.gdn_v_dim, sh.conv_k = c.conv_kernel;
@@ -965,11 +1065,13 @@ bool Model::setup_decode8(std::string &why) {
     sh.bk_gdn = static_cast<int>(gdn_n_);
     // GEODE_GUESSES: how many of the next layer's experts each route reads ahead (measuring)
     guesses_env_ = std::getenv("GEODE_GUESSES") != nullptr;
-    sh.guesses = guesses_env_ ? std::clamp(std::atoi(std::getenv("GEODE_GUESSES")), 1, std::min(E, 16)) : c.top_k;
+    sh.guesses = c.dense       ? 0
+                 : guesses_env_ ? std::clamp(std::atoi(std::getenv("GEODE_GUESSES")), 1, std::min(E, 16))
+                                : c.top_k;
     dec_guesses_ = sh.guesses;
     // GEODE_GUESS2: also guess two layers ahead, this many (measuring: 4 or 8 read 7-29% more and took 0.6 tokens/s
     // off - the flash, not the lead, is the limit: a 1.77 MB block reads in 1.1 ms, the UFS tops out at ~2.3 GB/s)
-    sh.guesses2 = std::getenv("GEODE_GUESS2") ? std::clamp(std::atoi(std::getenv("GEODE_GUESS2")), 0, std::min(E, 16)) : 0;
+    sh.guesses2 = std::getenv("GEODE_GUESS2") && !c.dense ? std::clamp(std::atoi(std::getenv("GEODE_GUESS2")), 0, std::min(E, 16)) : 0;
     dec_guesses2_ = sh.guesses2;
     open_clock.mark("decode: backups + params");
     if (!gpu8_->setup_decode(sh, inv_freq_.data(), why)) return false;
@@ -1031,6 +1133,12 @@ bool Model::decode_gpu8(int token, float *logits, std::string &err) {
 bool Model::back_gpu8(int sl, const Layer &L, const Gpu8::DecodeLayer &D, bool has_next, int T,
                       std::vector<int> &held, std::string &err, bool has_next2) {
     const auto &c = cfg_;
+    if (c.dense) {   // no route, no experts: the MLP (the shared slot) and its sum into the residual
+        const double t1 = now_seconds();
+        if (!gpu8_->dec_experts(D, nullptr, nullptr, {}, true, err) || !gpu8_->dec_mlp_add(err)) return false;
+        prof_.d_back += now_seconds() - t1;
+        return true;
+    }
     const int E = c.n_experts, K = k_, H = c.hidden, ff = c.moe_ff, G = dec_guesses_;
     const int G2 = has_next2 ? dec_guesses2_ : 0;
     const size_t UM = static_cast<size_t>(std::max(T, 2) * K);   // the picks' union, at most
@@ -1273,6 +1381,10 @@ bool Model::draft(const int *toks, int n, int pos, const float *hidden, int &dra
             return false;
         }
     if (hidden) std::memcpy(gpu8_->dec_h(), hidden, static_cast<size_t>(n) * H * sizeof(float));
+    // GEODE_MTP_CHECK=1 (diagnosis): the same draft on the CPU after the GPU's, both printed
+    static const bool mtp_check = std::getenv("GEODE_MTP_CHECK") != nullptr;
+    std::vector<float> chk_h;
+    if (mtp_check) chk_h.assign(gpu8_->dec_h(), gpu8_->dec_h() + static_cast<size_t>(n) * H);
     std::vector<int> held;
     auto fail = [&](const std::string &e) {
         for (int s : held) store_.release(s);
@@ -1290,6 +1402,23 @@ bool Model::draft(const int *toks, int n, int pos, const float *hidden, int &dra
     const float *lg = mlog_.data() + static_cast<size_t>(n - 1) * rows;
     const int best = static_cast<int>(std::max_element(lg, lg + rows) - lg);
     draft = draft_ids_.empty() ? best : draft_ids_[static_cast<size_t>(best)];
+    if (mtp_check) {
+        const float gl = lg[best];
+        std::vector<float> cl(static_cast<size_t>(rows));
+        std::vector<const float *> hp(static_cast<size_t>(n));
+        for (int t = 0; t < n; ++t) hp[static_cast<size_t>(t)] = chk_h.data() + static_cast<size_t>(t) * H;
+        std::string ce;
+        const bool ok = forward_mtp(toks, hp.data(), n, pos, cl.data(), ce, draft_ids_.empty() ? nullptr : &draft_head_);
+        const int cb = static_cast<int>(std::max_element(cl.begin(), cl.end()) - cl.begin());
+        double d = 0, r = 0;
+        for (int i = 0; i < rows; ++i) {
+            d += (static_cast<double>(lg[i]) - cl[static_cast<size_t>(i)]) * (static_cast<double>(lg[i]) - cl[static_cast<size_t>(i)]);
+            r += static_cast<double>(cl[static_cast<size_t>(i)]) * cl[static_cast<size_t>(i)];
+        }
+        std::fprintf(stderr, "mtp check n %d pos %d tok %d: gpu %d (%.2f) cpu %d (%.2f) rel %.3f %s\n", n, pos,
+                     toks[n - 1], draft, gl, draft_ids_.empty() ? cb : draft_ids_[static_cast<size_t>(cb)],
+                     cl[static_cast<size_t>(cb)], std::sqrt(d / std::max(r, 1e-30)), ok ? "" : ce.c_str());
+    }
     if (prob) *prob = softmax_at(lg, rows, best);
     chain_row_ = n - 1;   // dec_h's row n - 1: the MTP layer's normed output there, what a chained draft goes on from
     ++prof_.drafts;
@@ -1659,7 +1788,8 @@ bool Model::add_image(const uint8_t *rgb, int w, int h, const std::string &cache
         pool_->set_width(pool_->size());
         pool_->set_little(0);
         EncodeThreads all(*pool_);
-        if (!vision_.encode(rgb, w, h, *pool_, feats, err, gpu8_.get())) return false;
+        const MediaNpu vn = media_npu();
+        if (!vision_.encode(rgb, w, h, *pool_, feats, err, gpu8_.get(), &vn)) return false;
         vision_.save_features(cache, w, h, feats);   // a cache: failing to write it costs the next encode only
     }
     return add_image_features(std::move(feats), w, h, tokens, err);
@@ -1719,7 +1849,14 @@ bool Model::add_audio(const float *pcm, int64_t n, int &tokens, std::string &err
     std::vector<float> feats;
     {
         EncodeThreads all(*pool_);
-        if (!audio_.encode(pcm, n, *pool_, feats, err)) return false;
+        const MediaNpu an = media_npu();
+        if (!audio_.encode(pcm, n, *pool_, feats, err, &an)) return false;
+        if (const char *dump = std::getenv("GEODE_AUDIO_FEATURES")) {   // (tests: the features as raw floats)
+            if (FILE *f = std::fopen(dump, "wb")) {
+                std::fwrite(feats.data(), sizeof(float), feats.size(), f);
+                std::fclose(f);
+            }
+        }
     }
     return add_audio_features(std::move(feats), tokens, err);
 }
@@ -1755,7 +1892,8 @@ bool Model::cache_image(const uint8_t *rgb, int w, int h, const std::string &cac
     pool_->set_little(0);
     std::vector<float> feats;
     EncodeThreads all(*pool_);
-    if (!vision_.encode(rgb, w, h, *pool_, feats, err, gpu8_.get())) return false;
+    const MediaNpu vn = media_npu();
+    if (!vision_.encode(rgb, w, h, *pool_, feats, err, gpu8_.get(), &vn)) return false;
     if (!vision_.save_features(cache, w, h, feats)) {
         err = "cannot write " + cache;
         return false;
@@ -1899,6 +2037,10 @@ const QAct *const *Model::quantize_h(const std::vector<float *> &hs, int64_t col
 void Model::setup_gpu(const ModelOptions &opt) {
     std::string e, e8;
     if (setup_gpu8(e8)) return;   // the Adreno 7xx+ int8 path; else the 618's hand-written one
+    if (cfg_.dense) {   // (a dense model: the int8 path only)
+        gpu_status_ = "off (" + e8 + ")";
+        return;
+    }
     gpu_ = std::make_unique<Gpu>();
     if (!gpu_->open(e)) {
         gpu_status_ = e8.rfind("no Adreno 7xx", 0) == 0 ? e : e8;   // why the newer path failed, where it applies
@@ -2156,6 +2298,22 @@ void Model::setup_npu() {
             fn(arg, static_cast<int>(i0), static_cast<int>(i1));
         });
     }, this);
+    npu_.shared = reinterpret_cast<decltype(npu_.shared)>(dlsym(lib, "gnpu_shared_alloc"));
+    {
+        const auto arch = reinterpret_cast<int (*)()>(dlsym(lib, "gnpu_arch"));
+        const auto skel_arch = reinterpret_cast<int (*)(int)>(dlsym(lib, "gnpu_skel_arch"));
+        npu_.arch = arch && skel_arch ? skel_arch(arch()) : 0;
+    }
+    // Gemma 4 on v79 and newer: one copy of its matrices for the CPU and the DSP (npu_one_copy; GEODE_NPU_ONECOPY=0:
+    // an hmx4 copy for the DSP beside the CPU's, as before)
+    npu_.adopt_t8 = reinterpret_cast<decltype(npu_.adopt_t8)>(dlsym(lib, "gnpu_adopt_t8"));
+    npu_.f16_bytes = reinterpret_cast<decltype(npu_.f16_bytes)>(dlsym(lib, "gnpu_f16_bytes"));
+    npu_.pack_f16 = reinterpret_cast<decltype(npu_.pack_f16)>(dlsym(lib, "gnpu_pack_f16"));
+    npu_.gemm_f16 = reinterpret_cast<decltype(npu_.gemm_f16)>(dlsym(lib, "gnpu_gemm_f16"));
+    npu_.gemm_f16c = reinterpret_cast<decltype(npu_.gemm_f16c)>(dlsym(lib, "gnpu_gemm_f16c"));
+    if (cfg_.gemma && npu_.want_t8 && npu_.adopt_t8 && npu_.shared && npu_.arch >= 79 &&
+        !(std::getenv("GEODE_NPU_ONECOPY") && std::atoi(std::getenv("GEODE_NPU_ONECOPY")) == 0))
+        npu_.t8_mats = npu_one_copy();
     // the dense q4 matrices a prompt multiplies (each tensor once, whichever views share it)
     std::vector<const QView *> views;
     auto add = [&](const Layer &L) {
@@ -2210,10 +2368,13 @@ void Model::setup_npu() {
         npu_.adopted.emplace_back(m, id);
         ++n;
     }
-    npu_.status = "on: " + std::to_string(n) + " matrices, " + std::to_string(npu_.bytes(npu_.g) >> 20) + " MB";
+    npu_.status = "on: " + std::to_string(n + npu_.t8_mats) + " matrices, " +
+                  std::to_string((npu_.bytes(npu_.g) - npu_.t8_bytes) >> 20) + " MB";
+    if (npu_.t8_mats)
+        npu_.status += " (" + std::to_string(npu_.t8_mats) + " of them one copy with the CPU's, " +
+                       std::to_string(npu_.t8_bytes >> 20) + " MB)";
     // the decoder: a dense model's whole decode step and its prompts on the DSP, on v79 and later (GEODE_NPU_DECODE=0:
     // the CPU's, the NPU only for the prompt's products)
-    npu_.shared = reinterpret_cast<decltype(npu_.shared)>(dlsym(lib, "gnpu_shared_alloc"));
     npu_.dec_size = reinterpret_cast<decltype(npu_.dec_size)>(dlsym(lib, "gnpu_dec_size"));
     npu_.dec_open = reinterpret_cast<decltype(npu_.dec_open)>(dlsym(lib, "gnpu_dec_open"));
     npu_.dec_kv = reinterpret_cast<decltype(npu_.dec_kv)>(dlsym(lib, "gnpu_dec_kv"));
@@ -2223,13 +2384,16 @@ void Model::setup_npu() {
     npu_.mat_hmx = reinterpret_cast<decltype(npu_.mat_hmx)>(dlsym(lib, "gnpu_mat_hmx"));
     npu_.dec_mtp_kv = reinterpret_cast<decltype(npu_.dec_mtp_kv)>(dlsym(lib, "gnpu_dec_mtp_kv"));
     npu_.moe = reinterpret_cast<decltype(npu_.moe)>(dlsym(lib, "gnpu_moe"));
-    const auto arch = reinterpret_cast<int (*)()>(dlsym(lib, "gnpu_arch"));
-    const auto skel_arch = reinterpret_cast<int (*)(int)>(dlsym(lib, "gnpu_skel_arch"));
-    npu_.arch = arch && skel_arch ? skel_arch(arch()) : 0;
-    const bool want = cfg_.dense && !cfg_.gemma &&
+    npu_.attn = reinterpret_cast<decltype(npu_.attn)>(dlsym(lib, "gnpu_attn"));
+    npu_.attn_buf = reinterpret_cast<decltype(npu_.attn_buf)>(dlsym(lib, "gnpu_attn_buffer"));
+    npu_.gdec_open = reinterpret_cast<decltype(npu_.gdec_open)>(dlsym(lib, "gnpu_gdec_open"));
+    npu_.gdec_kv = reinterpret_cast<decltype(npu_.gdec_kv)>(dlsym(lib, "gnpu_gdec_kv"));
+    npu_.gdec_prefill = reinterpret_cast<decltype(npu_.gdec_prefill)>(dlsym(lib, "gnpu_gdec_prefill"));
+    const bool want = cfg_.dense && !cfg_.gemma && want_npu_answer_ &&
                       !(std::getenv("GEODE_NPU_DECODE") && std::atoi(std::getenv("GEODE_NPU_DECODE")) == 0);
     if (!want) {
         npu_.dec_status = cfg_.gemma ? "off (Gemma 4: the prompt's products only)"
+                          : !want_npu_answer_ ? std::string("off (the mode: ") + run_mode_name(mode_) + ")"
                           : cfg_.dense ? "off (GEODE_NPU_DECODE)" : "off (a dense model only)";
     } else if (!npu_.shared || !npu_.dec_size || !npu_.dec_open || !npu_.dec_kv || !npu_.dec_step || !npu_.dec_draft) {
         npu_.dec_status = "off (libgeode_npu.so has no decoder)";
@@ -2674,6 +2838,18 @@ void Model::npu_rekey() {
     for (const auto &[m, id] : npu_.adopted) npu_.ids[m->data] = id;
 }
 
+void Model::npu_failed(int e) {
+    npu_.status = "failed (" + std::to_string(e) + "): the CPU from now on";
+    if (npu_.t8_bytes || !npu_.moe_slabs.empty()) {   // its buffers hold the CPU's weights / the expert cache: kept
+        npu_.products_off = true;
+        npu_.gdec = false;
+        npu_.attn_on = false;
+        return;
+    }
+    npu_.close(npu_.g);
+    npu_.g = nullptr;
+}
+
 bool Model::npu_products(const QView *const *ms, int count, int n, const float *const *xs, float *const *const *ys) {
     if (!npu_.g || npu_.products_off || n < kNpuMinTokens || count < 1 || count > 4) return false;
     // a matrix adopted in parts (Npu::Parts): a product a part, from that part's first input, the results added
@@ -2705,9 +2881,7 @@ bool Model::npu_products(const QView *const *ms, int count, int n, const float *
             npu_.wall += now_seconds() - t0;
             npu_.calls += P.ids.size();
             if (!e) return true;
-            npu_.status = "failed (" + std::to_string(e) + "): the CPU from now on";
-            npu_.close(npu_.g);
-            npu_.g = nullptr;
+            npu_failed(e);
             return false;
         }
     }
@@ -2722,13 +2896,7 @@ bool Model::npu_products(const QView *const *ms, int count, int n, const float *
     npu_.wall += now_seconds() - t0;
     npu_.calls += static_cast<uint64_t>(count);
     if (!e) return true;
-    npu_.status = "failed (" + std::to_string(e) + "): the CPU from now on";
-    if (!npu_.moe_slabs.empty()) {   // the session holds part of the expert cache: kept, its products left alone
-        npu_.products_off = true;
-        return false;
-    }
-    npu_.close(npu_.g);
-    npu_.g = nullptr;
+    npu_failed(e);
     return false;
 }
 
@@ -2763,6 +2931,25 @@ bool Model::npu_mlp(const QView &gate, const QView &up, const QView &down, int a
 void Model::matmul_many(const QView *const *ms, int count, int n, const float *const *xs, float *const *const *ys,
                         const QAct *const *pre) {
     if (npu_products(ms, count, n, xs, ys)) return;
+    // The CPU alone with one quantization of the input (pre): all the matrices' rows in one round of the pool - a
+    // matmul each was a round each, the small ones (k, v: 256 rows) hardly worth their wake-up and barrier. Each row
+    // goes through the same kernel, so the same bits. GEODE_MANY_ROUNDS=1: a round each, as before (measuring).
+    static const bool rounds = std::getenv("GEODE_MANY_ROUNDS") != nullptr;
+    bool one = pre && count > 1 && count <= 4 && !exact_ && !check_ && !rounds;
+    int64_t at[5] = {0};
+    for (int j = 0; one && j < count; ++j) {
+        one = !npu_takes(*ms[j], n) && !gpu_takes(*ms[j], n) && gpu_rows(*ms[j], n) == 0 && ms[j]->cols == ms[0]->cols;
+        at[j + 1] = at[j] + ms[j]->rows;
+    }
+    if (one) {
+        pool_->parallel_for(at[count], [&](int64_t a, int64_t b) {
+            for (int j = 0; j < count; ++j) {
+                const int64_t lo = std::max(a, at[j]), hi = std::min(b, at[j + 1]);
+                if (lo < hi) matvec_rows_q_multi(*ms[j], pre, n, ys[j], lo - at[j], hi - at[j]);
+            }
+        }, 16, wide_ && at[count] >= kWideRows);
+        return;
+    }
     for (int j = 0; j < count; ++j) matmul(*ms[j], n, xs, ys[j], pre);
 }
 
@@ -2790,6 +2977,54 @@ std::string Model::npu_status() const {
                       mb, static_cast<unsigned long long>(prof_.npu_moe_experts), prof_.npu_moe, prof_.npu_moe_dsp,
                       static_cast<unsigned long long>(prof_.gpu_moe_experts));
         s += b;
+    }
+    if (npu_.attn_on || npu_.attn_calls || npu_.attn_status != "off") {
+        char b[160];
+        std::snprintf(b, sizeof b, "; attention %s", npu_.attn_status.c_str());
+        s += b;
+        if (npu_.attn_calls) {
+            std::snprintf(b, sizeof b, " (%llu layers, %.2f s, DSP %.2f s)",
+                          static_cast<unsigned long long>(npu_.attn_calls), npu_.attn_wall, npu_.attn_dsp);
+            s += b;
+        }
+    }
+    // (Gemma's answer on the DSP's layers too, RunMode::Npu: the run-mode label reads "decoder on ... prompts")
+    if (npu_.gdec && npu_answers()) s += "; decoder on: every layer on the DSP, prompts and answers";
+    if (npu_.gdec || npu_.gdec_calls || npu_.gdec_status != "off") {
+        char b[200];
+        std::snprintf(b, sizeof b, "; layers %s", npu_.gdec_status.c_str());
+        s += b;
+        if (npu_.gdec_calls) {
+            std::snprintf(b, sizeof b, " (%llu chunks, %llu tokens, %.2f s, DSP %.2f s",
+                          static_cast<unsigned long long>(npu_.gdec_calls),
+                          static_cast<unsigned long long>(npu_.gdec_tokens), npu_.gdec_wall, npu_.gdec_dsp);
+            s += b;
+            if (npu_.gio && !npu_.gcfg.empty()) {   // the DSP's time by phase (gdec_cfg.h GDEC_PROF_*)
+                const auto &cf = *reinterpret_cast<const gdec_cfg_t *>(npu_.gcfg.data());
+                const auto *pr = reinterpret_cast<const uint64_t *>(npu_.gio + cf.io_bytes - 256);
+                static const char *const names[] = {"in", "qkv", "attention", "core", "post", "down", "ple", "ple2",
+                                                    "products", "mlp"};
+                s += ":";
+                for (int i = 0; i <= GDEC_PROF_MLP; ++i) {
+                    std::snprintf(b, sizeof b, " %s %.2f", names[i], static_cast<double>(pr[i]) * 1e-6);
+                    s += b;
+                }
+                std::snprintf(b, sizeof b, " [q k v %.2f, o %.2f, ple %.2f, gate+up %.2f, cache %.2f]",
+                              static_cast<double>(pr[GDEC_PROF_P_QKV]) * 1e-6, static_cast<double>(pr[GDEC_PROF_P_O]) * 1e-6,
+                              static_cast<double>(pr[GDEC_PROF_P_PLE]) * 1e-6, static_cast<double>(pr[GDEC_PROF_GLU]) * 1e-6,
+                              static_cast<double>(pr[GDEC_PROF_CACHE]) * 1e-6);
+                s += b;
+                std::snprintf(b, sizeof b, " [workers: HVX waits %.2f, busy %.2f; tasks", static_cast<double>(pr[GDEC_PROF_LOCKW]) * 1e-6,
+                              static_cast<double>(pr[GDEC_PROF_BUSY]) * 1e-6);
+                s += b;
+                for (int t = 0; t <= GDEC_THREADS; ++t) {
+                    std::snprintf(b, sizeof b, " %llu", static_cast<unsigned long long>(pr[GDEC_PROF_TASKS0 + t]));
+                    s += b;
+                }
+                s += "]";
+            }
+            s += ")";
+        }
     }
     if (npu_.g) {
         s += "; decoder " + npu_.dec_status;
@@ -4499,7 +4734,14 @@ int Model::mixer_gpu(int l, const Layer &L, int n, std::string &err) {
     if (mtp && !pf_mtp) return 0;
     if (pf_gpu_ != 1 || n < kGpuMinTokens || trace || (mtp ? !mtp8_ : l >= static_cast<int>(dec_layers_.size())))
         return 0;
-    const Gpu8::DecodeLayer &D = mtp ? dec_mtp_ : dec_layers_[static_cast<size_t>(l)];
+    if (L.attn && cfg_.n_heads != 8 * cfg_.n_kv_heads) return 0;   // (pf_attn: 8 query heads a KV head; the CPU's)
+    Gpu8::DecodeLayer D = mtp ? dec_mtp_ : dec_layers_[static_cast<size_t>(l)];
+    if (!L.attn) {   // (the states where they are now: the CPU's speculation swaps them with their backups)
+        const auto &c = cfg_;
+        const size_t conv_dim = static_cast<size_t>(2 * c.gdn_k_heads * c.gdn_k_dim + c.gdn_v_heads * c.gdn_v_dim);
+        D.conv_state = conv_st_ + static_cast<size_t>(L.index) * conv_dim * (c.conv_kernel - 1);
+        D.gdn_state = gdn_st_ + static_cast<size_t>(L.index) * c.gdn_v_heads * c.gdn_k_dim * c.gdn_v_dim;
+    }
     // GEODE_PF_CHECK=1 (diagnosis): the layer on the GPU, then its states put back and the layer on the CPU (which
     // stands); how far apart the two outputs are
     static const bool pf_check = std::getenv("GEODE_PF_CHECK") != nullptr;
@@ -4713,7 +4955,7 @@ std::string Model::profile() const {
                       p.d_verify > 0 ? (", pairs " + std::to_string(static_cast<long long>(p.d_verify * 1e3)) + " ms").c_str() : "");
     // the expert picks: in the cache, caught by a read-ahead, or read on the spot; and how many reads ahead were made
     std::string out = buf;
-    if (gpu8_ && dec8_) {
+    if (gpu8_ && (dec8_ || gemma_gpu_)) {
         const std::string dp = gpu8_->dec_profile();
         if (!dp.empty()) out += "\nGPU generating, by kernel:\n" + dp;
     }

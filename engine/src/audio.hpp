@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "media.hpp"
 #include "pack.hpp"
 #include "platform.hpp"
 #include "threads.hpp"
@@ -35,8 +36,9 @@ public:
     // the <|audio|> tokens of a clip of n samples (the first max_samples of a longer one): one per 40 ms
     int tokens(int64_t n) const;
     // pcm: n samples at 16 kHz in [-1, 1]. out: tokens(n) rows of text_hidden floats (the text model's embeddings
-    // there), in order.
-    bool encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<float> &out, std::string &err);
+    // there), in order. npu: the products on HMX (media.hpp MediaNpu) when usable; a failure there, the CPU.
+    bool encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<float> &out, std::string &err,
+                const MediaNpu *npu = nullptr);
     // where the last encode's time went
     std::string profile() const;
 
@@ -55,9 +57,15 @@ private:
     Shape s_;
     Range head_, tail_;
     std::vector<Range> layers_;
+    // the NPU's two layer buffers (MediaNpu), made at the first encode that uses them, kept with the NPU's handle
+    void *npu_g_ = nullptr;
+    uint8_t *npu_buf_[2] = {nullptr, nullptr};
+    int npu_fd_[2] = {-1, -1};
+    size_t npu_cap_ = 0;
     struct Prof {
         double total = 0, wait = 0, features = 0, sub = 0, matmul = 0, attention = 0, other = 0;
         int frames = 0, tokens = 0;
+        bool npu = false;   // the products on HMX (every one)
     } prof_;
 };
 

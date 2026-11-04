@@ -78,4 +78,25 @@ interface geode_npu : remote_handle64 {
    // AEE_EUNSUPPORTED. usec: the DSP's time
    long gemm_glu(in sequence<octet> a, in long g_fd, in long u_fd, rout sequence<octet> o, in long m, in long k,
                  in long n, in long g_shift, in long u_shift, in long part_blk, in long act, rout long long usec);
+   // A prompt's attention for one layer on HMX (npu/attn_cfg.h, npu/dsp/attn.c): desc = attn_desc_t (the shape, the
+   // KV cache's chunks by the fds gnpu_shared_alloc gave), q the queries' rows (floats, normed and turned), o the
+   // output rows (floats). v79 and newer; older: AEE_EUNSUPPORTED. usec: the DSP's time
+   long attn(in sequence<octet> desc, in sequence<octet> q, rout sequence<octet> o, rout long long usec);
+   // Gemma 4's layers on the DSP (npu/gdec_cfg.h, npu/dsp/gemma.c): gdec_open takes the shape, the norms' buffer P
+   // and the IO buffer (gnpu_shared_alloc's fds; the matrices' hmx4 copies by the fds the cfg names, mapped once), a
+   // pool of HVX threads that stays; gdec_kv: the KV cache's chunk number `chunk` is the buffer fd; gdec_prefill: the
+   // n tokens in IO (x, the per-layer inputs, the rope tables) at positions from apos through every layer, x left in
+   // IO (flags GDEC_DEBUG_*). v79 and newer. usec: the DSP's time
+   long gdec_open(in sequence<octet> cfg, in long p_fd, in long io_fd);
+   long gdec_kv(in long chunk, in long fd);
+   long gdec_prefill(in long n, in long apos, in long flags, rout long long usec);
+   long gdec_close();
+   // One copy of the weights (npu/dsp/wsrc.h): a q4i tile8 matrix the CPU's kernels read too (in a buffer the CPU
+   // mapped once, fd at byte off: kfull inputs, n outputs) registered for the prompt's products, its inputs col0 ..
+   // col0 + k (a deep matrix in parts), its fp16 scales e4m3 x up. id (from 1): what gemm (w_off), gemm_glu (g_fd,
+   // u_fd) and gdec's cfg (gmat_t.fd) name with the shift's HMX4_T8 bit. v79 and newer; older: AEE_EUNSUPPORTED.
+   // mat_t8_clear: every registration's mapping given back (before the CPU unmaps the buffers)
+   long mat_t8(in long fd, in unsigned long long off, in long kfull, in long n, in long col0, in long k, in float up,
+               rout long id);
+   long mat_t8_clear();
 };

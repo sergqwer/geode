@@ -14,11 +14,12 @@ data class CatalogPack(val pack: HfPack, val manifest: PackManifest)
 object Catalog {
     /**
      * Geode's repositories, each with its packs: the big model first, then the light ones for weaker phones (Gemma 4
-     * E2B, the one that sees video and hears sound, last).
+     * E4B and E2B, the ones that see video and hear sound, last).
      */
     val REPOS = listOf(
         "Maximilian228/Geode-Qwen3.6-35B-A3B",
         "Maximilian228/Geode-Qwen3.5-2B",
+        "Maximilian228/Geode-Gemma-4-E4B",
         "Maximilian228/Geode-Gemma-4-E2B",
     )
     private const val REVISION = "main"
@@ -48,7 +49,11 @@ object Catalog {
      * A light model: a dense one (no experts to read from flash), small enough for any phone's memory - it runs on
      * the processor (the NPU reads its prompts where there is one) and needs neither the GPU path nor 8 GB of RAM.
      */
-    fun light(p: CatalogPack): Boolean = p.manifest.arch == "qwen35" || p.pack.bytes < (4L shl 30)
+    fun light(p: CatalogPack): Boolean =
+        p.manifest.arch == "qwen35" || p.manifest.arch == "gemma4" || p.pack.bytes < (4L shl 30)
+
+    /** A light model too large for a 6 GB phone (Gemma 4 E4B: 2.6 GB of it in memory): it wants 8 GB. */
+    fun wantsEightGb(p: CatalogPack): Boolean = light(p) && p.pack.bytes >= (4L shl 30)
 }
 
 /** What the phone brings to a model: its memory and whether the engine's GPU path can run on its chip. */

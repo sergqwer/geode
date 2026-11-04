@@ -41,7 +41,8 @@ JNIEXPORT jlong JNICALL Java_xyz_tifu_geode_engine_GeodeNative_open(JNIEnv *env,
                                                                     jint contextLength, jboolean prefetch,
                                                                     jboolean gpu, jfloat gpuShare,
                                                                     jint expertsPerToken, jfloat routePrior,
-                                                                    jint tailSkip, jboolean npu, jobjectArray errOut) {
+                                                                    jint tailSkip, jboolean npu, jint mode,
+                                                                    jint off, jobjectArray errOut) {
     const char *d = env->GetStringUTFChars(dir, nullptr);
     geode_config cfg{};
     cfg.model_dir = d;
@@ -57,6 +58,11 @@ JNIEXPORT jlong JNICALL Java_xyz_tifu_geode_engine_GeodeNative_open(JNIEnv *env,
     cfg.route_prior = routePrior;
     cfg.tail_skip = tailSkip;
     cfg.npu = npu ? 1 : 0;
+    cfg.mode = mode;   // GEODE_MODE_*: the units that run the model (auto: the settings above)
+    // what the user turned off (GeodeNative.OFF_*): bit 0 speculative decoding, 1 the vision encoder, 2 the audio one
+    cfg.no_draft = off & 1;
+    cfg.no_vision = (off >> 1) & 1;
+    cfg.no_audio = (off >> 2) & 1;
     geode_model *model = nullptr;
     char err[512] = {0};
     const int rc = geode_open(&cfg, &model, err, sizeof err);

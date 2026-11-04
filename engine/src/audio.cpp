@@ -245,7 +245,8 @@ void Audio::features(const float *pcm, int64_t n, const float *win, const float 
     }, 4, true);
 }
 
-bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<float> &out, std::string &err) {
+bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<float> &out, std::string &err,
+                   const MediaNpu *npu) {
     const auto &s = s_;
     if (!ok_) {
         err = "no audio encoder";
@@ -299,7 +300,70 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
         for (const auto &nm : mats(l)) mmla = mmla && pack_->find(nm)->type == DType::Q8 && pack_->find(nm)->rows % 8 == 0;
     mmla = mmla && pack_->find("audio.sub.proj.weight")->type == DType::Q8;
 
-    // the layers come in one ahead of the arithmetic, two buffers in turn (repacked for SMMLA there too)
+    // The NPU's HMX (MediaNpu; GEODE_AUDIO_NPU=0: not) as the vision encoder's: every matrix q8 with rows and columns
+    // in 32s, turned into fp16 blocks in one of two shared buffers as its layer comes in - its ten matrices packed at
+    // once (a layer is 46 MB of them: one thread would take longer than the layer's arithmetic); the buffers made
+    // here, on the NPU's thread, once. No SMMLA repack then: a failure finishes the clip on the int8 kernels.
+    constexpr int kMats = 10;
+    bool on_npu = npu && npu->usable() && !(std::getenv("GEODE_AUDIO_NPU") && std::atoi(std::getenv("GEODE_AUDIO_NPU")) == 0);
+    {
+        const auto f16_of = [&](const std::string &nm) -> size_t {
+            const Tensor *t = pack_->find(nm);
+            if (!t || t->type != DType::Q8 || t->rows % 32 || t->cols % 32) return 0;
+            return (npu->f16_bytes(t->rows, t->cols) + 127) / 128 * 128;
+        };
+        size_t need = 0;
+        for (int l = 0; l <= s.layers && on_npu; ++l) {
+            size_t sum = 0;
+            for (const auto &nm : mats(l)) {
+                const size_t b = f16_of(nm);
+                on_npu = on_npu && b > 0;
+                sum += b;
+            }
+            need = std::max(need, sum);
+        }
+        if (on_npu) {
+            const size_t b = f16_of("audio.sub.proj.weight");
+            on_npu = b > 0;
+            need = std::max(need, b);
+        }
+        if (on_npu && (npu_g_ != npu->g || npu_cap_ < need)) {
+            npu_g_ = npu->g;
+            npu_cap_ = 0;
+            for (int k = 0; k < 2 && on_npu; ++k) {
+                npu_buf_[k] = static_cast<uint8_t *>(npu->shared(npu->g, need, 1, &npu_fd_[k]));
+                on_npu = npu_buf_[k] != nullptr;
+            }
+            if (on_npu) npu_cap_ = need;
+        }
+    }
+    if (on_npu) mmla = false;
+    media::F16 f16d[2][kMats];
+    bool f16ok[2] = {false, false};
+    // matrices vs of buffer k into its fp16 blocks, each on a thread of its own; false when one is not
+    const auto pack_f16 = [this, npu](const std::vector<QView> &vs, int k, media::F16 *fs) {
+        uint64_t o = 0;
+        std::vector<std::future<int>> jobs;
+        bool ok = true;
+        for (size_t j = 0; j < vs.size() && ok; ++j) {
+            fs[j].fd = npu_fd_[k];
+            fs[j].off = o;
+            o += (npu->f16_bytes(vs[j].rows, vs[j].cols) + 127) / 128 * 128;
+            ok = o <= npu_cap_;
+            if (!ok) break;
+            const QView v = vs[j];
+            uint8_t *dst = npu_buf_[k] + fs[j].off;
+            int *sh = &fs[j].shift;
+            jobs.push_back(std::async(std::launch::async, [npu, v, dst, sh] {
+                return npu->pack_f16(v.data, v.rows, v.cols, v.row_bytes, v.global, dst, sh);
+            }));
+        }
+        for (auto &j : jobs) ok = j.get() == 0 && ok;
+        return ok;
+    };
+
+    // the layers come in one ahead of the arithmetic, two buffers in turn (repacked for SMMLA there too, or into the
+    // NPU's fp16 blocks)
     AlignedBuffer bb[2];
     size_t bcap[2] = {0, 0};
     uint64_t bbase[2] = {0, 0};
@@ -308,11 +372,18 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
     const auto start = [&](int l) {
         const Range *r = l < s.layers ? &layers_[static_cast<size_t>(l)] : &tail_;
         const int k = l & 1;
-        return std::async(std::launch::async, [this, r, &bb, &bcap, &bbase, &berr, &bpk, &at, k, mmla, names = mats(l)] {
+        return std::async(std::launch::async, [this, r, &bb, &bcap, &bbase, &berr, &bpk, &at, &f16d, &f16ok, &pack_f16,
+                                               k, mmla, on_npu, names = mats(l)] {
             if (!read(*r, bb[k], bcap[k], bbase[k], berr[k])) return false;
             if (mmla) {
                 bpk[k].resize(names.size());
                 for (size_t j = 0; j < names.size(); ++j) media::pack_q8(at(names[j], bb[k].get(), bbase[k]), bpk[k][j]);
+            }
+            f16ok[k] = false;
+            if (on_npu && names.size() <= static_cast<size_t>(kMats)) {
+                std::vector<QView> vs;
+                for (const auto &nm : names) vs.push_back(at(nm, bb[k].get(), bbase[k]));
+                f16ok[k] = pack_f16(vs, k, f16d[k]);
             }
             return true;
         });
@@ -409,8 +480,13 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
         Packed pp;
         const QView pw = at("audio.sub.proj.weight", hbuf.get(), hbase);
         if (mmla) media::pack_q8(pw, pp);
+        // (on the NPU from buffer 1: layer 0 comes into buffer 0 meanwhile, layer 1 into this one only after it)
+        pr.use_npu(on_npu ? npu : nullptr);
+        media::F16 fp;
+        const bool pf = on_npu && pack_f16(std::vector<QView>{pw}, 1, &fp);
         std::copy(x.begin(), x.end(), hn.begin());
-        pr.mm(pool, pw, mmla ? &pp : nullptr, hn.data(), static_cast<size_t>(D), x.data(), static_cast<size_t>(D), T);
+        pr.mm(pool, pw, mmla ? &pp : nullptr, hn.data(), static_cast<size_t>(D), x.data(), static_cast<size_t>(D), T,
+              pf ? &fp : nullptr);
     }
     hbuf.reset();
     lap(prof_.matmul);
@@ -443,18 +519,20 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
         const auto lin = [&](int m) { return at(b + kLinears[m] + ".weight", buf, base); };
         const auto clip = [&](int m) { return vec(b + kLinears[m] + ".clip", buf, base); };
         const auto P = [&](int m) { return mmla ? &pk[static_cast<size_t>(m)] : nullptr; };
+        const media::F16 *fl = f16ok[kb] ? f16d[kb] : nullptr;
+        const auto FB = [&](int m) { return fl ? fl + m : nullptr; };
         const auto nw = [&](const char *name) { return vec(b + name + ".weight", buf, base); };
         // a half-step MLP: x += residual * post_norm(W2 silu(W1 pre_norm(x)))
         const auto ffn = [&](const char *pre, const char *post, int m1, int m2) {
             rms(nw(pre), x.data(), hn.data(), D);
             lap(prof_.other);
-            pr.clipped(pool, lin(m1), P(m1), clip(m1), hn.data(), g.data(), T);
+            pr.clipped(pool, lin(m1), P(m1), clip(m1), hn.data(), g.data(), T, FB(m1));
             lap(prof_.matmul);
             pool.parallel_for(static_cast<int64_t>(T) * F, [&](int64_t a, int64_t e) {
                 for (int64_t i = a; i < e; ++i) g[static_cast<size_t>(i)] = silu_fast(g[static_cast<size_t>(i)]);
             }, 4096, true);
             lap(prof_.other);
-            pr.clipped(pool, lin(m2), P(m2), clip(m2), g.data(), y.data(), T);
+            pr.clipped(pool, lin(m2), P(m2), clip(m2), g.data(), y.data(), T, FB(m2));
             lap(prof_.matmul);
             rms(nw(post), y.data(), y.data(), D);
             add(x.data(), y.data(), s.residual);
@@ -465,9 +543,9 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
         // attention over the token and the window - 1 before it, with relative positions
         rms(nw("norm_pre_attn"), x.data(), hn.data(), D);
         lap(prof_.other);
-        pr.clipped(pool, lin(kQ), P(kQ), clip(kQ), hn.data(), q.data(), T);
-        pr.clipped(pool, lin(kK), P(kK), clip(kK), hn.data(), k.data(), T);
-        pr.clipped(pool, lin(kV), P(kV), clip(kV), hn.data(), v.data(), T);
+        pr.clipped(pool, lin(kQ), P(kQ), clip(kQ), hn.data(), q.data(), T, FB(kQ));
+        pr.clipped(pool, lin(kK), P(kK), clip(kK), hn.data(), k.data(), T, FB(kK));
+        pr.clipped(pool, lin(kV), P(kV), clip(kV), hn.data(), v.data(), T, FB(kV));
         lap(prof_.matmul);
         {
             const float *qs = vec(b + "self_attn.qscale", buf, base), *rk = vec(b + "self_attn.relk", buf, base);
@@ -510,7 +588,7 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
             }, 4, true);
         }
         lap(prof_.attention);
-        pr.clipped(pool, lin(kPost), P(kPost), clip(kPost), hn.data(), y.data(), T);
+        pr.clipped(pool, lin(kPost), P(kPost), clip(kPost), hn.data(), y.data(), T, FB(kPost));
         lap(prof_.matmul);
         rms(nw("norm_post_attn"), y.data(), y.data(), D);
         add(x.data(), y.data(), 1.0f);
@@ -518,7 +596,7 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
         // the light convolution: x += end(silu(conv_norm(dwconv(glu(start(pre_norm(x)))))))
         rms(nw("lconv1d.pre_layer_norm"), x.data(), hn.data(), D);
         lap(prof_.other);
-        pr.clipped(pool, lin(kStart), P(kStart), clip(kStart), hn.data(), g.data(), T);   // [T][2 D]
+        pr.clipped(pool, lin(kStart), P(kStart), clip(kStart), hn.data(), g.data(), T, FB(kStart));   // [T][2 D]
         lap(prof_.matmul);
         {
             const float *dw = vec(b + "lconv1d.dwconv", buf, base);
@@ -549,7 +627,7 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
             }, 4096, true);
         }
         lap(prof_.other);
-        pr.clipped(pool, lin(kEnd), P(kEnd), clip(kEnd), y.data(), hn.data(), T);
+        pr.clipped(pool, lin(kEnd), P(kEnd), clip(kEnd), y.data(), hn.data(), T, FB(kEnd));
         lap(prof_.matmul);
         add(x.data(), hn.data(), 1.0f);
 
@@ -570,8 +648,9 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
         const uint8_t *buf = bb[kb].get();
         const uint64_t base = bbase[kb];
         const int O = s.out_hidden;
+        const media::F16 *ft = f16ok[kb] ? f16d[kb] : nullptr;
         pr.mm(pool, at("audio.out.weight", buf, base), mmla ? &bpk[kb][0] : nullptr, x.data(), static_cast<size_t>(D),
-              y.data(), static_cast<size_t>(O), T_out);
+              y.data(), static_cast<size_t>(O), T_out, ft ? ft + 0 : nullptr);
         const float *bias = vec("audio.out.bias", buf, base);
         pool.parallel_for(T_out, [&](int64_t a, int64_t e) {
             for (int64_t t = a; t < e; ++t) {
@@ -582,9 +661,10 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
         }, 8, true);
         out.assign(static_cast<size_t>(T_out) * s.text_hidden, 0.0f);
         pr.mm(pool, at("audio.embed.weight", buf, base), mmla ? &bpk[kb][1] : nullptr, hn.data(), static_cast<size_t>(O),
-              out.data(), static_cast<size_t>(s.text_hidden), T_out);
+              out.data(), static_cast<size_t>(s.text_hidden), T_out, ft ? ft + 1 : nullptr);
     }
     lap(prof_.matmul);
+    prof_.npu = on_npu && pr.npu_live();
     prof_.total = now_seconds() - t0;
     return true;
 }
@@ -592,10 +672,10 @@ bool Audio::encode(const float *pcm, int64_t n, ThreadPool &pool, std::vector<fl
 std::string Audio::profile() const {
     char b[384];
     std::snprintf(b, sizeof b,
-                  "%d frames -> %d tokens %.2f s (reads waited %.2f, features %.2f, sub-sampling %.2f, products %.2f, "
+                  "%d frames -> %d tokens %.2f s (reads waited %.2f, features %.2f, sub-sampling %.2f, products %.2f%s, "
                   "attention %.2f, other %.2f)",
                   prof_.frames, prof_.tokens, prof_.total, prof_.wait, prof_.features, prof_.sub, prof_.matmul,
-                  prof_.attention, prof_.other);
+                  prof_.npu ? " on HMX" : "", prof_.attention, prof_.other);
     return b;
 }
 

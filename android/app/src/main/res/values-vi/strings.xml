@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">Trò chuyện</string>
     <string name="nav_models">Mô hình</string>
-    <string name="nav_settings">Cài đặt</string>
+    <string name="nav_settings">Cài đặt ứng dụng</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Tin nhắn</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">Dung lượng trống: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Cài đặt</string>
+    <string name="settings_title">Cài đặt ứng dụng</string>
     <string name="settings_section_memory">Bộ nhớ</string>
     <string name="settings_memory_budget">Bộ nhớ cho mô hình</string>
     <string name="settings_memory_budget_value">%1$s (khuyến nghị %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">Ngữ cảnh tối đa: %1$d token</string>
     <string name="settings_context_desc">Ngữ cảnh không được dành sẵn từ đầu: nó tăng dần theo từng khối khi cuộc trò chuyện tiếp diễn, và mỗi khối lấy bộ nhớ từ bộ nhớ đệm chuyên gia (từ những chuyên gia ít dùng nhất) - ngữ cảnh dài làm việc tạo văn bản chậm hơn. Cuộc trò chuyện mới sẽ trả lại toàn bộ.</string>
+    <string name="settings_context_desc_dense">Ngữ cảnh không được giữ chỗ trước: nó tăng dần theo từng khối khi cuộc trò chuyện tiếp diễn, và ngữ cảnh dài chiếm nhiều bộ nhớ hơn và làm việc tạo chậm hơn. Cuộc trò chuyện mới trả lại tất cả.</string>
     <string name="settings_context_memory">Ngữ cảnh (bộ nhớ đệm KV, int8): %1$s ở %2$d token (%3$s mỗi 1000) · khi đó bộ nhớ đệm chuyên gia còn %4$s</string>
     <string name="settings_context_capped">Ngân sách bộ nhớ này chứa tối đa %1$d token: cuộc trò chuyện sẽ dừng ở đó.</string>
     <string name="settings_section_performance">Hiệu năng</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">Lấy mẫu · có suy luận</string>
     <string name="settings_sampling_plain">Lấy mẫu · không suy luận</string>
     <string name="settings_presence">Phạt hiện diện (presence): %1$.2f</string>
-    <string name="settings_presence_desc">Giảm xác suất của các token đã có trong câu trả lời, để suy luận dài không đi vòng quanh. Qwen khuyến nghị 1.5.</string>
-    <string name="settings_sampling_reset">Giá trị khuyến nghị của Qwen</string>
+    <string name="settings_presence_desc">Giảm xác suất của các token đã có trong câu trả lời, để suy luận dài không đi vòng quanh.</string>
+    <string name="settings_sampling_reset">Giá trị mô hình khuyến nghị</string>
+    <string name="settings_section_features">Đầu vào mô hình chấp nhận</string>
+    <string name="settings_feature_images">Hình ảnh</string>
+    <string name="settings_feature_images_desc">Ảnh chụp và hình ảnh trong cuộc trò chuyện. Tắt: không tải bộ mã hóa thị giác, giúp tiết kiệm bộ nhớ.</string>
+    <string name="settings_feature_video">Video</string>
+    <string name="settings_feature_video_desc">Video trong cuộc trò chuyện: mô hình xem các khung hình và nghe âm thanh.</string>
+    <string name="settings_feature_audio">Âm thanh</string>
+    <string name="settings_feature_audio_desc">Tin nhắn thoại và tệp âm thanh. Tắt: không tải bộ mã hóa âm thanh, giúp tiết kiệm bộ nhớ.</string>
+    <string name="settings_feature_draft">Giải mã suy đoán</string>
+    <string name="settings_feature_draft_desc_mtp">Lớp MTP của mô hình phác thảo từ tiếp theo và mô hình kiểm tra hai từ cùng lúc: trả lời nhanh hơn, văn bản giữ nguyên. Tắt: mỗi lần một từ.</string>
+    <string name="settings_feature_draft_desc_drafter">Mô hình phụ nhỏ của Gemma đoán các từ tiếp theo và mô hình chính kiểm tra chúng cùng lúc: trả lời nhanh hơn, văn bản giữ nguyên. Tắt: mỗi lần một từ, đồng thời tiết kiệm bộ nhớ của mô hình phụ.</string>
+    <string name="settings_sampling_recommended">Khuyến nghị cho %1$s ở chế độ này: nhiệt độ %2$.2f, top-p %3$.2f, top-k %4$d, phạt hiện diện (presence) %5$.1f.</string>
+    <string name="settings_context_model_max">Mô hình này được huấn luyện cho ngữ cảnh tối đa %1$d token.</string>
     <string name="settings_think_budget">Ngân sách suy luận: %1$s</string>
     <string name="settings_think_budget_desc">Sau chừng này token suy luận, mô hình được yêu cầu trả lời ngay.</string>
     <string name="settings_max_answer">Câu trả lời dài nhất: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">Nhân nhỏ hỗ trợ nhân lớn với lời nhắc dài. Trên Redmi Note 9 Pro, chúng làm lời nhắc chậm hơn.</string>
     <string name="settings_prefetch">Đọc trước</string>
     <string name="settings_prefetch_desc">Trong khi một lớp đang tính, đọc trước các chuyên gia mà lớp tiếp theo được dự đoán sẽ cần.</string>
-    <string name="settings_gpu">Dùng GPU</string>
-    <string name="settings_gpu_desc">Chạy mô hình trên chip đồ họa của điện thoại khi có thể: toàn bộ câu trả lời trên Adreno 7xx trở lên; trên Adreno 618, một phần các phép nhân ma trận lớn của lời nhắc.</string>
+    <string name="settings_runs_on">Chạy trên</string>
+    <string name="settings_runs_on_desc">Những bộ xử lý nào của điện thoại chạy mô hình. Khi có hai, bộ thứ nhất đọc prompt và bộ thứ hai viết câu trả lời. Chỉ liệt kê những bộ điện thoại này có; mặc định là NPU + GPU, nhanh nhất khi có cả hai.</string>
     <string name="settings_route_prior">Trả lời nhanh hơn khi mô hình không vừa bộ nhớ</string>
     <string name="settings_route_prior_desc">Ưu tiên các chuyên gia đã có sẵn trong bộ nhớ để đọc ít hơn từ bộ lưu trữ. Câu trả lời có thể thay đổi đôi chút về cách diễn đạt và đôi khi về chất lượng. Mặc định tắt.</string>
-    <string name="settings_npu">Dùng NPU</string>
-    <string name="settings_npu_desc">Dùng bộ xử lý AI của điện thoại (Snapdragon Hexagon) ở những chỗ có ích: đọc lời nhắc nhanh hơn và chính xác hơn một chút, và trên Snapdragon 8 Elite còn đảm nhận một phần chuyên gia của mô hình 35B và chạy toàn bộ mô hình nhẹ. Nếu không có hoặc không qua được bước kiểm tra, GPU và CPU sẽ làm việc như trước.</string>
     <string name="settings_word_experts">Số chuyên gia cho mỗi từ</string>
     <string name="settings_word_experts_desc">8 (mặc định): tất cả chuyên gia mà mô hình chọn, chất lượng đầy đủ. 6 hoặc 4: nếu một trong 2 hoặc 4 chuyên gia được chọn cuối cùng không có trong bộ nhớ, nó sẽ bị bỏ qua thay vì được đọc. Nhanh hơn khi mô hình không vừa bộ nhớ, nhưng câu trả lời của mô hình kém chính xác hơn.</string>
     <string name="settings_gpu_share">Phần hàng dành cho GPU: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">Nén ngữ cảnh</string>
     <string name="chat_compressing">Mô hình đang tóm tắt cuộc trò chuyện…</string>
     <string name="chat_summary_title">Đã nén ngữ cảnh</string>
+    <string name="chat_pruned">Các tin nhắn cũ hơn đã bị xóa sau khi nén ngữ cảnh: mô hình tiếp tục từ bản tóm tắt của chúng.</string>
     <string name="chat_summary_note">Từ đây, mô hình thấy bản tóm tắt này thay cho các tin nhắn phía trên.</string>
     <string name="settings_image_detail">Độ chi tiết hình ảnh</string>
     <string name="settings_image_detail_fast">Nhanh</string>
     <string name="settings_image_detail_fine">Chi tiết</string>
     <string name="settings_image_detail_most">Tối đa</string>
     <string name="settings_image_detail_desc">Mức chi tiết mà mô hình nhìn hình ảnh đính kèm: tối đa 256, 576 hoặc 1024 token. Chi tiết hơn thì đọc chữ nhỏ tốt hơn nhưng phải chờ lâu hơn trước khi câu trả lời bắt đầu (hình ảnh được mã hóa trên các nhân của điện thoại; trọng số của bộ mã hóa chỉ được đọc từ bộ nhớ lúc đó).</string>
-    <string name="settings_auto_compress">Tự động nén ngữ cảnh</string>
-    <string name="settings_auto_compress_desc">Khi ngữ cảnh đầy 90%, mô hình tóm tắt cuộc trò chuyện và tiếp tục từ bản tóm tắt (câu trả lời dừng trước 10% cuối, phần dành cho bản tóm tắt).</string>
     <string name="answer_notif_title">Geode đang trả lời</string>
     <string name="answer_notif_text">Mô hình tiếp tục làm việc khi ứng dụng chạy nền.</string>
     <string name="answer_notif_stop">Dừng</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">Cảm ơn, báo cáo đã được gửi</string>
     <string name="report_queued">Không có kết nối: báo cáo sẽ được gửi sau</string>
     <string name="cpu_unsupported">Bộ xử lý của điện thoại này không được hỗ trợ: Geode cần bộ xử lý ARM 64 bit có lệnh dot product (ARMv8.2, hầu hết điện thoại từ năm 2019).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Quyền riêng tư</string>
+    <string name="lock_setting">Khóa ứng dụng</string>
+    <string name="lock_setting_desc">Mã PIN hoặc mật khẩu trước khi hiện các cuộc trò chuyện: khi ứng dụng khởi động và khi bạn quay lại.</string>
+    <string name="lock_kind_pin">Mã PIN</string>
+    <string name="lock_kind_password">Mật khẩu</string>
+    <string name="lock_repeat">Nhập lại</string>
+    <string name="lock_short_pin">Ít nhất 4 chữ số</string>
+    <string name="lock_short_password">Ít nhất 4 ký tự</string>
+    <string name="lock_mismatch">Hai lần nhập không khớp</string>
+    <string name="lock_enter_pin">Mã PIN của bạn</string>
+    <string name="lock_enter_password">Mật khẩu của bạn</string>
+    <string name="lock_wrong">Không đúng, hãy thử lại</string>
+    <string name="lock_wait">Quá nhiều lần thử: lần tiếp theo sau %1$s</string>
+    <string name="lock_unlock">Mở khóa</string>
+    <string name="lock_title">Geode đang bị khóa</string>
+    <string name="lock_fingerprint">Mở khóa bằng vân tay</string>
+    <string name="lock_fingerprint_desc">Thay cho mã. Vân tay được thêm vào điện thoại sau này sẽ tắt tính năng này.</string>
+    <string name="lock_fingerprint_none">Hãy thêm vân tay trong cài đặt điện thoại trước.</string>
+    <string name="lock_fingerprint_changed">Vân tay trên điện thoại đã thay đổi nên mở khóa bằng vân tay đã tắt: hãy mở khóa bằng mã rồi bật lại trong Cài đặt.</string>
+    <string name="lock_prompt_title">Mở khóa Geode</string>
+    <string name="lock_prompt_code">Dùng mã</string>
+    <string name="lock_after">Khóa sau khi rời ứng dụng</string>
+    <string name="lock_after_now">Ngay lập tức</string>
+    <string name="lock_after_min">%1$d phút</string>
+    <string name="lock_change">Đổi mã PIN hoặc mật khẩu</string>
+    <string name="lock_off">Tắt khóa</string>
+    <string name="lock_now">Khóa ngay</string>
+    <string name="lock_note">Khi khóa đang bật, bản xem trước của ứng dụng trong mục ứng dụng gần đây sẽ bị ẩn. Trò chuyện trên web và API trên mạng vẫn dùng mật khẩu và khóa truy cập riêng.</string>
+    <string name="lock_forgot">Quên mã?</string>
+    <string name="lock_forgot_title">Xóa mọi cuộc trò chuyện?</string>
+    <string name="lock_forgot_text">Không có mã thì không còn cách nào khác để vào: mọi cuộc trò chuyện sẽ bị xóa cùng ảnh, âm thanh và tệp của tác nhân, rồi đến khóa. Các mô hình vẫn còn.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Cỡ chữ trong trò chuyện: %1$d%%</string>
+    <string name="settings_chat_text_desc">Tin nhắn và ô nhập trong cuộc trò chuyện. Cũng có thể đổi bằng hai ngón tay ngay trên cuộc trò chuyện.</string>
+    <string name="models_search">Tìm mô hình</string>
+    <string name="models_cap_photos">Ảnh</string>
+    <string name="models_cap_video">Video</string>
+    <string name="models_cap_sound">Âm thanh</string>
+    <string name="models_cap_reasoning">Suy luận</string>
+    <string name="models_no_match">Không có mô hình phù hợp</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Màn hình</string>
+    <string name="screen_keep">Giữ màn hình luôn bật</string>
+    <string name="screen_keep_off">Không: theo thời gian chờ của điện thoại</string>
+    <string name="screen_keep_answering">Khi Geode đang trả lời</string>
+    <string name="screen_keep_always">Luôn luôn, khi Geode đang mở</string>
+    <string name="screen_black_after">Màn hình đen sau %1$d phút không chạm</string>
+    <string name="screen_black_never">Màn hình đen: không bao giờ</string>
+    <string name="screen_black_desc">Chống lưu ảnh: trên màn hình OLED, những phần hình không bao giờ chuyển động (các thanh, ô nhập) có thể bị lưu ảnh sau nhiều giờ. Màn hình đen không phải là khóa: điện thoại vẫn mở khóa, chỉ cần chạm vào màn hình là Geode trở lại.</string>
+    <string name="screen_black_off_warning">Khi tắt màn hình đen, hình ảnh đứng yên hàng giờ có thể lưu vĩnh viễn trên màn hình OLED.</string>
+    <string name="screen_black_hint">Chạm vào màn hình để quay lại</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">Chạy trên bộ xử lý (NPU đọc lời nhắc nếu có), trên điện thoại có RAM 8 GB trở lên</string>
+    <string name="models_catalog_ram_short">RAM %1$s: quá ít cho mô hình này (cần 8 GB)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Giọng nói</string>
+    <string name="voice_read_aloud">Đọc to câu trả lời</string>
+    <string name="voice_read_aloud_desc">Từng câu khi câu trả lời đang được viết. Nút loa dưới câu trả lời đọc lại nó.</string>
+    <string name="voice_rate">Tốc độ nói: %1$d%%</string>
+    <string name="voice_none">Điện thoại này không có công cụ chuyển văn bản thành giọng nói: hãy cài một công cụ (ví dụ Dịch vụ lời nói của Google) trong cài đặt hệ thống.</string>
+    <string name="chat_speak">Đọc to</string>
+    <string name="chat_speak_stop">Dừng đọc</string>
+    <string name="nav_model_settings">Cài đặt mô hình</string>
+    <string name="model_settings_selected">Mô hình đã chọn: %1$s</string>
+    <string name="model_settings_none">Chưa chọn mô hình nào: các cài đặt này áp dụng cho mô hình bạn sẽ chọn.</string>
+    <string name="chat_take_photo">Chụp ảnh</string>
+    <string name="chat_record_video">Quay video</string>
+    <string name="chat_camera_denied">Không có quyền dùng camera, Geode không thể chụp ảnh hay quay video</string>
+    <string name="chat_camera_none">Điện thoại này không có ứng dụng camera</string>
+    <string name="voice_voice">Giọng</string>
+    <string name="voice_auto">Tự động: giọng mặc định của từng ngôn ngữ</string>
+    <string name="voice_voice_desc">Giọng đã chọn đọc ngôn ngữ của nó; các ngôn ngữ khác giữ giọng mặc định.</string>
+    <string name="voice_pitch">Cao độ giọng: %1$d%%</string>
+    <string name="voice_listen">Nghe thử</string>
+    <string name="voice_sample">Câu trả lời sẽ nghe như thế này.</string>
+    <string name="voice_engine_settings">Cài đặt chuyển văn bản thành giọng nói</string>
+    <string name="voice_network">cần internet</string>
+    <string name="chat_read_aloud_on">Câu trả lời được đọc to</string>
+    <string name="chat_read_aloud_off">Câu trả lời không được đọc to</string>
+    <string name="voice_engine">Thứ đọc to</string>
+    <string name="voice_engine_system">Chuyển văn bản thành giọng nói của điện thoại</string>
+    <string name="voice_engine_geode">Giọng riêng của Geode</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: đọc 31 ngôn ngữ ngay trên điện thoại này, trong đó có tiếng Ukraina, tiếng Nga và tiếng Anh; các ngôn ngữ khác do tính năng chuyển văn bản thành giọng nói của điện thoại đọc. Giọng nằm trong bộ nhớ lưu trữ và chỉ chiếm khoảng 300 MB bộ nhớ khi đang đọc.</string>
+    <string name="voice_download">Tải giọng xuống (%1$s)</string>
+    <string name="voice_downloading">Đang tải giọng: %1$d%%</string>
+    <string name="voice_delete">Xóa giọng</string>
+    <string name="voice_download_failed">Không tải được giọng: %1$s</string>
+    <string name="voice_female">Giọng nữ %1$d</string>
+    <string name="voice_male">Giọng nam %1$d</string>
+    <string name="voice_license">Giấy phép của giọng</string>
+    <string name="voice_license_note">Supertonic 3 của Supertone, theo giấy phép Open RAIL-M: các giới hạn sử dụng áp dụng cho những gì nó đọc. Chạy bằng sherpa-onnx.</string>
+    <string name="agent_folders">Thư mục trên điện thoại</string>
+    <string name="agent_folders_desc">Các thư mục trên điện thoại này mà tác nhân của mọi cuộc trò chuyện có thể làm việc cùng: trong Linux của tác nhân, chúng nằm ở /phone. Tác nhân làm việc trên bản sao của từng thư mục, được cập nhật trước mỗi tin nhắn; với thư mục đọc và ghi, các thay đổi của tác nhân được chép trở lại khi nó làm xong. Thu hồi một thư mục chỉ xóa bản sao.</string>
+    <string name="agent_folders_none">Chưa cấp thư mục nào.</string>
+    <string name="agent_folders_add">Cấp một thư mục</string>
+    <string name="agent_folder_read">Chỉ đọc</string>
+    <string name="agent_folder_write">Đọc và ghi</string>
+    <string name="agent_folder_remove">Thu hồi</string>
+    <string name="agent_folder_files">Tệp: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Đang sao chép…</string>
+    <string name="agent_folder_skipped">Không sao chép: %1$d (mỗi bản sao chứa tối đa 10.000 tệp và %2$s)</string>
+    <string name="agent_folder_error">Không đọc được thư mục: %1$s</string>
+    <string name="agent_folder_add_failed">Không thể cấp thư mục cho tác nhân</string>
+    <string name="models_services">Mô hình của dịch vụ</string>
+    <string name="models_services_desc">Mô hình của một dịch vụ mà bạn có khóa có thể trả lời trong các cuộc trò chuyện thay cho mô hình trên điện thoại: DeepSeek, OpenRouter, OpenAI, Anthropic hoặc bất kỳ dịch vụ nào dùng API của họ. Những gì cuộc trò chuyện gửi sẽ đến dịch vụ đó; Linux của tác tử và các tệp của nó vẫn ở trên điện thoại.</string>
+    <string name="models_service_add">Thêm dịch vụ</string>
+    <string name="models_service_edit">Sửa</string>
+    <string name="service_name">Tên</string>
+    <string name="service_url">Địa chỉ API</string>
+    <string name="service_protocol">Giao thức</string>
+    <string name="service_key">Khóa API</string>
+    <string name="service_key_kept">Được lưu trên điện thoại này ở dạng mã hóa. Nhập khóa mới để thay thế.</string>
+    <string name="service_model">Mô hình</string>
+    <string name="service_list">Liệt kê các mô hình</string>
+    <string name="service_list_failed">Không liệt kê được các mô hình: %1$s</string>
+    <string name="service_vision">Mô hình đọc được hình ảnh</string>
+    <string name="service_context">Ngữ cảnh, token</string>
+    <string name="service_max">Câu trả lời dài nhất, token</string>
+    <string name="service_leaves">Các cuộc trò chuyện với mô hình này được gửi đến %1$s và xử lý theo điều khoản của dịch vụ đó. Khóa vẫn ở trên điện thoại này ở dạng mã hóa.</string>
+    <string name="chat_empty_remote">Hỏi bất cứ điều gì. Câu trả lời đến từ %1$s (%2$s): những gì bạn gửi sẽ rời khỏi điện thoại.</string>
+    <string name="chat_info_service">Cuộc trò chuyện được gửi đến %1$s</string>
+    <string name="settings_about_services">Và khi bạn chọn mô hình của một dịch vụ trên màn hình Mô hình, các cuộc trò chuyện của nó được gửi đến dịch vụ đó.</string>
 </resources>

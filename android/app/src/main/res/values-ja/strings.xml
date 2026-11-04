@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">チャット</string>
     <string name="nav_models">モデル</string>
-    <string name="nav_settings">設定</string>
+    <string name="nav_settings">アプリの設定</string>
 
     <!-- chat -->
     <string name="chat_input_hint">メッセージ</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">空き容量：%1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">設定</string>
+    <string name="settings_title">アプリの設定</string>
     <string name="settings_section_memory">メモリ</string>
     <string name="settings_memory_budget">モデル用メモリ</string>
     <string name="settings_memory_budget_value">%1$s（推奨 %2$s）</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k：%1$d</string>
     <string name="settings_context">最大コンテキスト：%1$d トークン</string>
     <string name="settings_context_desc">コンテキストはあらかじめ確保されません。会話が進むにつれて少しずつ拡大し、そのたびにエキスパートキャッシュ（使用頻度の低いエキスパート）からメモリを取ります。そのため、コンテキストが長いと生成が遅くなります。新しいチャットを始めるとすべて戻ります。</string>
+    <string name="settings_context_desc_dense">コンテキストは最初から確保されません。チャットが進むにつれてブロック単位で増え、長いコンテキストほどメモリを多く使い、生成も遅くなります。新しいチャットですべて解放されます。</string>
     <string name="settings_context_memory">コンテキスト（KVキャッシュ、int8）：%2$d トークンで%1$s（1000トークンあたり%3$s）· そのときエキスパートキャッシュは%4$s</string>
     <string name="settings_context_capped">このメモリ割り当てでは最大%1$d トークンまでです。会話はそこで止まります。</string>
     <string name="settings_section_performance">パフォーマンス</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">サンプリング · 思考あり</string>
     <string name="settings_sampling_plain">サンプリング · 思考なし</string>
     <string name="settings_presence">存在ペナルティ：%1$.2f</string>
-    <string name="settings_presence_desc">回答にすでに含まれるトークンが出る確率を下げ、長い思考が堂々巡りにならないようにします。Qwenの推奨値は1.5です。</string>
-    <string name="settings_sampling_reset">Qwenの推奨値</string>
+    <string name="settings_presence_desc">回答にすでに含まれるトークンが出る確率を下げ、長い思考が堂々巡りにならないようにします。</string>
+    <string name="settings_sampling_reset">モデルの推奨値</string>
+    <string name="settings_section_features">モデルが受け取る入力</string>
+    <string name="settings_feature_images">画像</string>
+    <string name="settings_feature_images_desc">チャット内の写真や画像。オフの場合、視覚エンコーダーを読み込まず、メモリを節約します。</string>
+    <string name="settings_feature_video">動画</string>
+    <string name="settings_feature_video_desc">チャット内の動画：モデルがフレームを見て、音声を聞き取ります。</string>
+    <string name="settings_feature_audio">音声</string>
+    <string name="settings_feature_audio_desc">音声メッセージや音声ファイル。オフの場合、音声エンコーダーを読み込まず、メモリを節約します。</string>
+    <string name="settings_feature_draft">投機的デコーディング</string>
+    <string name="settings_feature_draft_desc_mtp">モデルの MTP 層が次の単語を仮生成し、モデルが2単語をまとめて検証します。同じテキストで、回答が速くなります。オフの場合、1単語ずつ生成します。</string>
+    <string name="settings_feature_draft_desc_drafter">Gemma の小型補助モデルが次の単語を予測し、モデルがまとめて検証します。同じテキストで、回答が速くなります。オフの場合、1単語ずつ生成し、補助モデルのメモリを節約します。</string>
+    <string name="settings_sampling_recommended">このモードでの %1$s の推奨値：温度 %2$.2f、top-p %3$.2f、top-k %4$d、存在ペナルティ %5$.1f。</string>
+    <string name="settings_context_model_max">このモデルは最大 %1$d トークンのコンテキストで学習されています。</string>
     <string name="settings_think_budget">思考予算：%1$s</string>
     <string name="settings_think_budget_desc">思考トークンがこの数に達すると、モデルにすぐ回答するよう指示します。</string>
     <string name="settings_max_answer">最大回答長：%1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">長いプロンプトでは、高効率コアが高性能コアに加わります。Redmi Note 9 Proでは、かえってプロンプト処理が遅くなりました。</string>
     <string name="settings_prefetch">先読み</string>
     <string name="settings_prefetch_desc">あるレイヤーの計算中に、次のレイヤーで必要と予測されるエキスパートを読み込みます。</string>
-    <string name="settings_gpu">GPUを使用</string>
-    <string name="settings_gpu_desc">可能な場合、端末のグラフィックチップでモデルを実行します。Adreno 7xx以降では回答全体を、Adreno 618ではプロンプトの大きな行列積の一部を処理します。</string>
+    <string name="settings_runs_on">実行するプロセッサ</string>
+    <string name="settings_runs_on_desc">モデルを実行するスマートフォンのプロセッサ。2つの場合、最初がプロンプトを読み、2つ目が回答を書きます。このスマートフォンにあるものだけが表示されます。既定はNPU + GPUで、両方ある場合に最も高速です。</string>
     <string name="settings_route_prior">モデルがメモリに収まらないときに応答を高速化</string>
     <string name="settings_route_prior_desc">すでにメモリにあるエキスパートを優先し、ストレージからの読み込みを減らします。回答の言い回しが少し変わり、まれに品質にも影響することがあります。既定ではオフです。</string>
-    <string name="settings_npu">NPU を使う</string>
-    <string name="settings_npu_desc">効果がある場面でスマートフォンの AI プロセッサ (Snapdragon Hexagon) を使います。プロンプトをより速く、少し正確に読み、Snapdragon 8 Elite では 35B モデルのエキスパートの一部も担当し、軽量モデルを丸ごと実行します。搭載されていない場合やチェックに失敗した場合は、これまでどおり GPU と CPU が処理します。</string>
     <string name="settings_word_experts">1語あたりのエキスパート数</string>
     <string name="settings_word_experts_desc">8（既定）：モデルが選んだすべてのエキスパート。本来の品質です。6 または 4：選ばれた最後の 2 つまたは 4 つのエキスパートがメモリにない場合、読み込まずにスキップします。モデルがメモリに収まらないときは速くなりますが、回答の精度は下がります。</string>
     <string name="settings_gpu_share">GPUが担当する行の割合：%1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">コンテキストを圧縮</string>
     <string name="chat_compressing">モデルが会話を要約しています…</string>
     <string name="chat_summary_title">コンテキストを圧縮しました</string>
+    <string name="chat_pruned">コンテキストの圧縮後、以前のメッセージは削除されました。モデルはその要約をもとに続けます。</string>
     <string name="chat_summary_note">ここから先、モデルは上のメッセージの代わりにこの要約を参照します。</string>
     <string name="settings_image_detail">画像の精細度</string>
     <string name="settings_image_detail_fast">高速</string>
     <string name="settings_image_detail_fine">詳細</string>
     <string name="settings_image_detail_most">最大</string>
     <string name="settings_image_detail_desc">添付画像をモデルがどれだけ細かく見るかを設定します（最大256、576、1024トークン）。細かいほど小さな文字をよく読み取れますが、回答が始まるまでに時間がかかります（画像は端末のコアでエンコードされ、その重みはそのときに初めてストレージから読み込まれます）。</string>
-    <string name="settings_auto_compress">コンテキストを自動で圧縮</string>
-    <string name="settings_auto_compress_desc">コンテキストが90%に達すると、モデルが会話を要約し、その要約から続けます（回答は残り10%の手前で止まります。その10%は要約に使われます）。</string>
     <string name="answer_notif_title">Geodeが回答しています</string>
     <string name="answer_notif_text">アプリがバックグラウンドにあっても、モデルは動作し続けます。</string>
     <string name="answer_notif_stop">停止</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">ありがとうございます。報告を送信しました</string>
     <string name="report_queued">接続がありません。報告は後で送信されます</string>
     <string name="cpu_unsupported">このスマートフォンのプロセッサには対応していません。Geode には dot product 命令を備えた 64 ビット ARM プロセッサ（ARMv8.2、2019 年以降のほとんどのスマートフォン）が必要です。</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">プライバシー</string>
+    <string name="lock_setting">アプリをロック</string>
+    <string name="lock_setting_desc">アプリの起動時とアプリに戻ったときに、チャットを表示する前に PIN またはパスワードを求めます。</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">パスワード</string>
+    <string name="lock_repeat">もう一度入力</string>
+    <string name="lock_short_pin">4 桁以上</string>
+    <string name="lock_short_password">4 文字以上</string>
+    <string name="lock_mismatch">2 つが一致しません</string>
+    <string name="lock_enter_pin">PIN を入力</string>
+    <string name="lock_enter_password">パスワードを入力</string>
+    <string name="lock_wrong">正しくありません。もう一度お試しください</string>
+    <string name="lock_wait">試行回数が多すぎます。次は %1$s 後</string>
+    <string name="lock_unlock">ロック解除</string>
+    <string name="lock_title">Geode はロックされています</string>
+    <string name="lock_fingerprint">指紋でロック解除</string>
+    <string name="lock_fingerprint_desc">コードの代わりに使えます。後で端末に指紋を追加すると、この設定はオフになります。</string>
+    <string name="lock_fingerprint_none">先に端末の設定で指紋を登録してください。</string>
+    <string name="lock_fingerprint_changed">端末の指紋が変更されたため、指紋でのロック解除はオフになりました。コードでロックを解除し、設定でもう一度オンにしてください。</string>
+    <string name="lock_prompt_title">Geode のロックを解除</string>
+    <string name="lock_prompt_code">コードを使う</string>
+    <string name="lock_after">アプリを離れてからロックするまで</string>
+    <string name="lock_after_now">すぐに</string>
+    <string name="lock_after_min">%1$d 分</string>
+    <string name="lock_change">PIN またはパスワードを変更</string>
+    <string name="lock_off">ロックをオフにする</string>
+    <string name="lock_now">今すぐロック</string>
+    <string name="lock_note">ロックがオンの間、最近使ったアプリでのアプリのプレビューは非表示になります。Webチャットとネットワーク上の API には、それぞれ独自のパスワードとキーがあります。</string>
+    <string name="lock_forgot">コードを忘れた場合</string>
+    <string name="lock_forgot_title">すべてのチャットを削除しますか？</string>
+    <string name="lock_forgot_text">コードがなければ、ほかに入る方法はありません。すべてのチャットが写真、音声、エージェントのファイルとともに削除され、その後ロックが解除されます。モデルは残ります。</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">チャットの文字サイズ: %1$d%%</string>
+    <string name="settings_chat_text_desc">チャットのメッセージと入力欄。会話の上で 2 本指でピンチしても変えられます。</string>
+    <string name="models_search">モデルを検索</string>
+    <string name="models_cap_photos">写真</string>
+    <string name="models_cap_video">動画</string>
+    <string name="models_cap_sound">音声</string>
+    <string name="models_cap_reasoning">推論</string>
+    <string name="models_no_match">一致するモデルはありません</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">画面</string>
+    <string name="screen_keep">画面をオンのままにする</string>
+    <string name="screen_keep_off">しない：スマホの設定どおり</string>
+    <string name="screen_keep_answering">Geode が応答している間</string>
+    <string name="screen_keep_always">常に（Geode を開いている間）</string>
+    <string name="screen_black_after">操作なしで %1$d 分後に黒い画面</string>
+    <string name="screen_black_never">黒い画面：使わない</string>
+    <string name="screen_black_desc">焼き付き対策：OLED 画面では、動かない部分（バーや入力欄）が何時間も表示されると焼き付くことがあります。黒い画面はロックではありません。スマホはロック解除のままで、画面に触れれば Geode に戻ります。</string>
+    <string name="screen_black_off_warning">黒い画面をオフにすると、何時間も動かない画像が OLED 画面に永久に焼き付くことがあります。</string>
+    <string name="screen_black_hint">画面に触れると戻ります</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">プロセッサで動作（NPU があればプロンプトを読み込み）、RAM 8 GB 以上のスマホ向け</string>
+    <string name="models_catalog_ram_short">RAM %1$s：このモデルには足りません（8 GB 必要）</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">音声</string>
+    <string name="voice_read_aloud">回答を読み上げる</string>
+    <string name="voice_read_aloud_desc">回答が書かれるそばから一文ずつ読み上げます。回答の下のスピーカーでもう一度読み上げます。</string>
+    <string name="voice_rate">読み上げ速度：%1$d%%</string>
+    <string name="voice_none">このスマホには音声合成エンジンがありません。システム設定でインストールしてください（例：Google の音声サービス）。</string>
+    <string name="chat_speak">読み上げる</string>
+    <string name="chat_speak_stop">読み上げを停止</string>
+    <string name="nav_model_settings">モデルの設定</string>
+    <string name="model_settings_selected">選択中のモデル：%1$s</string>
+    <string name="model_settings_none">まだモデルが選ばれていません。これらの設定は選んだモデルに適用されます。</string>
+    <string name="chat_take_photo">写真を撮る</string>
+    <string name="chat_record_video">動画を撮る</string>
+    <string name="chat_camera_denied">カメラの権限がないと、Geode は写真や動画を撮れません</string>
+    <string name="chat_camera_none">このスマートフォンにはカメラアプリがありません</string>
+    <string name="voice_voice">声</string>
+    <string name="voice_auto">自動：各言語の既定の声</string>
+    <string name="voice_voice_desc">選んだ声はその言語を読み上げます。ほかの言語は既定の声のままです。</string>
+    <string name="voice_pitch">声の高さ：%1$d%%</string>
+    <string name="voice_listen">試聴</string>
+    <string name="voice_sample">回答はこのように聞こえます。</string>
+    <string name="voice_engine_settings">テキスト読み上げの設定</string>
+    <string name="voice_network">インターネットが必要</string>
+    <string name="chat_read_aloud_on">回答を読み上げます</string>
+    <string name="chat_read_aloud_off">回答を読み上げません</string>
+    <string name="voice_engine">読み上げに使うもの</string>
+    <string name="voice_engine_system">スマートフォンの音声読み上げ</string>
+    <string name="voice_engine_geode">Geode 独自の音声</string>
+    <string name="voice_engine_geode_desc">Supertonic 3：ウクライナ語、ロシア語、英語を含む 31 言語をこのスマートフォン上で読み上げます。その他の言語はスマートフォンの音声読み上げが読みます。ストレージに保存され、読み上げ中だけ約 300 MB のメモリを使います。</string>
+    <string name="voice_download">音声をダウンロード（%1$s）</string>
+    <string name="voice_downloading">音声をダウンロード中：%1$d%%</string>
+    <string name="voice_delete">音声を削除</string>
+    <string name="voice_download_failed">音声をダウンロードできませんでした：%1$s</string>
+    <string name="voice_female">女性の声 %1$d</string>
+    <string name="voice_male">男性の声 %1$d</string>
+    <string name="voice_license">音声のライセンス</string>
+    <string name="voice_license_note">Supertone の Supertonic 3、Open RAIL-M ライセンス：読み上げる内容には利用制限が適用されます。sherpa-onnx で動作します。</string>
+    <string name="agent_folders">スマートフォンのフォルダ</string>
+    <string name="agent_folders_desc">各チャットのエージェントが扱えるこのスマートフォンのフォルダです。エージェントの Linux では /phone にあります。エージェントは各フォルダのコピーで作業し、コピーはメッセージのたびに最新の状態に更新されます。読み書きできるフォルダには、作業が終わるとエージェントの変更が書き戻されます。フォルダを取り消すと、削除されるのはコピーだけです。</string>
+    <string name="agent_folders_none">まだフォルダはありません。</string>
+    <string name="agent_folders_add">フォルダを渡す</string>
+    <string name="agent_folder_read">読み取りのみ</string>
+    <string name="agent_folder_write">読み書き</string>
+    <string name="agent_folder_remove">取り消す</string>
+    <string name="agent_folder_files">ファイル: %1$d · %2$s</string>
+    <string name="agent_folder_copying">コピー中…</string>
+    <string name="agent_folder_skipped">未コピー: %1$d（コピーに入るのは最大 10,000 ファイル、%2$s まで）</string>
+    <string name="agent_folder_error">フォルダを読み取れません: %1$s</string>
+    <string name="agent_folder_add_failed">フォルダをエージェントに渡せませんでした</string>
+    <string name="models_services">サービスのモデル</string>
+    <string name="models_services_desc">キーをお持ちのサービスのモデルが、スマートフォンのモデルの代わりにチャットで答えられます。DeepSeek、OpenRouter、OpenAI、Anthropic、またはそれらの API に対応するサービスです。チャットが送る内容はそのサービスに届きます。エージェントの Linux とそのファイルはスマートフォンに残ります。</string>
+    <string name="models_service_add">サービスを追加</string>
+    <string name="models_service_edit">編集</string>
+    <string name="service_name">名前</string>
+    <string name="service_url">API のアドレス</string>
+    <string name="service_protocol">プロトコル</string>
+    <string name="service_key">API キー</string>
+    <string name="service_key_kept">このスマートフォンに暗号化して保存されています。置き換えるには新しいキーを入力してください。</string>
+    <string name="service_model">モデル</string>
+    <string name="service_list">モデルを一覧表示</string>
+    <string name="service_list_failed">モデルを取得できませんでした: %1$s</string>
+    <string name="service_vision">このモデルは画像を読める</string>
+    <string name="service_context">コンテキスト(トークン)</string>
+    <string name="service_max">最長の回答(トークン)</string>
+    <string name="service_leaves">このモデルとのチャットは %1$s に送られ、その規約に従って扱われます。キーは暗号化されたままこのスマートフォンに残ります。</string>
+    <string name="chat_empty_remote">何でも聞いてください。回答は %1$s(%2$s)から届きます。送信した内容はスマートフォンの外に出ます。</string>
+    <string name="chat_info_service">チャットは %1$s に送られます</string>
+    <string name="settings_about_services">また、「モデル」画面でサービスのモデルを選ぶと、そのチャットはそのサービスに送られます。</string>
 </resources>

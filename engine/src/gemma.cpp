@@ -7,12 +7,18 @@
 // logits it gives read one token at a time.
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <type_traits>
 
 #include "model.hpp"
+#include "kernels.hpp"            // to_tile8 (npu_one_copy)
+#include "platform.hpp"           // release_pages
+#include "../../npu/attn_cfg.h"   // a prompt's attention on HMX (npu_attend)
+#include "../../npu/gdec_cfg.h"   // the layers on the DSP (setup_gdec, npu_layers)
 
 #if defined(__aarch64__) && defined(__ARM_NEON)
 #include <arm_neon.h>
@@ -28,6 +34,17 @@
 namespace geode {
 
 namespace {
+
+// An Adreno 8xx (the number after "Adreno" in OpenCL's name for it): where Gemma's answer was measured faster on the
+// GPU than on the CPU (the 830: E2B 43 tokens/s against 36 beside the NPU; docs/gemma4-plan.md, phase 12) - auto's
+// choice; an older one's untested, its answer stays the CPU's
+bool gpu_answers_faster(const std::string &device) {
+    const size_t a = device.find("Adreno");
+    if (a == std::string::npos) return false;
+    size_t i = a + 6;
+    while (i < device.size() && !std::isdigit(static_cast<unsigned char>(device[i]))) ++i;
+    return i < device.size() && std::atoi(device.c_str() + i) >= 800;
+}
 
 const Tensor *find_t(const Pack &p, const std::string &name, std::string &err) {
     const Tensor *t = p.find(name);
@@ -316,24 +333,67 @@ bool Model::open_gemma(const ModelOptions &opt, std::string &err) {
     const auto &c = cfg_;
     // the NPU: a prompt's products on HMX (Model::matmul sends a batch of kNpuMinTokens and more there), the rest of
     // the prompt and the answer on the CPU. It takes the pack's row layout: before quad_dense lays them out anew
-    const bool npu_on = std::getenv("GEODE_NPU") ? std::atoi(std::getenv("GEODE_NPU")) != 0 : opt.npu > 0;
     if (exact_ || check_) npu_.status = "off (exact / checked arithmetic)";
-    else if (!npu_on) npu_.status = "off (the setting)";
-    else setup_npu();
+    else if (!want_npu_) npu_.status = mode_ ? std::string("off (the mode: ") + run_mode_name(mode_) + ")" : "off (the setting)";
+    else {
+        // one copy of the matrices for both (npu_one_copy) where the CPU's kernels will read the quad layout below
+        npu_.want_t8 = opt.quad_layout && !std::getenv("GEODE_NO_QUAD");
+        setup_npu();
+    }
     // a prompt's chunk: larger with the NPU, whose call expands every weight block once whatever the tokens
     gemma_chunk_ = npu_.g ? kGemmaNpuChunk : kGemmaChunk;
     if (const char *e = std::getenv("GEODE_GEMMA_CHUNK")) gemma_chunk_ = std::clamp(std::atoi(e), 16, kMaxPrompt);
-    // the GPU (an Adreno 7xx+): a prompt's products where the NPU does not take them - before quad_dense, as the NPU
-    const bool gpu_on = std::getenv("GEODE_GPU") ? std::atoi(std::getenv("GEODE_GPU")) != 0 : opt.gpu;
-    if (!gpu_on) {
-        gpu_status_ = "off (the setting)";
+    // the GPU (an Adreno 7xx+): a prompt's products where the NPU does not take them - before quad_dense, as the NPU;
+    // the answer there too when the mode asks it. Auto: the answer there where it was measured faster than on the
+    // CPU (gpu_answers_faster: an Adreno 8xx), beside the NPU or not; GEODE_GEMMA_GPU_ANSWER=0 / 1 decides instead
+    const char *ga = std::getenv("GEODE_GEMMA_GPU_ANSWER");
+    const bool auto_mode = mode_ == static_cast<int>(RunMode::Auto);
+    bool answer = want_gpu_answer_ && (!auto_mode || !ga || std::atoi(ga) != 0);   // (auto: the device decides below)
+    if (!want_gpu_prompt_ && !want_gpu_answer_) {
+        gpu_status_ = mode_ ? std::string("off (the mode: ") + run_mode_name(mode_) + ")" : "off (the setting)";
     } else if (exact_ || check_) {
         gpu_status_ = "off (exact / checked arithmetic)";
-    } else if (npu_.g) {
+    } else if (npu_.g && !answer) {
         gpu_status_ = "off (the NPU takes the prompt's products)";
     } else {
+        // the GPU's matrices: a prompt's products' copies in its memory, or (NPU + GPU) the NPU's one copy imported
         std::string why;
-        if (!setup_gpu8_gemma(why) && gpu_status_.rfind("off", 0) != 0) gpu_status_ = "off (" + why + ")";
+        if (npu_.g) {
+            if (!setup_gpu8_on_npu(why)) gpu_status_ = "off (" + why + ")";
+        } else if (!setup_gpu8_gemma(why) && gpu_status_.rfind("off", 0) != 0) {
+            gpu_status_ = "off (" + why + ")";
+        }
+        if (gpu8_ && auto_mode && !ga && !gpu_answers_faster(gpu8_->device())) {
+            answer = false;
+            if (npu_.g) {   // (beside the NPU the GPU was there for the answer only)
+                gpu8_.reset();
+                gpu_status_ = "off (the NPU takes the prompt's products)";
+            }
+        }
+        // the answer (its kernels read an int8 KV cache): lm_head into its memory as well (tile8: the CPU's kernels
+        // read it so; the embedding's rows come from the file), the KV cache in its memory from the first chunk; the
+        // rest once the context is known (setup_gemma_gpu)
+        std::string gw;
+        if (gpu8_ && answer) {
+            const bool i8 = !exact_ && opt.kv_int8 && !std::getenv("GEODE_KV_FP16");
+            const uint8_t *old = lm_head_.data;
+            if (!i8) gw = "an fp16 KV cache";
+            else if (!Gpu8::fits(lm_head_)) gw = "lm_head is not a q4i matrix it takes";
+            else if (!gpu8_->adopt(lm_head_, gw)) gw = "lm_head: " + gw;
+            else {
+                release_pages(const_cast<uint8_t *>(old), static_cast<size_t>(lm_head_.rows) * lm_head_.row_bytes);
+                gemma_gpu_want_ = true;
+            }
+        }
+        // a prompt's layers there as well where the GPU takes the prompt alone (GEODE_GEMMA_GPU_PROMPT=0: its
+        // products only): the generating programs and the KV cache in its memory (setup_gemma_gpu, new_kv_chunk)
+        const char *gp = std::getenv("GEODE_GEMMA_GPU_PROMPT");
+        gemma_prompt_want_ = gpu8_ && want_gpu_prompt_ && !npu_.g && !exact_ && opt.kv_int8 &&
+                             !std::getenv("GEODE_KV_FP16") && !(gp && std::atoi(gp) == 0);
+        // (where the answer goes: the run-mode label reads it)
+        if (gpu8_ && !gemma_gpu_want_)
+            gpu_status_ += std::string("; generating on the CPU (") +
+                           (answer ? gw : mode_ ? std::string("the mode: ") + run_mode_name(mode_) : "auto: an Adreno 8xx's only") + ")";
     }
     // attention in blocks of 256 positions (model.cpp: 1024): E2B has one KV head, so a token generated would
     // otherwise attend on one thread; more blocks, more threads (the blocks start at position 0 whatever the batch)
@@ -369,18 +429,23 @@ bool Model::open_gemma(const ModelOptions &opt, std::string &err) {
     // what a prompt's chunk holds besides the weights and the KV cache: its scratch (kGemmaChunk tokens: the int8
     // activations at most a quarter more), attention's partial sums (gemma_attend: up to 16 MiB), a margin
     // the drafter (drafter.bin, read whole), when the pack has one and it is wanted
-    const Tensor *dh = pack_.manifest()["drafter"].is_object() && !std::getenv("GEODE_NO_DRAFTER") ? pack_.find("drafter.head") : nullptr;
+    const Tensor *dh = pack_.manifest()["drafter"].is_object() && !std::getenv("GEODE_NO_DRAFTER") && !no_draft_
+                           ? pack_.find("drafter.head")
+                           : nullptr;
     const uint64_t draft_bytes = dh ? pack_.file(dh->file).size() : 0;
-    // the fixed part with the NPU's copies of the matrices (besides the CPU's: the answer reads those) or without
+    // the fixed part with the NPU's copies of the matrices (besides the CPU's: the answer reads those) or without -
+    // the matrices of one copy (npu_one_copy) once: in the pack's dense bytes, not again in the NPU's
     const auto fixed_of = [&](bool npu) {
         const uint64_t chunk = static_cast<uint64_t>(npu ? gemma_chunk_ : kGemmaChunk);
         const uint64_t scratch = chunk * token_floats_ * sizeof(float) * 5 / 4 + (16ull << 20);
         return pack_.dense_bytes() + (32ull << 20) + scratch + kv_chunk_bytes_ + draft_bytes +
-               (npu ? static_cast<uint64_t>(npu_.bytes(npu_.g)) : 0) + (gpu8_ ? gpu_staging_ : 0);
+               (npu ? static_cast<uint64_t>(npu_.bytes(npu_.g)) - npu_.t8_bytes + npu_.gdec_bytes : 0) +
+               (gpu8_ ? gpu_staging_ : 0);
     };
     // the NPU only where its copies leave the context asked for its room (a faster prompt is not worth a shorter
-    // conversation): otherwise the CPU's prompt, its copies freed
-    if (opt.memory_budget && npu_.g) {
+    // conversation): otherwise the CPU's prompt, its copies freed (with one copy there is nothing to free: its
+    // buffers hold the CPU's weights, and what is the NPU's own is small)
+    if (opt.memory_budget && npu_.g && !npu_.t8_bytes) {
         const uint64_t kv_all = static_cast<uint64_t>((ctx_ + kv_chunk_ - 1) / kv_chunk_ - 1) * kv_chunk_bytes_;
         if (opt.memory_budget < fixed_of(true) + min_slots * slot + kv_all) {
             npu_.status = "off (its copies of the matrices, " + std::to_string(npu_.bytes(npu_.g) >> 20) +
@@ -391,6 +456,30 @@ bool Model::open_gemma(const ModelOptions &opt, std::string &err) {
             npu_.adopted.clear();
             npu_.parts.clear();
             gemma_chunk_ = kGemmaChunk;
+        }
+    }
+    // a prompt's attention on HMX too: the KV cache where the DSP reads it (v79 and newer; GEODE_NPU_ATTN=0: the CPU's)
+    if (npu_.g) {
+        if (!kv_i8_) npu_.attn_status = "off (an fp16 KV cache)";
+        else if (std::getenv("GEODE_NPU_ATTN") && std::atoi(std::getenv("GEODE_NPU_ATTN")) == 0)
+            npu_.attn_status = "off (GEODE_NPU_ATTN)";
+        else if (!npu_.attn || !npu_.attn_buf || !npu_.shared) npu_.attn_status = "off (libgeode_npu.so has none)";
+        else if (npu_.arch < 79) npu_.attn_status = "off (Hexagon v" + std::to_string(npu_.arch) + ": v79 and newer)";
+        else npu_.attn_on = true, npu_.attn_status = "on";
+    }
+    // and the whole of a prompt's layers there (GEODE_NPU_LAYERS=0: the products and the attention only)
+    if (npu_.attn_on) {
+        std::string why;
+        if (std::getenv("GEODE_NPU_LAYERS") && std::atoi(std::getenv("GEODE_NPU_LAYERS")) == 0)
+            npu_.gdec_status = "off (GEODE_NPU_LAYERS)";
+        else {
+            uint64_t room = UINT64_MAX;   // (the same test as the NPU's above: the context asked for keeps its room)
+            if (opt.memory_budget) {
+                const uint64_t kv_all = static_cast<uint64_t>((ctx_ + kv_chunk_ - 1) / kv_chunk_ - 1) * kv_chunk_bytes_;
+                const uint64_t need = fixed_of(true) + min_slots * slot + kv_all;
+                room = opt.memory_budget > need ? opt.memory_budget - need : 0;
+            }
+            if (!setup_gdec(why, room)) npu_.gdec_status = "off (" + why + ")";
         }
     }
     const uint64_t fixed = fixed_of(npu_.g != nullptr);
@@ -415,10 +504,24 @@ bool Model::open_gemma(const ModelOptions &opt, std::string &err) {
     gdn_st_ = gdn_state_.data();
     if (!new_kv_chunk(err)) return false;
     if (!size_batch(kSmallBatch, err)) return false;
+    if (gemma_gpu_want_ || gemma_prompt_want_) {
+        std::string why;
+        const bool ready = setup_gemma_gpu(why);
+        if (gemma_gpu_want_) {
+            gemma_gpu_ = ready;
+            gpu_status_ += gemma_gpu_ ? "; generating on the GPU" : "; generating on the CPU (" + why + ")";
+        }
+        if (gemma_prompt_want_) {
+            gemma_gpu_prompt_ = ready && gpu8_->setup_gemma_prompt(gemma_chunk_, why);
+            gpu_status_ += gemma_gpu_prompt_ ? "; a prompt's layers on the GPU"
+                                             : "; a prompt's layers on the CPU (" + why + ")";
+        }
+    }
     k_ = 0;
     // the drafter: speculative decoding when it opens (the model works without it)
     if (!pack_.manifest()["drafter"].is_object()) drafter_status_ = "none";
     else if (std::getenv("GEODE_NO_DRAFTER")) drafter_status_ = "off (GEODE_NO_DRAFTER)";
+    else if (no_draft_) drafter_status_ = "off (the setting)";
     else if (!dh) drafter_status_ = "no drafter.bin";
     else {
         std::string de;
@@ -455,6 +558,16 @@ bool Model::gemma_chunk(const int *tokens, int n, float *logits, bool all_logits
     const auto &c = cfg_;
     const int H = c.hidden, P = c.ple_dim, LP = c.n_layers * P;
     if (n > batch_cap_ && !size_batch(n, err)) return false;
+    // a token generated or a draft verified on the GPU when it answers (text only: a medium's rows go the CPU's way)
+    if (gemma_gpu_ && n <= Gpu8::kMaxTokens && !trace && !exact_) {
+        const int pad = vision_.available() ? vision_.shape().pad_token : -1;
+        const int apad = audio_.available() ? audio_.shape().pad_token : -1;
+        const int vpad = vision_.available() ? vision_.shape().video_pad : -1;
+        bool media = image_fed_ > 0;
+        for (int t = 0; t < n; ++t) media = media || tokens[t] == pad || tokens[t] == apad || tokens[t] == vpad;
+        if (!media && gemma_gpu_chunk(tokens, n, logits, all_logits, err, hid_row)) return true;
+        if (!err.empty()) return false;   // (an embedding or table row unread: the CPU would fail the same)
+    }
     float *const X = x_.data();
     apos_ = pos_;
     const auto xs = rows(x_, static_cast<size_t>(H), n);
@@ -533,7 +646,11 @@ bool Model::gemma_chunk(const int *tokens, int n, float *logits, bool all_logits
     const auto hs = rows(h_, static_cast<size_t>(H), n);
     const auto ms = rows(mix_, static_cast<size_t>(H), n);
     const auto os = rows(moe_, static_cast<size_t>(H), n);
-    for (int l = 0; l < c.n_layers; ++l) {
+    // every layer on the DSP when it takes the chunk; else (or after it failed: x_ as it was) here
+    const bool on_dsp = !trace && npu_layers(n);
+    const bool on_gpu = !on_dsp && !trace && gemma_layers_gpu(n, err);
+    if (!err.empty()) return false;
+    for (int l = 0; l < c.n_layers && !on_dsp && !on_gpu; ++l) {
         const GLayer &L = glayers_[static_cast<size_t>(l)];
         if (stop_ && stop_->load()) {
             err = "stopped";
@@ -754,6 +871,9 @@ void Model::gemma_attend(const GLayer &L, int n) {
                 }
             }
         }
+    // a prompt's chunk on HMX (the K / V above in the cache, which the DSP maps)
+    if constexpr (std::is_same_v<T, int8_t>)
+        if (npu_attend(L, n)) return;
     const int group = nh / nkv;
     // the int8 KV cache's scores on SDOT: the queries as int8 too, a row per token and head (amax / 127 its scale,
     // as the KV rows'), once a layer
@@ -990,6 +1110,327 @@ void Model::gemma_heads(const GLayer &L, int kh, int h0, int t, int b, int nb) {
     }
 }
 
+
+// One copy of the weights (npu/dsp/wsrc.h): every q4i matrix a prompt's layer multiplies moved into memory the DSP
+// maps (gnpu_shared_alloc, cached: the CPU's kernels read it for the answer), in tile8 - one of the quad layouts the
+// CPU's kernels read (quad_dense then leaves them), and what the DSP's products expand as they did the hmx4 copies,
+// to the same fp16 weights (npu_probe t8) - the pack's pages given back. In place of a copy for the NPU beside the
+// CPU's (E4B: 2.4 GB). Registered with the DSP whole, a deep one in the parts its hmx4 copy had (Npu::Parts, in
+// 64-input chunks: tile8's). A matrix it could not place (no memory the DSP maps) stays for setup_npu's hmx4 copies.
+int Model::npu_one_copy() {
+#if defined(__ANDROID__)
+    std::vector<QView *> views;
+    for (GLayer &L : glayers_)
+        for (QView *m : {&L.q, &L.k, &L.v, &L.o, &L.gate, &L.up, &L.down, &L.ple_gate, &L.ple_proj}) views.push_back(m);
+    views.push_back(&ple_model_);
+    struct Mat {
+        const uint8_t *old;
+        int64_t rows, cols;
+        size_t bytes;
+        float global;
+        uint8_t *at;
+        int fd;
+        uint64_t off;
+    };
+    std::vector<Mat> mats;
+    for (QView *m : views) {
+        if (!m->data || m->type != DType::Q4I || m->quad || !tile8_capable(m->type, m->rows, m->cols)) continue;
+        if (std::any_of(mats.begin(), mats.end(), [&](const Mat &x) { return x.old == m->data; })) continue;
+        mats.push_back({m->data, m->rows, m->cols, static_cast<size_t>(m->rows) * m->row_bytes, m->global, nullptr, -1, 0});
+    }
+    int placed = 0;
+    // a matrix into its place: tile8 there, its views pointed at it, its pages of dense.bin back, the DSP told
+    const auto place = [&](const Mat &x) {
+        const size_t rb = x.bytes / static_cast<size_t>(x.rows);
+        pool_->parallel_for(x.rows / 32, [&](int64_t a, int64_t b) {
+            to_tile8(DType::Q4I, 32 * (b - a), x.cols, x.old + static_cast<size_t>(32 * a) * rb,
+                     x.at + static_cast<size_t>(32 * a) * rb);
+        }, 8);
+        const QView *first = nullptr;
+        for (QView *m : views)
+            if (m->data == x.old) {
+                m->data = x.at;
+                m->quad = m->tile8 = true;
+                if (!first) first = m;
+            }
+        release_pages(const_cast<uint8_t *>(x.old), x.bytes);
+        ++placed;
+        // the DSP's registrations: whole, or the deep ones in parts of whole 64-input chunks (setup_npu's split)
+        int nparts = static_cast<int>((x.cols + kNpuPartCols - 1) / kNpuPartCols);
+        while (nparts > 1 && nparts <= 16 && (x.cols % nparts || (x.cols / nparts) % 64)) ++nparts;
+        if (nparts > 1 && nparts <= 16) {
+            Npu::Parts P;
+            P.cols = x.cols / nparts;
+            for (int j = 0; j < nparts; ++j) {
+                const int id = npu_.adopt_t8(npu_.g, x.at, x.fd, x.off, x.rows, x.cols, j * P.cols, P.cols, x.global);
+                if (id < 0) break;
+                P.ids.push_back(id);
+            }
+            if (static_cast<int>(P.ids.size()) == nparts) npu_.parts[x.at] = std::move(P);
+        } else if (nparts == 1) {
+            const int id = npu_.adopt_t8(npu_.g, x.at, x.fd, x.off, x.rows, x.cols, 0, x.cols, x.global);
+            if (id >= 0) {
+                npu_.ids[x.at] = id;
+                npu_.adopted.emplace_back(first, id);
+            }
+        }
+    };
+    // buffers of up to 256 MB, each matrix whole in one (a row tile is 18 x cols bytes: 128-byte aligned throughout),
+    // one after another: a buffer filled and its matrices' pages given back before the next is taken, so the load
+    // holds one buffer more than the weights at most (all of them first held 2.1 GB more for E4B)
+    constexpr size_t kPiece = 256u << 20;
+    for (size_t i = 0; i < mats.size();) {
+        size_t bytes = 0, j = i;
+        while (j < mats.size() && (j == i || bytes + mats[j].bytes <= kPiece)) bytes += mats[j++].bytes;
+        int fd = -1;
+        auto *p = static_cast<uint8_t *>(npu_.shared(npu_.g, bytes, 1, &fd));
+        if (!p) break;   // (the DSP maps no more: the rest get hmx4 copies, or stay the CPU's)
+        npu_.t8_bytes += bytes;
+        npu_.t8_bufs.push_back({p, bytes, fd});
+        for (size_t off = 0; i < j; off += mats[i++].bytes) {
+            mats[i].at = p + off, mats[i].fd = fd, mats[i].off = off;
+            place(mats[i]);
+        }
+    }
+    return placed;
+#else
+    return 0;
+#endif
+}
+
+// Gemma's layers on the DSP (npu/gdec_cfg.h): every layer's matrices by their hmx4 copies (the ids the NPU adopted
+// them under; the down projections in their parts), the norms into P, IO sized for GDEC_MAX_N tokens
+bool Model::setup_gdec(std::string &why, uint64_t room) {
+#if defined(__ANDROID__)
+    const auto &c = cfg_;
+    if (!npu_.gdec_open || !npu_.gdec_kv || !npu_.gdec_prefill || !npu_.mat_hmx || !npu_.shared) {
+        why = "libgeode_npu.so has none";
+        return false;
+    }
+    if (c.n_layers > GDEC_MAX_LAYERS || c.hidden % 32 || c.ple_dim % 32 || c.ple_dim > 512) {
+        why = "a shape it does not take";
+        return false;
+    }
+    gdec_cfg_t cf;
+    std::memset(&cf, 0, sizeof cf);
+    cf.version = GDEC_VERSION;
+    cf.hidden = c.hidden, cf.n_layers = c.n_layers, cf.nh = c.n_heads, cf.nkv = c.n_kv_heads;
+    cf.ple_dim = c.ple_dim, cf.window = c.window, cf.eps = c.eps;
+    cf.n_attn = n_attn_, cf.kv_chunk = kv_chunk_, cf.kv_row = static_cast<int32_t>(kv_row_), cf.kv_heads = kv_heads_;
+    for (auto &f : npu_.rope_f) f.clear();
+    const auto mat = [&](const QView &m, gmat_t &g) -> bool {
+        const auto it = npu_.ids.find(m.data);
+        int fd = -1, shift = 0;
+        long long kp = 0;
+        if (it == npu_.ids.end() || npu_.mat_hmx(npu_.g, it->second, &fd, &shift, &kp)) return false;
+        g.fd = fd, g.shift = shift | (m.type == DType::Q4I ? 0x100 : 0), g.k = static_cast<int32_t>(kp);
+        g.n = static_cast<int32_t>(m.rows);
+        return true;
+    };
+    std::vector<float> P;
+    const auto put = [&](const float *w, int n) -> uint32_t {
+        while (P.size() % 32) P.push_back(0.0f);   // (each 128 bytes aligned: HVX loads)
+        const uint32_t at = static_cast<uint32_t>(P.size() * sizeof(float));
+        if (w) P.insert(P.end(), w, w + n);
+        else P.insert(P.end(), static_cast<size_t>(n), 0.0f);
+        return at;
+    };
+    for (int l = 0; l < c.n_layers; ++l) {
+        const GLayer &L = glayers_[static_cast<size_t>(l)];
+        glayer_t &y = cf.layers[l];
+        int r = 0;
+        while (r < 2 && !npu_.rope_f[r].empty() && npu_.rope_f[r] != L.inv_freq) ++r;
+        if (r == 2 || L.pairs % 32) {
+            why = "more than two kinds of rotary frequencies, or pairs not in 32s";
+            return false;
+        }
+        if (npu_.rope_f[r].empty()) npu_.rope_f[r] = L.inv_freq, cf.pairs[r] = L.pairs;
+        y.full = L.full, y.own_kv = L.own_kv, y.slot = L.slot, y.hd = L.hd, y.rope = r, y.scalar = L.scalar;
+        y.in_norm = put(L.in_norm, c.hidden), y.post_attn = put(L.post_attn, c.hidden);
+        y.pre_ff = put(L.pre_ff, c.hidden), y.post_ff = put(L.post_ff, c.hidden);
+        y.ple_norm = put(L.ple_norm, c.hidden), y.q_norm = put(L.q_norm, L.hd), y.k_norm = put(L.k_norm, L.hd);
+        bool ok = mat(L.q, y.q) && mat(L.o, y.o) && mat(L.gate, y.gate) && mat(L.up, y.up);
+        if (L.own_kv) ok = ok && mat(L.k, y.k) && mat(L.v, y.v);
+        if (c.ple_dim) ok = ok && mat(L.ple_gate, y.ple_gate) && mat(L.ple_proj, y.ple_proj);
+        if (const auto sp = npu_.parts.find(L.down.data); sp != npu_.parts.end()) {
+            if (sp->second.ids.size() > GDEC_MAX_DOWN) ok = false;
+            y.n_down = 0;
+            for (const int id : sp->second.ids) {
+                if (!ok) break;
+                int fd = -1, shift = 0;
+                long long kp = 0;
+                if (npu_.mat_hmx(npu_.g, id, &fd, &shift, &kp)) {
+                    ok = false;
+                    break;
+                }
+                gmat_t &g = y.down[y.n_down++];
+                g.fd = fd, g.shift = shift | (L.down.type == DType::Q4I ? 0x100 : 0);
+                g.k = static_cast<int32_t>(kp), g.n = c.hidden;
+            }
+        } else {
+            y.n_down = 1;
+            ok = ok && mat(L.down, y.down[0]);
+        }
+        if (!ok) {
+            why = "layer " + std::to_string(l) + "'s matrices are not all on the NPU";
+            return false;
+        }
+    }
+    while (P.size() % 32) P.push_back(0.0f);   // (the DSP reads P in vectors: to 128 bytes)
+    const uint64_t N = GDEC_MAX_N, LP = static_cast<uint64_t>(c.n_layers) * c.ple_dim;
+    cf.io_x = 0;
+    cf.io_ple = gdec_up4k(N * c.hidden * 4u);
+    cf.io_rope[0] = gdec_up4k(cf.io_ple + N * LP * 4u);
+    cf.io_rope[1] = gdec_up4k(cf.io_rope[0] + N * 2u * cf.pairs[0] * 4u);
+    cf.scratch = gdec_up4k(cf.io_rope[1] + N * 2u * cf.pairs[1] * 4u);
+    cf.io_bytes = gdec_up4k(gdec_layout(&cf).end);
+    const uint64_t bytes = P.size() * sizeof(float) + cf.io_bytes;
+    if (bytes > room) {
+        why = "its buffers, " + std::to_string(bytes >> 20) + " MB, would leave too little of the memory budget for the "
+              "context";
+        return false;
+    }
+    int p_fd = -1, io_fd = -1;
+    auto *pb = static_cast<uint8_t *>(npu_.shared(npu_.g, P.size() * sizeof(float), 1, &p_fd));
+    npu_.gio = static_cast<uint8_t *>(npu_.shared(npu_.g, cf.io_bytes, 1, &io_fd));
+    if (!pb || !npu_.gio) {
+        why = "no memory for its buffers";
+        return false;
+    }
+    std::memcpy(pb, P.data(), P.size() * sizeof(float));
+    const int e = npu_.gdec_open(npu_.g, &cf, static_cast<int>(sizeof cf), p_fd, io_fd);
+    if (e) {
+        char h[64];
+        std::snprintf(h, sizeof h, "the DSP refused it: 0x%x", static_cast<unsigned>(e));
+        why = h;
+        return false;
+    }
+    npu_.gcfg.assign(reinterpret_cast<const uint8_t *>(&cf), reinterpret_cast<const uint8_t *>(&cf) + sizeof cf);
+    npu_.gdec = true;
+    npu_.gdec_bytes = bytes;
+    npu_.gdec_status = "on (" + std::to_string(bytes >> 20) + " MB)";
+    return true;
+#else
+    why = "no NPU here";
+    return false;
+#endif
+}
+
+bool Model::npu_layers(int n) {
+#if defined(__ANDROID__)
+    const auto &c = cfg_;
+    // (fewer than kNpuMinTokens: a token generated, a draft verified - the DSP's in its own mode only)
+    if (!npu_.gdec || !npu_.g || (n < kNpuMinTokens && !npu_answers()) || n > GDEC_MAX_N || exact_ || check_)
+        return false;
+    const auto &cf = *reinterpret_cast<const gdec_cfg_t *>(npu_.gcfg.data());
+    const int H = c.hidden;
+    const size_t LP = static_cast<size_t>(c.n_layers) * c.ple_dim;
+    const double t0 = now_seconds();
+    float *X = reinterpret_cast<float *>(npu_.gio + cf.io_x), *PL = reinterpret_cast<float *>(npu_.gio + cf.io_ple);
+    par(n, [&](int64_t a, int64_t b) {
+        for (int64_t t = a; t < b; ++t) {
+            std::memcpy(X + static_cast<size_t>(t) * H, x_.data() + static_cast<size_t>(t) * H, sizeof(float) * H);
+            if (LP) std::memcpy(PL + static_cast<size_t>(t) * LP, ple_.data() + static_cast<size_t>(t) * LP, sizeof(float) * LP);
+            for (int r = 0; r < 2; ++r) {
+                const int pairs = cf.pairs[r];
+                float *rt = reinterpret_cast<float *>(npu_.gio + cf.io_rope[r]) + static_cast<size_t>(t) * 2 * pairs;
+                const float p = static_cast<float>(apos_ + t);
+                for (int i = 0; i < pairs; ++i) {
+                    const float f = p * npu_.rope_f[r][static_cast<size_t>(i)];
+                    rt[i] = std::cos(f);
+                    rt[pairs + i] = std::sin(f);
+                }
+            }
+        }
+    }, 8);
+    int flags = 0;
+    if (const char *f = std::getenv("GEODE_NPU_LAYERS_FLAGS")) flags = static_cast<int>(std::strtol(f, nullptr, 0));
+    double dsp = 0;
+    const int e = npu_.gdec_prefill(npu_.g, n, apos_, flags, &dsp);
+    if (e) {
+        char h[96];
+        std::snprintf(h, sizeof h, "failed (0x%x): the CPU's way from then on", static_cast<unsigned>(e));
+        npu_.gdec = false;
+        npu_.gdec_status = h;
+        npu_.gdec_wall += now_seconds() - t0;
+        return false;
+    }
+    par(n, [&](int64_t a, int64_t b) {
+        std::memcpy(x_.data() + static_cast<size_t>(a) * H, X + static_cast<size_t>(a) * H,
+                    sizeof(float) * H * static_cast<size_t>(b - a));
+    }, 16);
+    ++npu_.gdec_calls;
+    npu_.gdec_tokens += static_cast<uint64_t>(n);
+    npu_.gdec_dsp += dsp;
+    npu_.gdec_wall += now_seconds() - t0;
+    return true;
+#else
+    (void)n;
+    return false;
+#endif
+}
+
+// A prompt's chunk on HMX (npu/attn_cfg.h, npu/dsp/attn.c): the queries (qg_, normed and turned) over into the DSP's
+// buffer, its rows back into core_. Off for good after a failure (the CPU's attention from then on)
+bool Model::npu_attend(const GLayer &L, int n) {
+#if defined(__ANDROID__)
+    const auto &c = cfg_;
+    if (!npu_.attn_on || !npu_.g || n < kNpuMinTokens || exact_) return false;
+    const int nh = c.n_heads, hd = L.hd, end = apos_ + n, n_chunks = (end + kv_chunk_ - 1) / kv_chunk_;
+    const size_t qw = static_cast<size_t>(nh) * hd, bytes = static_cast<size_t>(n) * qw * sizeof(float);
+    if (static_cast<int64_t>(n) * nh > ATTN_MAX_ROWS || n_chunks > ATTN_MAX_CHUNKS ||
+        static_cast<size_t>(n_chunks) > kv_ptrs_.size())
+        return false;
+    attn_desc_t d;
+    std::memset(&d, 0, sizeof d);
+    d.version = ATTN_VERSION;
+    d.n = n, d.apos = apos_, d.nh = nh, d.nkv = c.n_kv_heads, d.hd = hd, d.window = L.full ? 0 : c.window;
+    d.slot = L.slot, d.n_attn = n_attn_, d.kv_chunk = kv_chunk_, d.kv_row = static_cast<int32_t>(kv_row_);
+    d.kv_heads = kv_heads_, d.n_chunks = n_chunks, d.q_stride = d.o_stride = static_cast<int32_t>(qw);
+    if (const char *f = std::getenv("GEODE_NPU_ATTN_FLAGS")) d.flags = static_cast<int32_t>(std::strtol(f, nullptr, 0));
+    for (int i = 0; i < n_chunks; ++i) {
+        const auto it = npu_.kv_fds.find(kv_ptrs_[static_cast<size_t>(i)]);
+        if (it == npu_.kv_fds.end()) {
+            npu_.attn_on = false;
+            npu_.attn_status = "off (a KV chunk outside the DSP's reach)";
+            return false;
+        }
+        d.kv_fd[i] = it->second;
+    }
+    float *qb = npu_.attn_buf(npu_.g, 0, bytes), *ob = npu_.attn_buf(npu_.g, 1, bytes);
+    if (!qb || !ob) {
+        npu_.attn_on = false;
+        npu_.attn_status = "off (no memory for its buffers)";
+        return false;
+    }
+    const double t0 = now_seconds();
+    par(n, [&](int64_t a, int64_t b) {
+        std::memcpy(qb + static_cast<size_t>(a) * qw, qg_.data() + static_cast<size_t>(a) * qw,
+                    static_cast<size_t>(b - a) * qw * sizeof(float));
+    }, 16);
+    double dsp = 0;
+    const int e = npu_.attn(npu_.g, &d, static_cast<int>(sizeof d), qb, bytes, ob, bytes, &dsp);
+    if (e) {
+        char h[96];
+        std::snprintf(h, sizeof h, "failed (0x%x): the CPU's from then on", static_cast<unsigned>(e));
+        npu_.attn_on = false;
+        npu_.attn_status = h;
+        npu_.attn_wall += now_seconds() - t0;
+        return false;
+    }
+    par(n, [&](int64_t a, int64_t b) {
+        std::memcpy(core_.data() + static_cast<size_t>(a) * qw, ob + static_cast<size_t>(a) * qw,
+                    static_cast<size_t>(b - a) * qw * sizeof(float));
+    }, 16);
+    ++npu_.attn_calls;
+    npu_.attn_dsp += dsp;
+    npu_.attn_wall += now_seconds() - t0;
+    return true;
+#else
+    (void)L, (void)n;
+    return false;
+#endif
+}
 
 #if defined(GEODE_GEMMA_MM)
 // A prompt's chunk over the int8 KV cache on i8mm: the scores on SMMLA (qk_mm8: the integers SDOT gives), the
@@ -1239,5 +1680,190 @@ bool Model::gemma_attend_mm(const GLayer &L, int n) {
     return true;
 }
 #endif
+
+// Gemma's answer on the GPU (Gpu8::gemma_step): every matrix a pass multiplies already there (setup_gpu8_gemma,
+// lm_head in open_gemma), the KV cache in its memory (new_kv_chunk), int8; the norms and each layer's rotary
+// frequencies into its parameter piece, the layers described once.
+bool Model::setup_gemma_gpu(std::string &why) {
+    const auto &c = cfg_;
+    if (!gpu8_ || !kv_i8_) {
+        why = !gpu8_ ? "no GPU" : "an fp16 KV cache";
+        return false;
+    }
+    if (!c.ple_dim || !ple_table_ || !ple_model_.data || !gpu8_->holds(ple_model_)) {
+        why = "the per-layer inputs are not where the GPU reads them";
+        return false;
+    }
+    if (gemma_gpu_want_ && !gpu8_->holds(lm_head_)) {   // (the answer's only: a prompt's layers end before it)
+        why = "lm_head outside the GPU's memory";
+        return false;
+    }
+    for (const GLayer &L : glayers_) {
+        for (const QView *m : {&L.q, &L.o, &L.gate, &L.up, &L.down, &L.ple_gate, &L.ple_proj})
+            if (!m->data || !gpu8_->holds(*m)) {
+                why = "a matrix outside the GPU's memory";
+                return false;
+            }
+        if (L.own_kv && (!gpu8_->holds(L.k) || !gpu8_->holds(L.v))) {
+            why = "a matrix outside the GPU's memory";
+            return false;
+        }
+    }
+    // the small tensors into one piece, 64-byte aligned
+    const size_t fH = static_cast<size_t>(c.hidden) * 4;
+    size_t total = 0;
+    const auto room = [&](size_t bytes) { total += (bytes + 63) / 64 * 64; };
+    for (const GLayer &L : glayers_) {
+        for (int i = 0; i < 5; ++i) room(fH);
+        room(static_cast<size_t>(L.hd) * 4);
+        room(static_cast<size_t>(L.hd) * 4);
+        room(std::max<size_t>(1, static_cast<size_t>(L.pairs)) * 4);
+    }
+    room(fH);
+    room(static_cast<size_t>(c.ple_dim) * 4);
+    uint8_t *base = gpu8_->dec_params(total, why);
+    if (!base) return false;
+    size_t at = 0;
+    const auto put = [&](const float *src, size_t floats) {
+        auto *d = reinterpret_cast<float *>(base + at);
+        if (src) std::memcpy(d, src, floats * 4);
+        else std::fill(d, d + floats, 0.0f);
+        at += (floats * 4 + 63) / 64 * 64;
+        return static_cast<const float *>(d);
+    };
+    const size_t H = static_cast<size_t>(c.hidden);
+    gg_layers_.clear();
+    int hd_max = 0, ffn_max = 0;
+    for (const GLayer &L : glayers_) {
+        Gpu8::GemmaLayer G;
+        G.full = L.full, G.own_kv = L.own_kv, G.slot = L.slot, G.hd = L.hd, G.ffn = static_cast<int>(L.ffn);
+        G.pairs = L.pairs, G.scalar = L.scalar;
+        G.in_norm = put(L.in_norm, H), G.post_attn = put(L.post_attn, H), G.pre_ff = put(L.pre_ff, H);
+        G.post_ff = put(L.post_ff, H), G.ple_norm = put(L.ple_norm, H);
+        G.q_norm = put(L.q_norm, static_cast<size_t>(L.hd)), G.k_norm = put(L.k_norm, static_cast<size_t>(L.hd));
+        G.freq = put(L.inv_freq.empty() ? nullptr : L.inv_freq.data(), std::max<size_t>(1, static_cast<size_t>(L.pairs)));
+        G.q = L.q, G.k = L.k, G.v = L.v, G.o = L.o, G.gate = L.gate, G.up = L.up, G.down = L.down;
+        G.ple_gate = L.ple_gate, G.ple_proj = L.ple_proj;
+        hd_max = std::max(hd_max, L.hd);
+        ffn_max = std::max(ffn_max, static_cast<int>(L.ffn));
+        gg_layers_.push_back(G);
+    }
+    gg_final_norm_ = put(final_norm_, H);
+    gg_ple_norm_ = put(ple_proj_norm_, static_cast<size_t>(c.ple_dim));
+    if (at > total) {
+        why = "the parameter piece overflowed";
+        return false;
+    }
+    Gpu8::GemmaShape sh;
+    sh.hidden = c.hidden, sh.vocab = c.vocab, sh.nh = c.n_heads, sh.nkv = c.n_kv_heads, sh.hd_max = hd_max;
+    sh.ffn_max = ffn_max, sh.ple = c.ple_dim, sh.n_layers = c.n_layers, sh.window = c.window;
+    sh.n_attn = n_attn_, sh.kv_chunk = kv_chunk_, sh.kv_row = static_cast<int>(kv_row_), sh.max_ctx = ctx_;
+    sh.max_tokens = Gpu8::kMaxTokens;   // (a verified batch of the drafter's: up to its k)
+    sh.eps = c.eps, sh.softcap = c.softcap;
+    sh.ple_proj = 1.0f / std::sqrt(static_cast<float>(c.hidden));
+    sh.ple_tok = std::sqrt(static_cast<float>(c.ple_dim));
+    if (!gpu8_->setup_gemma(sh, why)) return false;
+    return true;
+}
+
+// n (<= Gpu8::kMaxTokens) text tokens at pos_ through every layer on the GPU: each token's embedding and per-layer
+// table row read here, the logits of tokens (all_logits ? 0 : n - 1) .. n - 1, the final-normed rows for the drafter.
+// False with err empty: the GPU failed (the CPU from now on, this chunk too: nothing of it was kept)
+bool Model::gemma_gpu_chunk(const int *tokens, int n, float *logits, bool all_logits, std::string &err, int hid_row) {
+    const auto &c = cfg_;
+    const int H = c.hidden, LP = c.n_layers * c.ple_dim;
+    if (!gpu8_->set_tokens(n)) return false;
+    float *x = gpu8_->gemma_x(), *pr = gpu8_->gemma_ple();
+    for (int t = 0; t < n; ++t) {
+        float *xr = x + static_cast<size_t>(t) * H;
+        if (!pack_.embedding(tokens[t], xr)) {
+            err = "cannot read the embedding of token " + std::to_string(tokens[t]);
+            return false;
+        }
+        for (int i = 0; i < H; ++i) xr[i] *= c.embed_scale;
+        if (!pack_.read_row(*ple_table_, tokens[t], pr + static_cast<size_t>(t) * LP)) {
+            err = "cannot read the per-layer embeddings";
+            return false;
+        }
+    }
+    apos_ = pos_;
+    float *hid = keeps_hidden() ? (hid_long_.empty() ? hid_ : hid_long_).data() + static_cast<size_t>(hid_row) * H : nullptr;
+    std::string e;
+    const double t0 = now_seconds();
+    const bool ok = gpu8_->gemma_step(gg_layers_, ple_model_, gg_ple_norm_, gg_final_norm_, lm_head_, pos_, kv_ptrs_,
+                                      logits, all_logits ? 0 : n - 1, hid, e);
+    gpu8_->set_tokens(1);
+    if (!ok) {
+        gemma_gpu_ = false;
+        gpu_status_ += "; the answer back on the CPU (" + e + ")";
+        return false;
+    }
+    prof_.head += now_seconds() - t0;   // (the whole pass: the GPU's)
+    pos_ += n;
+    return true;
+}
+
+// NPU + GPU: the prompt the NPU's, the answer the GPU's, from one copy of the weights - the NPU's (npu_one_copy:
+// tile8 in buffers the DSP maps, which the CPU's kernels read as well) imported into OpenCL whole, nothing copied
+// but lm_head (open_gemma). The KV cache's chunks are imported as they come (new_kv_chunk): memory all three map.
+bool Model::setup_gpu8_on_npu(std::string &why) {
+    if (npu_.t8_bufs.empty()) {
+        why = "the NPU holds no copy of the matrices the GPU can read (GEODE_NPU_ONECOPY=0, or an older DSP)";
+        return false;
+    }
+    auto g = std::make_unique<Gpu8>();
+    g->set_q4i(true);
+    g->set_cache_dir(pack_.dir());
+    if (!g->open(why)) return false;
+    size_t bytes = 0;
+    for (const auto &b : npu_.t8_bufs) {
+        if (!g->import(b.fd, b.p, b.bytes, why)) return false;
+        bytes += b.bytes;
+    }
+    // every matrix the answer multiplies in them (one the DSP could not place stays the CPU's: the answer too)
+    int held = 0;
+    for (const GLayer &L : glayers_)
+        for (const QView *m : {&L.q, &L.k, &L.v, &L.o, &L.gate, &L.up, &L.down, &L.ple_gate, &L.ple_proj}) {
+            if (!m->data) continue;
+            if (!g->holds(*m)) {
+                why = "a matrix outside the NPU's buffers";
+                return false;
+            }
+            ++held;
+        }
+    if (!ple_model_.data || !g->holds(ple_model_)) {
+        why = "the per-layer inputs' matrix outside the NPU's buffers";
+        return false;
+    }
+    gpu8_ = std::move(g);
+    char buf[200];
+    std::snprintf(buf, sizeof buf, "on: %s, int8, %d matrices in %.0f MB of the NPU's memory (the answer)",
+                  gpu8_->device().c_str(), held + 1, static_cast<double>(bytes) / 1048576.0);
+    gpu_status_ = buf;
+    return true;
+}
+
+// A prompt chunk's layers on the GPU (Gpu8::gemma_prompt): x_'s rows and the per-layer inputs (ple_) there, every
+// layer, x_'s rows back - the CPU's loop skipped. From kGpuMinTokens tokens (fewer: a token generated, a verified
+// draft - the CPU's, or gemma_gpu_chunk's), within the chunk it was set up for. False with err empty: not taken (the
+// CPU's layers, x_ as it was); a failure turns it off for good, the status says why.
+bool Model::gemma_layers_gpu(int n, std::string &err) {
+    (void)err;
+    if (!gemma_gpu_prompt_ || exact_ || n < kGpuMinTokens || n > gemma_chunk_) return false;
+    const auto &c = cfg_;
+    const size_t H = static_cast<size_t>(c.hidden), LP = static_cast<size_t>(c.n_layers) * c.ple_dim;
+    const double t0 = now_seconds();
+    std::memcpy(gpu8_->gemma_prompt_x(), x_.data(), static_cast<size_t>(n) * H * 4);
+    std::memcpy(gpu8_->gemma_prompt_ple(), ple_.data(), static_cast<size_t>(n) * LP * 4);
+    std::string e;
+    if (!gpu8_->gemma_prompt(gg_layers_, pos_, n, kv_ptrs_, e)) {
+        gemma_gpu_prompt_ = false;
+        gpu_status_ += "; a prompt's layers back on the CPU (" + e + ")";
+        return false;
+    }
+    std::memcpy(x_.data(), gpu8_->gemma_prompt_x(), static_cast<size_t>(n) * H * 4);
+    prof_.gpu8 += now_seconds() - t0;
+    return true;
+}
 
 }  // namespace geode

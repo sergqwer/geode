@@ -24,6 +24,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,14 +50,16 @@ import androidx.compose.ui.unit.dp
 import xyz.tifu.geode.R
 
 /** A Markdown document as blocks; the text inside them is inline Markdown (rendered by [inlineMarkdown]). */
+@Immutable
 sealed interface MdBlock {
-    data class Heading(val level: Int, val text: String) : MdBlock
-    data class Paragraph(val text: String) : MdBlock
-    data class Code(val lang: String, val code: String) : MdBlock
-    data class ListItem(val indent: Int, val marker: String, val text: String) : MdBlock
-    data class Quote(val text: String) : MdBlock
+    // immutable, compared by value: a block an answer's new token did not change is skipped, not rendered again
+    @Immutable data class Heading(val level: Int, val text: String) : MdBlock
+    @Immutable data class Paragraph(val text: String) : MdBlock
+    @Immutable data class Code(val lang: String, val code: String) : MdBlock
+    @Immutable data class ListItem(val indent: Int, val marker: String, val text: String) : MdBlock
+    @Immutable data class Quote(val text: String) : MdBlock
     data object Rule : MdBlock
-    data class Table(val header: List<String>, val rows: List<List<String>>) : MdBlock
+    @Immutable data class Table(val header: List<String>, val rows: List<List<String>>) : MdBlock
 }
 
 private val HEADING = Regex("^(#{1,6})\\s+(.*)$")
@@ -70,8 +74,23 @@ private val TABLE_SEPARATOR = Regex("^\\s*\\|?\\s*:?-+:?\\s*(\\|\\s*:?-+:?\\s*)*
  * headings, rules, tables, lists, quotes, paragraphs. Single line breaks inside a paragraph are kept: chat models use
  * them as real breaks.
  */
-fun parseMarkdown(src: String): List<MdBlock> {
-    val lines = src.replace("\r\n", "\n").split('\n')
+fun parseMarkdown(src: String): List<MdBlock> = parseFrom(src.replace("\r\n", "\n")).blocks
+
+/**
+ * A text's blocks, and the point a longer text that begins the same way can go on from: just after the last blank line
+ * the parser met between blocks that a newline ends ([cutChars] characters in, [cutBlocks] blocks before it; 0: none).
+ * There the parser holds nothing - no paragraph begun, no open code fence, no list, quote or table - so what follows
+ * parses alone into the very blocks the whole text would end with.
+ */
+private class Parsed(val blocks: List<MdBlock>, val cutChars: Int, val cutBlocks: Int)
+
+private fun parseFrom(src: String): Parsed {
+    val lines = src.split('\n')
+    // where each line starts in src
+    val starts = IntArray(lines.size)
+    for (k in 1 until lines.size) starts[k] = starts[k - 1] + lines[k - 1].length + 1
+    var cutChars = 0
+    var cutBlocks = 0
     val out = ArrayList<MdBlock>()
     val para = StringBuilder()
     fun flush() {
@@ -95,7 +114,14 @@ fun parseMarkdown(src: String): List<MdBlock> {
                 }
                 out += MdBlock.Code(fence.groupValues[2], code.toString())
             }
-            line.isBlank() -> flush()
+            line.isBlank() -> {
+                flush()
+                // a blank line a newline ends (the last line may still grow into a paragraph's next one)
+                if (i + 1 < lines.size) {
+                    cutChars = starts[i + 1]
+                    cutBlocks = out.size
+                }
+            }
             HEADING.matches(line) -> {
                 flush()
                 val m = HEADING.matchEntire(line)!!
@@ -151,7 +177,32 @@ fun parseMarkdown(src: String): List<MdBlock> {
         i++
     }
     flush()
-    return out
+    return Parsed(out, cutChars, cutBlocks)
+}
+
+/**
+ * Markdown parsed as an answer streams in: the blocks before the last finished blank line ([Parsed]) are kept, only
+ * what comes after it is parsed again - an answer of many thousand characters costs a token its last part, not all of
+ * it again. The same blocks as [parseMarkdown], whatever the text does (a text that no longer begins as the one
+ * before is parsed whole).
+ */
+class MarkdownParser {
+    private var src = ""
+    private var last = Parsed(emptyList(), 0, 0)
+
+    fun parse(markdown: String): List<MdBlock> {
+        val text = markdown.replace("\r\n", "\n")
+        val keep = last.cutChars
+        val now = if (keep > 0 && text.length >= keep && text.regionMatches(0, src, 0, keep)) {
+            val rest = parseFrom(text.substring(keep))
+            val head = last.blocks.subList(0, last.cutBlocks)
+            if (rest.cutChars > 0) Parsed(head + rest.blocks, keep + rest.cutChars, head.size + rest.cutBlocks)
+            else Parsed(head + rest.blocks, keep, head.size)
+        } else parseFrom(text)
+        src = text
+        last = now
+        return now.blocks
+    }
 }
 
 private fun cells(row: String): List<String> {
@@ -248,38 +299,47 @@ fun rememberMdStyle(): MdStyle {
     }
 }
 
-/** Markdown rendered as Compose text. Parsed again on every change: chat answers are short and stream in. */
+/**
+ * Markdown rendered as Compose text. Parsed again on every change (chat answers stream in), from its last finished
+ * block on ([MarkdownParser]); each block is a composable of its own, so the blocks a new token did not change (all
+ * but the last, mostly) are skipped.
+ */
 @Composable
 fun MarkdownText(markdown: String, modifier: Modifier = Modifier, color: Color = Color.Unspecified) {
-    val blocks = remember(markdown) { parseMarkdown(markdown) }
+    val parser = remember { MarkdownParser() }
+    val blocks = remember(markdown) { parser.parse(markdown) }
     val st = rememberMdStyle()
     val body = MaterialTheme.typography.bodyLarge.copy(color = if (color != Color.Unspecified) color else MaterialTheme.colorScheme.onSurface)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        blocks.forEach { b ->
-            when (b) {
-                is MdBlock.Heading -> Text(
-                    inlineMarkdown(b.text, st),
-                    style = when (b.level) {
-                        1 -> MaterialTheme.typography.titleLarge
-                        2 -> MaterialTheme.typography.titleMedium
-                        else -> MaterialTheme.typography.titleSmall
-                    }.copy(fontWeight = FontWeight.Bold, color = body.color),
-                )
-                is MdBlock.Paragraph -> Text(inlineMarkdown(b.text, st), style = body)
-                is MdBlock.Code -> CodeBlock(b)
-                is MdBlock.ListItem -> Row(Modifier.padding(start = (12 * b.indent).dp)) {
-                    Text(b.marker, style = body, modifier = Modifier.width(if (b.marker == "•") 16.dp else 28.dp))
-                    Text(inlineMarkdown(b.text, st), style = body)
-                }
-                is MdBlock.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
-                    Box(Modifier.width(3.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outline))
-                    Text(inlineMarkdown(b.text, st), style = body.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
-                        modifier = Modifier.padding(start = 8.dp))
-                }
-                MdBlock.Rule -> HorizontalDivider()
-                is MdBlock.Table -> TableBlock(b, st, body)
-            }
+        blocks.forEachIndexed { i, b -> key(i) { Block(b, st, body) } }
+    }
+}
+
+@Composable
+private fun Block(b: MdBlock, st: MdStyle, body: TextStyle) {
+    when (b) {
+        is MdBlock.Heading -> Text(
+            remember(b, st) { inlineMarkdown(b.text, st) },
+            style = when (b.level) {
+                1 -> MaterialTheme.typography.titleLarge
+                2 -> MaterialTheme.typography.titleMedium
+                else -> MaterialTheme.typography.titleSmall
+            }.copy(fontWeight = FontWeight.Bold, color = body.color),
+        )
+        is MdBlock.Paragraph -> Text(remember(b, st) { inlineMarkdown(b.text, st) }, style = body)
+        is MdBlock.Code -> CodeBlock(b)
+        is MdBlock.ListItem -> Row(Modifier.padding(start = (12 * b.indent).dp)) {
+            Text(b.marker, style = body, modifier = Modifier.width(if (b.marker == "•") 16.dp else 28.dp))
+            Text(remember(b, st) { inlineMarkdown(b.text, st) }, style = body)
         }
+        is MdBlock.Quote -> Row(Modifier.height(IntrinsicSize.Min)) {
+            Box(Modifier.width(3.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outline))
+            Text(remember(b, st) { inlineMarkdown(b.text, st) },
+                style = body.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                modifier = Modifier.padding(start = 8.dp))
+        }
+        MdBlock.Rule -> HorizontalDivider()
+        is MdBlock.Table -> TableBlock(b, st, body)
     }
 }
 

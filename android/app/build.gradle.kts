@@ -33,8 +33,8 @@ android {
         // 30: ActivityManager.getHistoricalProcessExitReasons for the memory test
         minSdk = 30
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.9.14"
+        versionCode = 17
+        versionName = "0.9.16"
         buildConfigField("byte[]", "SITE_MASK", javaBytes(siteMask))
         buildConfigField("byte[]", "SITE_KEY",
             javaBytes(ByteArray(siteKey.size) { (siteKey[it].toInt() xor siteMask[it].toInt()).toByte() }))
@@ -83,8 +83,9 @@ android {
             applicationIdSuffix = ".rc"
             versionNameSuffix = "-rc"
             signingConfig = signingConfigs.getByName("debug")
-            // run-as works on it: a test model goes into its files over adb (it never ships)
-            isDebuggable = true
+            // run-as works on it: a test model goes into its files over adb (it never ships). -Pgeode.rc.debuggable=false
+            // builds it as the release runs (ART compiles it ahead, R8 optimizes and renames) to measure its start
+            isDebuggable = (findProperty("geode.rc.debuggable") as String?) != "false"
             matchingFallbacks += "release"
         }
     }

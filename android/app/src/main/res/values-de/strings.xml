@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">Chat</string>
     <string name="nav_models">Modelle</string>
-    <string name="nav_settings">Einstellungen</string>
+    <string name="nav_settings">App-Einstellungen</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Nachricht</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">Freier Speicher: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Einstellungen</string>
+    <string name="settings_title">App-Einstellungen</string>
     <string name="settings_section_memory">Speicher</string>
     <string name="settings_memory_budget">Speicher für das Modell</string>
     <string name="settings_memory_budget_value">%1$s (empfohlen: %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">Maximaler Kontext: %1$d Token</string>
     <string name="settings_context_desc">Der Kontext wird nicht im Voraus reserviert: Er wächst im Lauf des Chats in Blöcken, und jeder Block nimmt seinen Speicher vom Experten-Cache (von dessen am wenigsten genutzten Experten) - ein langer Kontext verlangsamt die Generierung. Ein neuer Chat gibt alles zurück.</string>
+    <string name="settings_context_desc_dense">Der Kontext wird nicht im Voraus reserviert: Er wächst im Laufe des Chats in Blöcken, und ein langer Kontext braucht mehr Speicher und macht das Generieren langsamer. Ein neuer Chat gibt alles wieder frei.</string>
     <string name="settings_context_memory">Der Kontext (KV-Cache, int8): %1$s bei %2$d Token (%3$s pro 1000) · dem Experten-Cache bleiben dann %4$s</string>
     <string name="settings_context_capped">Dieses Speicherbudget reicht für höchstens %1$d Token: Dort endet die Unterhaltung.</string>
     <string name="settings_section_performance">Leistung</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">Sampling · mit Nachdenken</string>
     <string name="settings_sampling_plain">Sampling · ohne Nachdenken</string>
     <string name="settings_presence">Presence Penalty: %1$.2f</string>
-    <string name="settings_presence_desc">Senkt die Wahrscheinlichkeit von Token, die schon in der Antwort vorkommen, damit sich langes Nachdenken nicht im Kreis dreht. Qwen empfiehlt 1.5.</string>
-    <string name="settings_sampling_reset">Von Qwen empfohlene Werte</string>
+    <string name="settings_presence_desc">Senkt die Wahrscheinlichkeit von Token, die schon in der Antwort vorkommen, damit sich langes Nachdenken nicht im Kreis dreht.</string>
+    <string name="settings_sampling_reset">Empfohlene Werte des Modells</string>
+    <string name="settings_section_features">Was das Modell verarbeiten kann</string>
+    <string name="settings_feature_images">Bilder</string>
+    <string name="settings_feature_images_desc">Fotos und Bilder im Chat. Aus: Der Bildencoder wird nicht geladen, das spart Speicher.</string>
+    <string name="settings_feature_video">Video</string>
+    <string name="settings_feature_video_desc">Videos im Chat: Das Modell sieht ihre Einzelbilder und hört ihren Ton.</string>
+    <string name="settings_feature_audio">Audio</string>
+    <string name="settings_feature_audio_desc">Sprachnachrichten und Audiodateien. Aus: Der Audioencoder wird nicht geladen, das spart Speicher.</string>
+    <string name="settings_feature_draft">Spekulatives Decodieren</string>
+    <string name="settings_feature_draft_desc_mtp">Die MTP-Schicht des Modells entwirft das nächste Wort, und das Modell prüft zwei Wörter zugleich: schnellere Antworten, gleicher Text. Aus: ein Wort nach dem anderen.</string>
+    <string name="settings_feature_draft_desc_drafter">Das kleine Hilfsmodell von Gemma sagt die nächsten Wörter voraus, und das Modell prüft sie zugleich: schnellere Antworten, gleicher Text. Aus: ein Wort nach dem anderen, und der Speicher des Hilfsmodells wird gespart.</string>
+    <string name="settings_sampling_recommended">Empfohlen für %1$s in diesem Modus: Temperatur %2$.2f, top-p %3$.2f, top-k %4$d, Presence Penalty %5$.1f.</string>
+    <string name="settings_context_model_max">Dieses Modell wurde für einen Kontext von bis zu %1$d Token trainiert.</string>
     <string name="settings_think_budget">Denkbudget: %1$s</string>
     <string name="settings_think_budget_desc">Nach so vielen Denk-Token wird das Modell aufgefordert, jetzt zu antworten.</string>
     <string name="settings_max_answer">Maximale Antwortlänge: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">Bei langen Prompts helfen kleine Kerne den großen. Auf dem Redmi Note 9 Pro wurden Prompts dadurch langsamer.</string>
     <string name="settings_prefetch">Vorauslesen</string>
     <string name="settings_prefetch_desc">Während eine Schicht rechnet, werden die Experten gelesen, die die nächste voraussichtlich braucht.</string>
-    <string name="settings_gpu">GPU verwenden</string>
-    <string name="settings_gpu_desc">Führt das Modell, wo möglich, auf dem Grafikchip des Smartphones aus: die ganze Antwort auf Adreno 7xx oder neuer; auf Adreno 618 einen Teil der großen Matrixprodukte eines Prompts.</string>
+    <string name="settings_runs_on">Läuft auf</string>
+    <string name="settings_runs_on_desc">Welche Prozessoren des Telefons das Modell ausführen. Bei zweien liest der erste die Prompts und der zweite schreibt die Antwort. Aufgeführt sind nur die, die dieses Telefon hat; Standard ist NPU + GPU, am schnellsten, wo beide vorhanden sind.</string>
     <string name="settings_route_prior">Schnellere Antworten, wenn das Modell nicht in den Arbeitsspeicher passt</string>
     <string name="settings_route_prior_desc">Bevorzugt Experten, die schon im Arbeitsspeicher liegen, sodass weniger aus dem Gerätespeicher gelesen wird. Antworten können sich im Wortlaut leicht und gelegentlich in der Qualität ändern. Standardmäßig aus.</string>
-    <string name="settings_npu">NPU verwenden</string>
-    <string name="settings_npu_desc">Nutzt den KI-Prozessor des Telefons (Snapdragon Hexagon), wo er hilft: Er liest Prompts schneller und etwas genauer und übernimmt auf dem Snapdragon 8 Elite außerdem einen Teil der Experten des 35B-Modells und das leichte Modell ganz. Fehlt er oder besteht er die Prüfung nicht, arbeiten GPU und CPU wie bisher.</string>
     <string name="settings_word_experts">Experten pro Wort</string>
     <string name="settings_word_experts_desc">8 (Standard): alle Experten, die das Modell wählt – seine volle Qualität. 6 oder 4: Ist einer der letzten 2 oder 4 gewählten Experten nicht im Arbeitsspeicher, wird er übersprungen statt gelesen. Schneller, wenn das Modell nicht in den Speicher passt, aber die Antworten werden ungenauer.</string>
     <string name="settings_gpu_share">GPU-Anteil der Zeilen: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">Kontext komprimieren</string>
     <string name="chat_compressing">Das Modell fasst die Unterhaltung zusammen…</string>
     <string name="chat_summary_title">Kontext komprimiert</string>
+    <string name="chat_pruned">Ältere Nachrichten wurden nach dem Komprimieren des Kontexts entfernt: Das Modell arbeitet mit seiner Zusammenfassung weiter.</string>
     <string name="chat_summary_note">Ab hier sieht das Modell diese Zusammenfassung statt der Nachrichten darüber.</string>
     <string name="settings_image_detail">Bilddetails</string>
     <string name="settings_image_detail_fast">Schnell</string>
     <string name="settings_image_detail_fine">Detailliert</string>
     <string name="settings_image_detail_most">Maximal</string>
     <string name="settings_image_detail_desc">Wie fein das Modell ein angehängtes Bild sieht: mit bis zu 256, 576 oder 1024 Token. Feiner liest kleinen Text besser, aber die Antwort beginnt später (das Bild wird auf den Kernen des Smartphones kodiert; seine Gewichte werden erst dann aus dem Speicher gelesen).</string>
-    <string name="settings_auto_compress">Kontext automatisch komprimieren</string>
-    <string name="settings_auto_compress_desc">Wenn der Kontext zu 90% voll ist, fasst das Modell die Unterhaltung zusammen und macht mit der Zusammenfassung weiter (eine Antwort endet vor den letzten 10%, die die Zusammenfassung braucht).</string>
     <string name="answer_notif_title">Geode antwortet</string>
     <string name="answer_notif_text">Das Modell arbeitet weiter, während die App im Hintergrund ist.</string>
     <string name="answer_notif_stop">Stoppen</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">Danke, die Meldung wurde gesendet</string>
     <string name="report_queued">Keine Verbindung: Die Meldung wird später gesendet</string>
     <string name="cpu_unsupported">Der Prozessor dieses Handys wird nicht unterstützt: Geode braucht einen 64-Bit-ARM-Prozessor mit Dot-Product-Befehlen (ARMv8.2, die meisten Handys seit 2019).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Datenschutz</string>
+    <string name="lock_setting">App sperren</string>
+    <string name="lock_setting_desc">Eine PIN oder ein Passwort, bevor die Chats erscheinen: beim Start der App und wenn Sie zu ihr zurückkehren.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">Passwort</string>
+    <string name="lock_repeat">Wiederholen</string>
+    <string name="lock_short_pin">Mindestens 4 Ziffern</string>
+    <string name="lock_short_password">Mindestens 4 Zeichen</string>
+    <string name="lock_mismatch">Die beiden stimmen nicht überein</string>
+    <string name="lock_enter_pin">Ihre PIN</string>
+    <string name="lock_enter_password">Ihr Passwort</string>
+    <string name="lock_wrong">Falsch, bitte erneut versuchen</string>
+    <string name="lock_wait">Zu viele Versuche: der nächste in %1$s</string>
+    <string name="lock_unlock">Entsperren</string>
+    <string name="lock_title">Geode ist gesperrt</string>
+    <string name="lock_fingerprint">Mit Fingerabdruck entsperren</string>
+    <string name="lock_fingerprint_desc">Statt des Codes. Ein später im Telefon hinzugefügter Fingerabdruck schaltet dies aus.</string>
+    <string name="lock_fingerprint_none">Fügen Sie zuerst in den Telefoneinstellungen einen Fingerabdruck hinzu.</string>
+    <string name="lock_fingerprint_changed">Die Fingerabdrücke im Telefon haben sich geändert, daher ist der Fingerabdruck aus: Entsperren Sie mit dem Code und schalten Sie ihn in den Einstellungen wieder ein.</string>
+    <string name="lock_prompt_title">Geode entsperren</string>
+    <string name="lock_prompt_code">Code verwenden</string>
+    <string name="lock_after">Sperren nach Verlassen der App</string>
+    <string name="lock_after_now">Sofort</string>
+    <string name="lock_after_min">%1$d Min.</string>
+    <string name="lock_change">PIN oder Passwort ändern</string>
+    <string name="lock_off">Sperre ausschalten</string>
+    <string name="lock_now">Jetzt sperren</string>
+    <string name="lock_note">Solange die Sperre an ist, wird die Vorschau der App in den letzten Apps ausgeblendet. Web-Chat und API im Netzwerk behalten ihr eigenes Passwort und ihren eigenen Schlüssel.</string>
+    <string name="lock_forgot">Code vergessen?</string>
+    <string name="lock_forgot_title">Alle Chats löschen?</string>
+    <string name="lock_forgot_text">Ohne den Code gibt es keinen anderen Weg hinein: Alle Chats werden gelöscht, mit ihren Fotos, Tönen und den Dateien des Agenten, danach die Sperre. Die Modelle bleiben.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Textgröße im Chat: %1$d%%</string>
+    <string name="settings_chat_text_desc">Nachrichten und Eingabe im Chat. Auch mit zwei Fingern direkt im Gespräch änderbar.</string>
+    <string name="models_search">Modelle suchen</string>
+    <string name="models_cap_photos">Fotos</string>
+    <string name="models_cap_video">Video</string>
+    <string name="models_cap_sound">Ton</string>
+    <string name="models_cap_reasoning">Denken</string>
+    <string name="models_no_match">Kein Modell passt</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Bildschirm</string>
+    <string name="screen_keep">Bildschirm eingeschaltet lassen</string>
+    <string name="screen_keep_off">Nein: wie in den Telefoneinstellungen</string>
+    <string name="screen_keep_answering">Während Geode antwortet</string>
+    <string name="screen_keep_always">Immer, solange Geode offen ist</string>
+    <string name="screen_black_after">Schwarzer Bildschirm nach %1$d Min. ohne Berührung</string>
+    <string name="screen_black_never">Schwarzer Bildschirm: nie</string>
+    <string name="screen_black_desc">Gegen Einbrennen: Auf einem OLED-Bildschirm können Bildteile, die sich nie bewegen (die Leisten, das Eingabefeld), über Stunden einbrennen. Der schwarze Bildschirm ist keine Sperre: Das Telefon bleibt entsperrt, eine Berührung des Bildschirms holt Geode zurück.</string>
+    <string name="screen_black_off_warning">Ohne den schwarzen Bildschirm kann sich ein Bild, das stundenlang stillsteht, dauerhaft in einen OLED-Bildschirm einbrennen.</string>
+    <string name="screen_black_hint">Bildschirm berühren, um zurückzukehren</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">Läuft auf dem Prozessor (die NPU liest Prompts, wo es eine gibt), auf Telefonen mit 8 GB RAM oder mehr</string>
+    <string name="models_catalog_ram_short">%1$s RAM: zu wenig für dieses Modell (es braucht 8 GB)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Stimme</string>
+    <string name="voice_read_aloud">Antworten vorlesen</string>
+    <string name="voice_read_aloud_desc">Satz für Satz, während die Antwort geschrieben wird. Der Lautsprecher unter einer Antwort liest sie noch einmal vor.</string>
+    <string name="voice_rate">Sprechtempo: %1$d%%</string>
+    <string name="voice_none">Auf diesem Telefon gibt es keine Sprachausgabe: Installieren Sie eine (zum Beispiel „Sprachdienste von Google“) in den Systemeinstellungen.</string>
+    <string name="chat_speak">Vorlesen</string>
+    <string name="chat_speak_stop">Vorlesen beenden</string>
+    <string name="nav_model_settings">Modell-Einstellungen</string>
+    <string name="model_settings_selected">Ausgewähltes Modell: %1$s</string>
+    <string name="model_settings_none">Noch kein Modell ausgewählt: Diese Einstellungen gelten für das Modell, das Sie wählen.</string>
+    <string name="chat_take_photo">Foto aufnehmen</string>
+    <string name="chat_record_video">Video aufnehmen</string>
+    <string name="chat_camera_denied">Ohne die Kameraberechtigung kann Geode keine Fotos oder Videos aufnehmen</string>
+    <string name="chat_camera_none">Auf diesem Telefon gibt es keine Kamera-App</string>
+    <string name="voice_voice">Stimme</string>
+    <string name="voice_auto">Automatisch: die Standardstimme jeder Sprache</string>
+    <string name="voice_voice_desc">Eine gewählte Stimme liest ihre eigene Sprache; andere Sprachen behalten ihre Standardstimme.</string>
+    <string name="voice_pitch">Tonhöhe: %1$d%%</string>
+    <string name="voice_listen">Anhören</string>
+    <string name="voice_sample">So werden die Antworten klingen.</string>
+    <string name="voice_engine_settings">Sprachausgabe-Einstellungen</string>
+    <string name="voice_network">braucht Internet</string>
+    <string name="chat_read_aloud_on">Antworten werden vorgelesen</string>
+    <string name="chat_read_aloud_off">Antworten werden nicht vorgelesen</string>
+    <string name="voice_engine">Was vorliest</string>
+    <string name="voice_engine_system">Die Sprachausgabe des Telefons</string>
+    <string name="voice_engine_geode">Geodes eigene Stimme</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: 31 Sprachen werden auf diesem Telefon gelesen, darunter Ukrainisch, Russisch und Englisch; andere Sprachen liest die Sprachausgabe des Telefons. Sie bleibt im Speicher und belegt nur beim Vorlesen etwa 300 MB Arbeitsspeicher.</string>
+    <string name="voice_download">Stimme herunterladen (%1$s)</string>
+    <string name="voice_downloading">Stimme wird heruntergeladen: %1$d%%</string>
+    <string name="voice_delete">Stimme löschen</string>
+    <string name="voice_download_failed">Die Stimme wurde nicht heruntergeladen: %1$s</string>
+    <string name="voice_female">Frauenstimme %1$d</string>
+    <string name="voice_male">Männerstimme %1$d</string>
+    <string name="voice_license">Lizenz der Stimme</string>
+    <string name="voice_license_note">Supertonic 3 von Supertone, unter der Open-RAIL-M-Lizenz: Ihre Nutzungsbeschränkungen gelten für das, was sie vorliest. Läuft mit sherpa-onnx.</string>
+    <string name="agent_folders">Ordner des Telefons</string>
+    <string name="agent_folders_desc">Ordner dieses Telefons, mit denen der Agent jedes Chats arbeiten kann: In seinem Linux liegen sie unter /phone. Der Agent arbeitet mit einer Kopie jedes Ordners, die vor jeder Nachricht aktualisiert wird; ein Ordner mit Lesen und Schreiben bekommt die Änderungen des Agenten zurück, wenn er fertig ist. Wird ein Ordner zurückgenommen, wird nur die Kopie gelöscht.</string>
+    <string name="agent_folders_none">Noch keine Ordner freigegeben.</string>
+    <string name="agent_folders_add">Ordner freigeben</string>
+    <string name="agent_folder_read">Nur lesen</string>
+    <string name="agent_folder_write">Lesen und schreiben</string>
+    <string name="agent_folder_remove">Zurücknehmen</string>
+    <string name="agent_folder_files">Dateien: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Wird kopiert…</string>
+    <string name="agent_folder_skipped">Nicht kopiert: %1$d (eine Kopie fasst höchstens 10.000 Dateien und %2$s)</string>
+    <string name="agent_folder_error">Der Ordner lässt sich nicht lesen: %1$s</string>
+    <string name="agent_folder_add_failed">Der Ordner konnte dem Agenten nicht freigegeben werden</string>
+    <string name="models_services">Modelle von Diensten</string>
+    <string name="models_services_desc">Das Modell eines Dienstes, für den Sie einen Schlüssel haben, kann statt des Modells auf dem Telefon in den Chats antworten: DeepSeek, OpenRouter, OpenAI, Anthropic oder jeder Dienst, der deren APIs spricht. Was die Chats senden, geht an diesen Dienst; das Linux des Agenten und seine Dateien bleiben auf dem Telefon.</string>
+    <string name="models_service_add">Dienst hinzufügen</string>
+    <string name="models_service_edit">Bearbeiten</string>
+    <string name="service_name">Name</string>
+    <string name="service_url">API-Adresse</string>
+    <string name="service_protocol">Protokoll</string>
+    <string name="service_key">API-Schlüssel</string>
+    <string name="service_key_kept">Verschlüsselt auf diesem Telefon gespeichert. Geben Sie einen neuen ein, um ihn zu ersetzen.</string>
+    <string name="service_model">Modell</string>
+    <string name="service_list">Seine Modelle auflisten</string>
+    <string name="service_list_failed">Die Modelle konnten nicht aufgelistet werden: %1$s</string>
+    <string name="service_vision">Das Modell liest Bilder</string>
+    <string name="service_context">Kontext, Tokens</string>
+    <string name="service_max">Längste Antwort, Tokens</string>
+    <string name="service_leaves">Chats mit diesem Modell werden an %1$s gesendet und nach dessen Bedingungen verarbeitet. Der Schlüssel bleibt verschlüsselt auf diesem Telefon.</string>
+    <string name="chat_empty_remote">Fragen Sie, was Sie wollen. Die Antworten kommen von %1$s (%2$s): Was Sie senden, verlässt das Telefon.</string>
+    <string name="chat_info_service">Der Chat wird an %1$s gesendet</string>
+    <string name="settings_about_services">Und wenn Sie auf dem Modelle-Bildschirm das Modell eines Dienstes wählen, werden dessen Chats an diesen Dienst gesendet.</string>
 </resources>

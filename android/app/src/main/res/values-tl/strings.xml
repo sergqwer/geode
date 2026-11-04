@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">Chat</string>
     <string name="nav_models">Mga Model</string>
-    <string name="nav_settings">Mga Setting</string>
+    <string name="nav_settings">Mga Setting ng App</string>
 
     <!-- chat -->
     <string name="chat_input_hint">Mensahe</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">Bakanteng espasyo: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">Mga Setting</string>
+    <string name="settings_title">Mga Setting ng App</string>
     <string name="settings_section_memory">Memory</string>
     <string name="settings_memory_budget">Memory para sa model</string>
     <string name="settings_memory_budget_value">%1$s (inirerekomenda: %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">Pinakamahabang context: %1$d token</string>
     <string name="settings_context_desc">Hindi inilalaan nang maaga ang context: lumalaki ito nang paunti-unti habang tumatagal ang chat, at kinukuha ng bawat bahagi ang memory nito mula sa expert cache (ang mga pinakabihirang gamiting expert) - pinapabagal ng mahabang context ang pagbuo ng sagot. Ibinabalik ng bagong chat ang lahat.</string>
+    <string name="settings_context_desc_dense">Hindi nakareserba nang maaga ang context: lumalaki ito nang paisa-isang bahagi habang tumatakbo ang chat, at ang mahabang context ay kumukuha ng mas maraming memory at nagpapabagal sa pagbuo. Ibinabalik ng bagong chat ang lahat.</string>
     <string name="settings_context_memory">Ang context (KV cache, int8): %1$s sa %2$d token (%3$s bawat 1000) · %4$s na lang ang matitira sa expert cache</string>
     <string name="settings_context_capped">Hanggang %1$d token lang ang kasya sa memory budget na ito: doon titigil ang usapan.</string>
     <string name="settings_section_performance">Performance</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">Sampling · may pangangatwiran</string>
     <string name="settings_sampling_plain">Sampling · walang pangangatwiran</string>
     <string name="settings_presence">Presence penalty: %1$.2f</string>
-    <string name="settings_presence_desc">Binabawasan ang tsansa ng mga token na nasa sagot na, para hindi paikot-ikot ang mahabang pangangatwiran. Inirerekomenda ng Qwen ang 1.5.</string>
-    <string name="settings_sampling_reset">Mga inirerekomendang value ng Qwen</string>
+    <string name="settings_presence_desc">Binabawasan ang tsansa ng mga token na nasa sagot na, para hindi paikot-ikot ang mahabang pangangatwiran.</string>
+    <string name="settings_sampling_reset">Mga inirerekomendang value ng modelo</string>
+    <string name="settings_section_features">Mga input na tinatanggap ng modelo</string>
+    <string name="settings_feature_images">Mga larawan</string>
+    <string name="settings_feature_images_desc">Mga litrato at larawan sa chat. Naka-off: hindi nilo-load ang vision encoder, kaya nakakatipid ng memory.</string>
+    <string name="settings_feature_video">Video</string>
+    <string name="settings_feature_video_desc">Mga video sa chat: pinapanood ng modelo ang mga frame at pinakikinggan ang tunog nito.</string>
+    <string name="settings_feature_audio">Audio</string>
+    <string name="settings_feature_audio_desc">Mga voice message at audio file. Naka-off: hindi nilo-load ang audio encoder, kaya nakakatipid ng memory.</string>
+    <string name="settings_feature_draft">Speculative decoding</string>
+    <string name="settings_feature_draft_desc_mtp">Gumagawa ng draft ng susunod na salita ang MTP layer ng modelo, at sinusuri ng modelo ang dalawang salita nang sabay: mas mabilis na sagot, parehong teksto. Naka-off: paisa-isang salita.</string>
+    <string name="settings_feature_draft_desc_drafter">Hinuhulaan ng maliit na katulong na modelo ng Gemma ang mga susunod na salita, at sabay-sabay na sinusuri ng pangunahing modelo ang mga ito: mas mabilis na sagot, parehong teksto. Naka-off: paisa-isang salita, at natitipid ang memory ng katulong na modelo.</string>
+    <string name="settings_sampling_recommended">Inirerekomenda para sa %1$s sa mode na ito: temperature %2$.2f, top-p %3$.2f, top-k %4$d, presence penalty %5$.1f.</string>
+    <string name="settings_context_model_max">Sinanay ang modelong ito para sa context na hanggang %1$d token.</string>
     <string name="settings_think_budget">Budget ng pangangatwiran: %1$s</string>
     <string name="settings_think_budget_desc">Pagkatapos ng ganito karaming token ng pangangatwiran, sasabihan ang model na sumagot na.</string>
     <string name="settings_max_answer">Pinakamahabang sagot: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">Tumutulong ang maliliit na core sa malalaki sa mahahabang prompt. Sa Redmi Note 9 Pro, pinabagal pa nila ang mga prompt.</string>
     <string name="settings_prefetch">Magbasa nang maaga</string>
     <string name="settings_prefetch_desc">Habang kinu-compute ang isang layer, binabasa ang mga expert na hinuhulaang kakailanganin ng susunod.</string>
-    <string name="settings_gpu">Gamitin ang GPU</string>
-    <string name="settings_gpu_desc">Pinapatakbo ang model sa graphics chip ng phone kung kaya: ang buong sagot sa Adreno 7xx o mas bago; sa Adreno 618, bahagi ng malalaking product ng prompt.</string>
+    <string name="settings_runs_on">Tumatakbo sa</string>
+    <string name="settings_runs_on_desc">Aling mga processor ng telepono ang nagpapatakbo ng modelo. Kapag dalawa, ang una ang bumabasa ng mga prompt at ang ikalawa ang sumusulat ng sagot. Ang mga mayroon lang ang teleponong ito ang nakalista; default ang NPU + GPU, pinakamabilis kung pareho itong mayroon.</string>
     <string name="settings_route_prior">Mas mabilis na sagot kapag hindi kasya ang model sa memory</string>
     <string name="settings_route_prior_desc">Inuuna ang mga expert na nasa memory na, kaya mas kaunti ang binabasa mula sa storage. Maaaring bahagyang magbago ang pananalita ng mga sagot, at paminsan-minsan ang kalidad. Naka-off bilang default.</string>
-    <string name="settings_npu">Gamitin ang NPU</string>
-    <string name="settings_npu_desc">Ginagamit ang AI processor ng telepono (Snapdragon Hexagon) kung saan ito nakakatulong: mas mabilis at medyo mas tumpak nitong binabasa ang prompt, at sa Snapdragon 8 Elite ay hinahawakan din nito ang bahagi ng mga expert ng 35B model at pinapatakbo nang buo ang magaan na model. Kung wala o hindi pumasa sa pagsusuri, ang GPU at CPU ang gagawa gaya ng dati.</string>
     <string name="settings_word_experts">Mga expert sa bawat salita</string>
     <string name="settings_word_experts_desc">8 (default): lahat ng expert na pinipili ng model, ang buong kalidad nito. 6 o 4: kapag ang isa sa huling 2 o 4 na napiling expert ay wala sa memory, nilalaktawan ito sa halip na basahin. Mas mabilis kapag hindi kasya ang model sa memory, pero nagiging hindi gaanong tumpak ang mga sagot ng model.</string>
     <string name="settings_gpu_share">Bahagi ng GPU sa mga row: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">I-compress ang context</string>
     <string name="chat_compressing">Binubuod ng model ang usapan…</string>
     <string name="chat_summary_title">Na-compress ang context</string>
+    <string name="chat_pruned">Inalis ang mga naunang mensahe matapos i-compress ang konteksto: nagpapatuloy ang modelo mula sa buod ng mga ito.</string>
     <string name="chat_summary_note">Mula rito, ang buod na ito na ang nakikita ng model sa halip na ang mga mensahe sa itaas nito.</string>
     <string name="settings_image_detail">Detalye ng larawan</string>
     <string name="settings_image_detail_fast">Mabilis</string>
     <string name="settings_image_detail_fine">Detalyado</string>
     <string name="settings_image_detail_most">Pinakadetalyado</string>
     <string name="settings_image_detail_desc">Kung gaano kadetalye nakikita ng model ang naka-attach na larawan: hanggang 256, 576 o 1024 na token nito. Mas mahusay magbasa ng maliit na teksto ang mas detalyado, pero mas matagal bago magsimula ang sagot (ine-encode ang larawan sa mga core ng phone; saka lang binabasa mula sa storage ang mga weight nito).</string>
-    <string name="settings_auto_compress">Awtomatikong i-compress ang context</string>
-    <string name="settings_auto_compress_desc">Kapag 90% puno na ang context, binubuod ng model ang usapan at nagpapatuloy mula sa buod (humihinto ang sagot bago ang huling 10%, na para sa buod).</string>
     <string name="answer_notif_title">Sumasagot ang Geode</string>
     <string name="answer_notif_text">Patuloy na gumagana ang model habang nasa background ang app.</string>
     <string name="answer_notif_stop">Ihinto</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">Salamat, naipadala na ang report</string>
     <string name="report_queued">Walang koneksyon: ipapadala ang report mamaya</string>
     <string name="cpu_unsupported">Hindi suportado ang processor ng phone na ito: kailangan ng Geode ng 64-bit na ARM processor na may dot product na instruction (ARMv8.2, karamihan ng phone mula 2019).</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">Privacy</string>
+    <string name="lock_setting">I-lock ang app</string>
+    <string name="lock_setting_desc">Isang PIN o password bago lumabas ang mga chat: kapag nagsimula ang app at kapag bumalik ka rito.</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">Password</string>
+    <string name="lock_repeat">Ulitin</string>
+    <string name="lock_short_pin">Hindi bababa sa 4 na digit</string>
+    <string name="lock_short_password">Hindi bababa sa 4 na character</string>
+    <string name="lock_mismatch">Hindi magkapareho ang dalawa</string>
+    <string name="lock_enter_pin">Ang iyong PIN</string>
+    <string name="lock_enter_password">Ang iyong password</string>
+    <string name="lock_wrong">Mali, subukan ulit</string>
+    <string name="lock_wait">Masyadong maraming subok: ang susunod sa loob ng %1$s</string>
+    <string name="lock_unlock">I-unlock</string>
+    <string name="lock_title">Naka-lock ang Geode</string>
+    <string name="lock_fingerprint">I-unlock gamit ang fingerprint</string>
+    <string name="lock_fingerprint_desc">Sa halip na code. Mapapatay ito ng fingerprint na idaragdag sa telepono sa ibang pagkakataon.</string>
+    <string name="lock_fingerprint_none">Magdagdag muna ng fingerprint sa mga setting ng telepono.</string>
+    <string name="lock_fingerprint_changed">Nagbago ang mga fingerprint sa telepono kaya naka-off ang fingerprint: i-unlock gamit ang code at i-on ito ulit sa Mga Setting.</string>
+    <string name="lock_prompt_title">I-unlock ang Geode</string>
+    <string name="lock_prompt_code">Gamitin ang code</string>
+    <string name="lock_after">I-lock pagkaalis sa app</string>
+    <string name="lock_after_now">Agad</string>
+    <string name="lock_after_min">%1$d min</string>
+    <string name="lock_change">Palitan ang PIN o password</string>
+    <string name="lock_off">I-off ang lock</string>
+    <string name="lock_now">I-lock ngayon</string>
+    <string name="lock_note">Habang naka-on ang lock, nakatago ang preview ng app sa mga kamakailang app. May sarili pa ring password at key ang web chat at ang API sa network.</string>
+    <string name="lock_forgot">Nakalimutan ang code?</string>
+    <string name="lock_forgot_title">I-delete ang lahat ng chat?</string>
+    <string name="lock_forgot_text">Kung walang code, wala nang ibang paraan para makapasok: mabubura ang lahat ng chat, kasama ang mga larawan, tunog at file ng agent, at pagkatapos ang lock. Mananatili ang mga model.</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">Laki ng text sa chat: %1$d%%</string>
+    <string name="settings_chat_text_desc">Ang mga mensahe at ang input sa chat. Mapapalitan din ito ng dalawang daliri sa usapan.</string>
+    <string name="models_search">Maghanap ng model</string>
+    <string name="models_cap_photos">Mga larawan</string>
+    <string name="models_cap_video">Video</string>
+    <string name="models_cap_sound">Tunog</string>
+    <string name="models_cap_reasoning">Pangangatwiran</string>
+    <string name="models_no_match">Walang tugmang model</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">Screen</string>
+    <string name="screen_keep">Panatilihing bukas ang screen</string>
+    <string name="screen_keep_off">Hindi: ayon sa timeout ng telepono</string>
+    <string name="screen_keep_answering">Habang sumasagot ang Geode</string>
+    <string name="screen_keep_always">Palagi, habang bukas ang Geode</string>
+    <string name="screen_black_after">Itim na screen pagkatapos ng %1$d min na walang pindot</string>
+    <string name="screen_black_never">Itim na screen: hindi kailanman</string>
+    <string name="screen_black_desc">Laban sa burn-in: sa OLED na screen, ang mga bahagi ng larawan na hindi gumagalaw (mga bar, ang lugar ng pagsulat) ay maaaring bumakat pagkalipas ng ilang oras. Hindi lock ang itim na screen: nananatiling naka-unlock ang telepono, at pindutin lang ang screen para bumalik ang Geode.</string>
+    <string name="screen_black_off_warning">Kapag naka-off ang itim na screen, ang larawang hindi gumagalaw nang ilang oras ay maaaring bumakat nang permanente sa OLED na screen.</string>
+    <string name="screen_black_hint">Pindutin ang screen para bumalik</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">Tumatakbo sa processor (binabasa ng NPU ang prompt kung mayroon), sa mga teleponong may 8 GB o higit pang RAM</string>
+    <string name="models_catalog_ram_short">%1$s na RAM: kulang para sa modelong ito (kailangan nito ng 8 GB)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">Boses</string>
+    <string name="voice_read_aloud">Basahin nang malakas ang mga sagot</string>
+    <string name="voice_read_aloud_desc">Pangungusap kada pangungusap habang isinusulat ang sagot. Babasahin itong muli ng speaker sa ilalim ng sagot.</string>
+    <string name="voice_rate">Bilis ng pagsasalita: %1$d%%</string>
+    <string name="voice_none">Walang text-to-speech engine ang teleponong ito: mag-install ng isa (halimbawa Speech Services ng Google) sa mga setting ng system.</string>
+    <string name="chat_speak">Basahin nang malakas</string>
+    <string name="chat_speak_stop">Ihinto ang pagbasa</string>
+    <string name="nav_model_settings">Mga Setting ng Model</string>
+    <string name="model_settings_selected">Napiling model: %1$s</string>
+    <string name="model_settings_none">Wala pang napiling model: para sa pipiliin mo ang mga setting na ito.</string>
+    <string name="chat_take_photo">Kumuha ng litrato</string>
+    <string name="chat_record_video">Mag-record ng video</string>
+    <string name="chat_camera_denied">Hindi makakakuha ang Geode ng litrato o video kung walang pahintulot sa camera</string>
+    <string name="chat_camera_none">Walang camera app sa teleponong ito</string>
+    <string name="voice_voice">Boses</string>
+    <string name="voice_auto">Awtomatiko: ang default na boses ng bawat wika</string>
+    <string name="voice_voice_desc">Binabasa ng napiling boses ang sarili nitong wika; nananatili sa default na boses ang ibang wika.</string>
+    <string name="voice_pitch">Tono ng boses: %1$d%%</string>
+    <string name="voice_listen">Pakinggan</string>
+    <string name="voice_sample">Ganito tutunog ang mga sagot.</string>
+    <string name="voice_engine_settings">Mga setting ng text-to-speech</string>
+    <string name="voice_network">kailangan ng internet</string>
+    <string name="chat_read_aloud_on">Binabasa nang malakas ang mga sagot</string>
+    <string name="chat_read_aloud_off">Hindi binabasa nang malakas ang mga sagot</string>
+    <string name="voice_engine">Ano ang nagbabasa nang malakas</string>
+    <string name="voice_engine_system">Ang text-to-speech ng telepono</string>
+    <string name="voice_engine_geode">Ang sariling boses ng Geode</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: 31 wika ang binabasa sa teleponong ito, kasama ang Ukrainian, Russian at English; ang ibang wika ay binabasa ng text-to-speech ng telepono. Nananatili ito sa storage at mga 300 MB ng memory lang ang kinukuha habang nagbabasa.</string>
+    <string name="voice_download">I-download ang boses (%1$s)</string>
+    <string name="voice_downloading">Dina-download ang boses: %1$d%%</string>
+    <string name="voice_delete">Burahin ang boses</string>
+    <string name="voice_download_failed">Hindi na-download ang boses: %1$s</string>
+    <string name="voice_female">Boses ng babae %1$d</string>
+    <string name="voice_male">Boses ng lalaki %1$d</string>
+    <string name="voice_license">Lisensya ng boses</string>
+    <string name="voice_license_note">Supertonic 3 ng Supertone, sa ilalim ng lisensyang Open RAIL-M: ang mga limitasyon nito sa paggamit ay sumasaklaw sa binabasa nito. Tumatakbo gamit ang sherpa-onnx.</string>
+    <string name="agent_folders">Mga folder ng telepono</string>
+    <string name="agent_folders_desc">Mga folder ng teleponong ito na puwedeng gamitin ng agent ng bawat chat: nasa /phone ang mga ito sa Linux nito. Gumagana ang agent sa kopya ng bawat isa, na ina-update bago ang bawat mensahe; ibinabalik sa folder na nababasa at nasusulatan ang mga binago ng agent kapag tapos na ito. Kapag binawi ang isang folder, ang kopya lang ang mabubura.</string>
+    <string name="agent_folders_none">Wala pang ibinigay na folder.</string>
+    <string name="agent_folders_add">Magbigay ng folder</string>
+    <string name="agent_folder_read">Basahin lang</string>
+    <string name="agent_folder_write">Basahin at sulatan</string>
+    <string name="agent_folder_remove">Bawiin</string>
+    <string name="agent_folder_files">Mga file: %1$d · %2$s</string>
+    <string name="agent_folder_copying">Kinokopya…</string>
+    <string name="agent_folder_skipped">Hindi nakopya: %1$d (hanggang 10,000 file at %2$s lang ang kasya sa isang kopya)</string>
+    <string name="agent_folder_error">Hindi mabasa ang folder: %1$s</string>
+    <string name="agent_folder_add_failed">Hindi maibigay ang folder sa agent</string>
+    <string name="models_services">Mga modelo ng serbisyo</string>
+    <string name="models_services_desc">Ang modelo ng isang serbisyong may susi ka ay puwedeng sumagot sa mga chat sa halip na ang modelo ng telepono: DeepSeek, OpenRouter, OpenAI, Anthropic, o anumang serbisyong gumagamit ng kanilang mga API. Ang ipinapadala ng mga chat ay napupunta sa serbisyong iyon; nananatili sa telepono ang Linux ng agent at ang mga file nito.</string>
+    <string name="models_service_add">Magdagdag ng serbisyo</string>
+    <string name="models_service_edit">I-edit</string>
+    <string name="service_name">Pangalan</string>
+    <string name="service_url">Address ng API</string>
+    <string name="service_protocol">Protocol</string>
+    <string name="service_key">API key</string>
+    <string name="service_key_kept">Nakatago sa teleponong ito nang naka-encrypt. Mag-type ng bago para palitan ito.</string>
+    <string name="service_model">Modelo</string>
+    <string name="service_list">Ilista ang mga modelo nito</string>
+    <string name="service_list_failed">Hindi mailista ang mga modelo: %1$s</string>
+    <string name="service_vision">Nakababasa ng larawan ang modelo</string>
+    <string name="service_context">Konteksto, token</string>
+    <string name="service_max">Pinakamahabang sagot, token</string>
+    <string name="service_leaves">Ang mga chat sa modelong ito ay ipinapadala sa %1$s at hinahawakan ayon sa mga tuntunin nito. Nananatili ang susi sa teleponong ito nang naka-encrypt.</string>
+    <string name="chat_empty_remote">Magtanong ng kahit ano. Ang mga sagot ay mula sa %1$s (%2$s): ang ipinapadala mo ay lumalabas sa telepono.</string>
+    <string name="chat_info_service">Ipinapadala ang chat sa %1$s</string>
+    <string name="settings_about_services">At kapag pumili ka ng modelo ng isang serbisyo sa screen ng Mga Modelo, ang mga chat nito ay ipinapadala sa serbisyong iyon.</string>
 </resources>

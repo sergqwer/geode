@@ -150,8 +150,24 @@ uint64_t tensor_bytes(const Tensor &t) {
 }
 
 
+bool Products::on_npu(const QView &m, const float *xs, size_t xstride, float *yo, size_t ystride, int n, const F16 &f,
+                      const float *clip) {
+    xp_.resize(static_cast<size_t>(n));
+    yp_.resize(static_cast<size_t>(n));
+    for (int t = 0; t < n; ++t) {
+        xp_[static_cast<size_t>(t)] = xs + static_cast<size_t>(t) * xstride;
+        yp_[static_cast<size_t>(t)] = yo + static_cast<size_t>(t) * ystride;
+    }
+    const int e = clip ? npu_->gemm_f16c(npu_->g, f.fd, f.off, m.rows, m.cols, f.shift, n, xp_.data(), yp_.data(), clip)
+                       : npu_->gemm_f16(npu_->g, f.fd, f.off, m.rows, m.cols, f.shift, n, xp_.data(), yp_.data());
+    if (e == 0) return true;
+    live_ = false;
+    return false;
+}
+
 void Products::mm(ThreadPool &pool, const QView &m, const Packed *pk, const float *xs, size_t xstride, float *yo,
-                  size_t ystride, int n) {
+                  size_t ystride, int n, const F16 *f) {
+    if (f && live_ && n >= 32 && on_npu(m, xs, xstride, yo, ystride, n, *f, nullptr)) return;
     if (pk) {
         const int64_t C = m.cols, nb = C / kBlock, np = (n + 1) / 2;
         aq_.resize(static_cast<size_t>(np * 2 * C));
@@ -183,13 +199,17 @@ void Products::mm(ThreadPool &pool, const QView &m, const Packed *pk, const floa
 }
 
 void Products::clipped(ThreadPool &pool, const QView &m, const Packed *pk, const float *clip, const float *xs, float *yo,
-                       int n) {
+                       int n, const F16 *f) {
     const int64_t C = m.cols, R = m.rows;
+    // (on the NPU the clamps happen as the rows are converted to fp16 and back: no passes over them here)
+    if (f && live_ && n >= 32 && npu_->gemm_f16c &&
+        on_npu(m, xs, static_cast<size_t>(C), yo, static_cast<size_t>(R), n, *f, clip))
+        return;
     if (cl_.size() < static_cast<size_t>(n * C)) cl_.resize(static_cast<size_t>(n * C));
     pool.parallel_for(static_cast<int64_t>(n) * C, [&](int64_t a, int64_t b) {
         for (int64_t i = a; i < b; ++i) cl_[static_cast<size_t>(i)] = std::clamp(xs[static_cast<size_t>(i)], clip[0], clip[1]);
     }, 4096, true);
-    mm(pool, m, pk, cl_.data(), static_cast<size_t>(C), yo, static_cast<size_t>(R), n);
+    mm(pool, m, pk, cl_.data(), static_cast<size_t>(C), yo, static_cast<size_t>(R), n, f);
     pool.parallel_for(static_cast<int64_t>(n) * R, [&](int64_t a, int64_t b) {
         for (int64_t i = a; i < b; ++i) yo[static_cast<size_t>(i)] = std::clamp(yo[static_cast<size_t>(i)], clip[2], clip[3]);
     }, 4096, true);

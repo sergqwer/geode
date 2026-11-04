@@ -3,7 +3,7 @@
     <!-- navigation -->
     <string name="nav_chat">ਚੈਟ</string>
     <string name="nav_models">ਮਾਡਲ</string>
-    <string name="nav_settings">ਸੈਟਿੰਗਾਂ</string>
+    <string name="nav_settings">ਐਪ ਸੈਟਿੰਗਾਂ</string>
 
     <!-- chat -->
     <string name="chat_input_hint">ਸੁਨੇਹਾ</string>
@@ -77,7 +77,7 @@
     <string name="models_free_space">ਖਾਲੀ ਥਾਂ: %1$s</string>
 
     <!-- settings -->
-    <string name="settings_title">ਸੈਟਿੰਗਾਂ</string>
+    <string name="settings_title">ਐਪ ਸੈਟਿੰਗਾਂ</string>
     <string name="settings_section_memory">ਮੈਮੋਰੀ</string>
     <string name="settings_memory_budget">ਮਾਡਲ ਲਈ ਮੈਮੋਰੀ</string>
     <string name="settings_memory_budget_value">%1$s (ਸਿਫ਼ਾਰਸ਼ੀ %2$s)</string>
@@ -96,6 +96,7 @@
     <string name="settings_top_k">Top-k: %1$d</string>
     <string name="settings_context">ਸਭ ਤੋਂ ਲੰਬਾ ਸੰਦਰਭ: %1$d ਟੋਕਨ</string>
     <string name="settings_context_desc">ਸੰਦਰਭ ਪਹਿਲਾਂ ਤੋਂ ਰਾਖਵਾਂ ਨਹੀਂ ਰੱਖਿਆ ਜਾਂਦਾ: ਇਹ ਚੈਟ ਅੱਗੇ ਵਧਣ ਨਾਲ ਹਿੱਸਿਆਂ ਵਿੱਚ ਵਧਦਾ ਹੈ, ਅਤੇ ਹਰ ਹਿੱਸਾ ਆਪਣੀ ਮੈਮੋਰੀ ਐਕਸਪਰਟ ਕੈਸ਼ ਤੋਂ ਲੈਂਦਾ ਹੈ (ਉਸ ਦੇ ਸਭ ਤੋਂ ਘੱਟ ਵਰਤੇ ਜਾਣ ਵਾਲੇ ਐਕਸਪਰਟ) - ਲੰਬਾ ਸੰਦਰਭ ਜਨਰੇਸ਼ਨ ਨੂੰ ਹੌਲੀ ਕਰਦਾ ਹੈ। ਨਵੀਂ ਚੈਟ ਸਭ ਕੁਝ ਵਾਪਸ ਕਰ ਦਿੰਦੀ ਹੈ।</string>
+    <string name="settings_context_desc_dense">ਸੰਦਰਭ ਪਹਿਲਾਂ ਤੋਂ ਰਾਖਵਾਂ ਨਹੀਂ ਹੁੰਦਾ: ਚੈਟ ਅੱਗੇ ਵਧਣ ਨਾਲ ਇਹ ਟੁਕੜਿਆਂ ਵਿੱਚ ਵਧਦਾ ਹੈ, ਅਤੇ ਲੰਬਾ ਸੰਦਰਭ ਵੱਧ ਮੈਮੋਰੀ ਲੈਂਦਾ ਹੈ ਤੇ ਜਨਰੇਸ਼ਨ ਹੌਲੀ ਕਰਦਾ ਹੈ। ਨਵੀਂ ਚੈਟ ਸਭ ਵਾਪਸ ਦੇ ਦਿੰਦੀ ਹੈ।</string>
     <string name="settings_context_memory">ਸੰਦਰਭ (KV ਕੈਸ਼, int8): %2$d ਟੋਕਨਾਂ \'ਤੇ %1$s (%3$s ਪ੍ਰਤੀ 1000) · ਤਦ ਐਕਸਪਰਟ ਕੈਸ਼ ਕੋਲ %4$s ਬਚਦੀ ਹੈ</string>
     <string name="settings_context_capped">ਇਸ ਮੈਮੋਰੀ ਬਜਟ ਵਿੱਚ ਵੱਧ ਤੋਂ ਵੱਧ %1$d ਟੋਕਨ ਆਉਂਦੇ ਹਨ: ਗੱਲਬਾਤ ਉੱਥੇ ਹੀ ਰੁਕ ਜਾਂਦੀ ਹੈ।</string>
     <string name="settings_section_performance">ਕਾਰਗੁਜ਼ਾਰੀ</string>
@@ -238,8 +239,20 @@
     <string name="settings_sampling_think">ਸੈਂਪਲਿੰਗ · ਸੋਚ-ਵਿਚਾਰ ਨਾਲ</string>
     <string name="settings_sampling_plain">ਸੈਂਪਲਿੰਗ · ਸੋਚ-ਵਿਚਾਰ ਤੋਂ ਬਿਨਾਂ</string>
     <string name="settings_presence">ਪ੍ਰੈਜ਼ੈਂਸ ਪੈਨਲਟੀ: %1$.2f</string>
-    <string name="settings_presence_desc">ਜਵਾਬ ਵਿੱਚ ਪਹਿਲਾਂ ਤੋਂ ਮੌਜੂਦ ਟੋਕਨਾਂ ਦੀ ਸੰਭਾਵਨਾ ਘਟਾਉਂਦਾ ਹੈ, ਤਾਂ ਜੋ ਲੰਬਾ ਸੋਚ-ਵਿਚਾਰ ਗੋਲ-ਗੋਲ ਨਾ ਘੁੰਮੇ। Qwen 1.5 ਦੀ ਸਿਫ਼ਾਰਸ਼ ਕਰਦਾ ਹੈ।</string>
-    <string name="settings_sampling_reset">Qwen ਦੇ ਸਿਫ਼ਾਰਸ਼ੀ ਮੁੱਲ</string>
+    <string name="settings_presence_desc">ਜਵਾਬ ਵਿੱਚ ਪਹਿਲਾਂ ਤੋਂ ਮੌਜੂਦ ਟੋਕਨਾਂ ਦੀ ਸੰਭਾਵਨਾ ਘਟਾਉਂਦਾ ਹੈ, ਤਾਂ ਜੋ ਲੰਬਾ ਸੋਚ-ਵਿਚਾਰ ਗੋਲ-ਗੋਲ ਨਾ ਘੁੰਮੇ।</string>
+    <string name="settings_sampling_reset">ਮਾਡਲ ਦੇ ਸਿਫ਼ਾਰਸ਼ ਕੀਤੇ ਮੁੱਲ</string>
+    <string name="settings_section_features">ਮਾਡਲ ਕੀ ਸਵੀਕਾਰ ਕਰਦਾ ਹੈ</string>
+    <string name="settings_feature_images">ਤਸਵੀਰਾਂ</string>
+    <string name="settings_feature_images_desc">ਚੈਟ ਵਿੱਚ ਫ਼ੋਟੋਆਂ ਅਤੇ ਤਸਵੀਰਾਂ। ਬੰਦ ਹੋਣ \'ਤੇ ਵਿਜ਼ਨ ਐਨਕੋਡਰ ਲੋਡ ਨਹੀਂ ਹੁੰਦਾ, ਜਿਸ ਨਾਲ ਮੈਮੋਰੀ ਬਚਦੀ ਹੈ।</string>
+    <string name="settings_feature_video">ਵੀਡੀਓ</string>
+    <string name="settings_feature_video_desc">ਚੈਟ ਵਿੱਚ ਵੀਡੀਓ: ਮਾਡਲ ਉਨ੍ਹਾਂ ਦੇ ਫ੍ਰੇਮ ਦੇਖਦਾ ਹੈ ਅਤੇ ਆਵਾਜ਼ ਸੁਣਦਾ ਹੈ।</string>
+    <string name="settings_feature_audio">ਆਡੀਓ</string>
+    <string name="settings_feature_audio_desc">ਵੌਇਸ ਸੁਨੇਹੇ ਅਤੇ ਆਡੀਓ ਫ਼ਾਈਲਾਂ। ਬੰਦ ਹੋਣ \'ਤੇ ਆਡੀਓ ਐਨਕੋਡਰ ਲੋਡ ਨਹੀਂ ਹੁੰਦਾ, ਜਿਸ ਨਾਲ ਮੈਮੋਰੀ ਬਚਦੀ ਹੈ।</string>
+    <string name="settings_feature_draft">ਸਪੈਕਿਊਲੇਟਿਵ ਡੀਕੋਡਿੰਗ</string>
+    <string name="settings_feature_draft_desc_mtp">ਮਾਡਲ ਦੀ MTP ਪਰਤ ਅਗਲੇ ਸ਼ਬਦ ਦਾ ਖਰੜਾ ਬਣਾਉਂਦੀ ਹੈ ਅਤੇ ਮਾਡਲ ਇੱਕੋ ਵਾਰ ਦੋ ਸ਼ਬਦ ਜਾਂਚਦਾ ਹੈ: ਉਹੀ ਲਿਖਤ, ਤੇਜ਼ ਜਵਾਬ। ਬੰਦ ਹੋਣ \'ਤੇ ਇੱਕ ਵਾਰ ਵਿੱਚ ਇੱਕ ਸ਼ਬਦ।</string>
+    <string name="settings_feature_draft_desc_drafter">Gemma ਦਾ ਛੋਟਾ ਸਹਾਇਕ ਮਾਡਲ ਅਗਲੇ ਸ਼ਬਦਾਂ ਦਾ ਅੰਦਾਜ਼ਾ ਲਾਉਂਦਾ ਹੈ ਅਤੇ ਮੁੱਖ ਮਾਡਲ ਉਨ੍ਹਾਂ ਨੂੰ ਇੱਕੋ ਵਾਰ ਜਾਂਚਦਾ ਹੈ: ਉਹੀ ਲਿਖਤ, ਤੇਜ਼ ਜਵਾਬ। ਬੰਦ ਹੋਣ \'ਤੇ ਇੱਕ ਵਾਰ ਵਿੱਚ ਇੱਕ ਸ਼ਬਦ, ਅਤੇ ਸਹਾਇਕ ਮਾਡਲ ਦੀ ਮੈਮੋਰੀ ਬਚਦੀ ਹੈ।</string>
+    <string name="settings_sampling_recommended">ਇਸ ਮੋਡ ਵਿੱਚ %1$s ਲਈ ਸਿਫ਼ਾਰਸ਼: ਟੈਂਪਰੇਚਰ %2$.2f, top-p %3$.2f, top-k %4$d, ਪ੍ਰੈਜ਼ੈਂਸ ਪੈਨਲਟੀ %5$.1f।</string>
+    <string name="settings_context_model_max">ਇਸ ਮਾਡਲ ਨੂੰ %1$d ਟੋਕਨ ਤੱਕ ਦੇ ਸੰਦਰਭ ਲਈ ਸਿਖਲਾਈ ਦਿੱਤੀ ਗਈ ਹੈ।</string>
     <string name="settings_think_budget">ਸੋਚ-ਵਿਚਾਰ ਬਜਟ: %1$s</string>
     <string name="settings_think_budget_desc">ਇੰਨੇ ਸੋਚ-ਵਿਚਾਰ ਟੋਕਨਾਂ ਤੋਂ ਬਾਅਦ ਮਾਡਲ ਨੂੰ ਹੁਣੇ ਜਵਾਬ ਦੇਣ ਲਈ ਕਿਹਾ ਜਾਂਦਾ ਹੈ।</string>
     <string name="settings_max_answer">ਸਭ ਤੋਂ ਲੰਬਾ ਜਵਾਬ: %1$s</string>
@@ -251,12 +264,10 @@
     <string name="settings_helpers_desc">ਲੰਬੇ ਪ੍ਰੋਂਪਟਾਂ \'ਤੇ ਛੋਟੇ ਕੋਰ ਵੱਡਿਆਂ ਨਾਲ ਜੁੜਦੇ ਹਨ। Redmi Note 9 Pro \'ਤੇ ਇਨ੍ਹਾਂ ਨੇ ਪ੍ਰੋਂਪਟ ਹੌਲੀ ਕਰ ਦਿੱਤੇ।</string>
     <string name="settings_prefetch">ਪਹਿਲਾਂ ਤੋਂ ਪੜ੍ਹੋ</string>
     <string name="settings_prefetch_desc">ਜਦੋਂ ਇੱਕ ਲੇਅਰ ਦੀ ਗਣਨਾ ਹੁੰਦੀ ਹੈ, ਉਹ ਐਕਸਪਰਟ ਪੜ੍ਹਦਾ ਹੈ ਜਿਨ੍ਹਾਂ ਦੀ ਅਗਲੀ ਲੇਅਰ ਨੂੰ ਲੋੜ ਪੈਣ ਦਾ ਅਨੁਮਾਨ ਹੈ।</string>
-    <string name="settings_gpu">GPU ਵਰਤੋ</string>
-    <string name="settings_gpu_desc">ਜਿੱਥੇ ਹੋ ਸਕੇ, ਮਾਡਲ ਨੂੰ ਫ਼ੋਨ ਦੀ ਗ੍ਰਾਫ਼ਿਕਸ ਚਿੱਪ \'ਤੇ ਚਲਾਉਂਦਾ ਹੈ: Adreno 7xx ਜਾਂ ਨਵੇਂ \'ਤੇ ਪੂਰਾ ਜਵਾਬ; Adreno 618 \'ਤੇ, ਪ੍ਰੋਂਪਟ ਦੇ ਵੱਡੇ ਗੁਣਨਫਲਾਂ ਦਾ ਇੱਕ ਹਿੱਸਾ।</string>
+    <string name="settings_runs_on">ਕਿਸ ਉੱਤੇ ਚੱਲਦਾ ਹੈ</string>
+    <string name="settings_runs_on_desc">ਫ਼ੋਨ ਦੇ ਕਿਹੜੇ ਪ੍ਰੋਸੈਸਰ ਮਾਡਲ ਚਲਾਉਂਦੇ ਹਨ। ਦੋ ਹੋਣ ਤੇ ਪਹਿਲਾ ਪ੍ਰੌਂਪਟ ਪੜ੍ਹਦਾ ਹੈ ਅਤੇ ਦੂਜਾ ਜਵਾਬ ਲਿਖਦਾ ਹੈ। ਸੂਚੀ ਵਿੱਚ ਸਿਰਫ਼ ਉਹੀ ਹਨ ਜੋ ਇਸ ਫ਼ੋਨ ਵਿੱਚ ਹਨ; ਡਿਫ਼ਾਲਟ NPU + GPU ਹੈ, ਜਿੱਥੇ ਦੋਵੇਂ ਹੋਣ ਉੱਥੇ ਸਭ ਤੋਂ ਤੇਜ਼।</string>
     <string name="settings_route_prior">ਮਾਡਲ ਮੈਮਰੀ ਵਿੱਚ ਪੂਰਾ ਨਾ ਆਉਣ ਉੱਤੇ ਤੇਜ਼ ਜਵਾਬ</string>
     <string name="settings_route_prior_desc">ਪਹਿਲਾਂ ਤੋਂ ਮੈਮਰੀ ਵਿੱਚ ਮੌਜੂਦ ਐਕਸਪਰਟਾਂ ਨੂੰ ਤਰਜੀਹ ਦਿੰਦਾ ਹੈ, ਤਾਂ ਜੋ ਸਟੋਰੇਜ ਤੋਂ ਘੱਟ ਪੜ੍ਹਨਾ ਪਵੇ। ਜਵਾਬਾਂ ਦੇ ਸ਼ਬਦ ਥੋੜ੍ਹੇ ਬਦਲ ਸਕਦੇ ਹਨ ਅਤੇ ਕਦੇ-ਕਦੇ ਗੁਣਵੱਤਾ ਵੀ। ਡਿਫੌਲਟ ਤੌਰ ਉੱਤੇ ਬੰਦ।</string>
-    <string name="settings_npu">NPU ਵਰਤੋ</string>
-    <string name="settings_npu_desc">ਜਿੱਥੇ ਮਦਦ ਮਿਲੇ ਉੱਥੇ ਫ਼ੋਨ ਦਾ AI ਪ੍ਰੋਸੈਸਰ (Snapdragon Hexagon) ਵਰਤਦਾ ਹੈ: ਪ੍ਰੌਂਪਟ ਤੇਜ਼ੀ ਨਾਲ ਅਤੇ ਥੋੜ੍ਹਾ ਵਧੇਰੇ ਸਹੀ ਪੜ੍ਹਦਾ ਹੈ, ਅਤੇ Snapdragon 8 Elite \'ਤੇ 35B ਮਾਡਲ ਦੇ ਐਕਸਪਰਟਾਂ ਦਾ ਇੱਕ ਹਿੱਸਾ ਵੀ ਸੰਭਾਲਦਾ ਹੈ ਅਤੇ ਹਲਕਾ ਮਾਡਲ ਪੂਰਾ ਚਲਾਉਂਦਾ ਹੈ। ਜੇ ਇਹ ਨਾ ਹੋਵੇ ਜਾਂ ਜਾਂਚ ਵਿੱਚ ਫੇਲ੍ਹ ਹੋਵੇ ਤਾਂ GPU ਅਤੇ CPU ਪਹਿਲਾਂ ਵਾਂਗ ਕੰਮ ਕਰਦੇ ਹਨ।</string>
     <string name="settings_word_experts">ਹਰ ਸ਼ਬਦ ਲਈ ਐਕਸਪਰਟ</string>
     <string name="settings_word_experts_desc">8 (ਡਿਫ਼ੌਲਟ): ਮਾਡਲ ਵੱਲੋਂ ਚੁਣੇ ਸਾਰੇ ਐਕਸਪਰਟ, ਯਾਨੀ ਪੂਰੀ ਗੁਣਵੱਤਾ। 6 ਜਾਂ 4: ਜੇ ਚੁਣੇ ਗਏ ਆਖ਼ਰੀ 2 ਜਾਂ 4 ਐਕਸਪਰਟਾਂ ਵਿੱਚੋਂ ਕੋਈ ਮੈਮਰੀ ਵਿੱਚ ਨਹੀਂ ਹੈ, ਤਾਂ ਉਸਨੂੰ ਪੜ੍ਹਨ ਦੀ ਬਜਾਏ ਛੱਡ ਦਿੱਤਾ ਜਾਂਦਾ ਹੈ। ਜਦੋਂ ਮਾਡਲ ਮੈਮਰੀ ਵਿੱਚ ਪੂਰਾ ਨਹੀਂ ਆਉਂਦਾ ਤਾਂ ਇਹ ਤੇਜ਼ ਹੈ, ਪਰ ਮਾਡਲ ਦੇ ਜਵਾਬ ਘੱਟ ਸਹੀ ਹੋ ਜਾਂਦੇ ਹਨ।</string>
     <string name="settings_gpu_share">ਕਤਾਰਾਂ ਵਿੱਚ GPU ਦਾ ਹਿੱਸਾ: %1$d%%</string>
@@ -274,14 +285,13 @@
     <string name="chat_compress">ਸੰਦਰਭ ਸੰਖੇਪ ਕਰੋ</string>
     <string name="chat_compressing">ਮਾਡਲ ਗੱਲਬਾਤ ਦਾ ਸਾਰ ਬਣਾ ਰਿਹਾ ਹੈ…</string>
     <string name="chat_summary_title">ਸੰਦਰਭ ਸੰਖੇਪ ਕੀਤਾ ਗਿਆ</string>
+    <string name="chat_pruned">ਸੰਦਰਭ ਸੰਕੁਚਿਤ ਹੋਣ ਤੋਂ ਬਾਅਦ ਪੁਰਾਣੇ ਸੁਨੇਹੇ ਹਟਾ ਦਿੱਤੇ ਗਏ: ਮਾਡਲ ਉਨ੍ਹਾਂ ਦੇ ਸਾਰ ਤੋਂ ਅੱਗੇ ਚੱਲਦਾ ਹੈ।</string>
     <string name="chat_summary_note">ਇੱਥੋਂ ਅੱਗੇ ਮਾਡਲ ਉੱਪਰਲੇ ਸੁਨੇਹਿਆਂ ਦੀ ਥਾਂ ਇਹ ਸਾਰ ਦੇਖਦਾ ਹੈ।</string>
     <string name="settings_image_detail">ਤਸਵੀਰ ਦਾ ਵੇਰਵਾ</string>
     <string name="settings_image_detail_fast">ਤੇਜ਼</string>
     <string name="settings_image_detail_fine">ਵਿਸਤ੍ਰਿਤ</string>
     <string name="settings_image_detail_most">ਸਭ ਤੋਂ ਵੱਧ</string>
     <string name="settings_image_detail_desc">ਮਾਡਲ ਨੱਥੀ ਤਸਵੀਰ ਨੂੰ ਕਿੰਨੀ ਬਾਰੀਕੀ ਨਾਲ ਦੇਖਦਾ ਹੈ: ਇਸ ਦੇ 256, 576 ਜਾਂ 1024 ਟੋਕਨਾਂ ਤੱਕ। ਵੱਧ ਬਾਰੀਕੀ ਛੋਟੇ ਅੱਖਰ ਬਿਹਤਰ ਪੜ੍ਹਦੀ ਹੈ ਪਰ ਜਵਾਬ ਸ਼ੁਰੂ ਹੋਣ ਤੋਂ ਪਹਿਲਾਂ ਵੱਧ ਸਮਾਂ ਲੈਂਦੀ ਹੈ (ਤਸਵੀਰ ਫ਼ੋਨ ਦੇ ਕੋਰਾਂ \'ਤੇ ਐਨਕੋਡ ਹੁੰਦੀ ਹੈ; ਇਸ ਦੇ ਵੇਟ ਸਿਰਫ਼ ਉਦੋਂ ਹੀ ਸਟੋਰੇਜ ਤੋਂ ਪੜ੍ਹੇ ਜਾਂਦੇ ਹਨ)।</string>
-    <string name="settings_auto_compress">ਸੰਦਰਭ ਆਪਣੇ-ਆਪ ਸੰਖੇਪ ਕਰੋ</string>
-    <string name="settings_auto_compress_desc">ਜਦੋਂ ਸੰਦਰਭ 90% ਭਰ ਜਾਂਦਾ ਹੈ, ਮਾਡਲ ਗੱਲਬਾਤ ਦਾ ਸਾਰ ਬਣਾਉਂਦਾ ਹੈ ਅਤੇ ਸਾਰ ਤੋਂ ਅੱਗੇ ਜਾਰੀ ਰੱਖਦਾ ਹੈ (ਜਵਾਬ ਆਖਰੀ 10% ਤੋਂ ਪਹਿਲਾਂ ਰੁਕ ਜਾਂਦਾ ਹੈ, ਜੋ ਸਾਰ ਲਈ ਰੱਖਿਆ ਹੁੰਦਾ ਹੈ)।</string>
     <string name="answer_notif_title">Geode ਜਵਾਬ ਦੇ ਰਿਹਾ ਹੈ</string>
     <string name="answer_notif_text">ਐਪ ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚ ਹੋਣ \'ਤੇ ਵੀ ਮਾਡਲ ਕੰਮ ਕਰਦਾ ਰਹਿੰਦਾ ਹੈ।</string>
     <string name="answer_notif_stop">ਰੋਕੋ</string>
@@ -449,4 +459,132 @@
     <string name="report_sent">ਧੰਨਵਾਦ, ਰਿਪੋਰਟ ਭੇਜ ਦਿੱਤੀ ਗਈ</string>
     <string name="report_queued">ਕੋਈ ਕਨੈਕਸ਼ਨ ਨਹੀਂ: ਰਿਪੋਰਟ ਬਾਅਦ ਵਿੱਚ ਭੇਜੀ ਜਾਵੇਗੀ</string>
     <string name="cpu_unsupported">ਇਸ ਫ਼ੋਨ ਦਾ ਪ੍ਰੋਸੈਸਰ ਸਮਰਥਿਤ ਨਹੀਂ ਹੈ: Geode ਨੂੰ dot product ਹਦਾਇਤਾਂ ਵਾਲਾ 64-ਬਿੱਟ ARM ਪ੍ਰੋਸੈਸਰ ਚਾਹੀਦਾ ਹੈ (ARMv8.2, 2019 ਤੋਂ ਬਾਅਦ ਦੇ ਜ਼ਿਆਦਾਤਰ ਫ਼ੋਨ)।</string>
+
+    <!-- the app's lock -->
+    <string name="settings_section_privacy">ਪਰਦੇਦਾਰੀ</string>
+    <string name="lock_setting">ਐਪ ਲੌਕ ਕਰੋ</string>
+    <string name="lock_setting_desc">ਚੈਟਾਂ ਦਿਖਾਉਣ ਤੋਂ ਪਹਿਲਾਂ PIN ਜਾਂ ਪਾਸਵਰਡ: ਐਪ ਸ਼ੁਰੂ ਹੋਣ ਵੇਲੇ ਅਤੇ ਜਦੋਂ ਤੁਸੀਂ ਇਸ ਤੇ ਵਾਪਸ ਆਓ।</string>
+    <string name="lock_kind_pin">PIN</string>
+    <string name="lock_kind_password">ਪਾਸਵਰਡ</string>
+    <string name="lock_repeat">ਦੁਬਾਰਾ ਦਰਜ ਕਰੋ</string>
+    <string name="lock_short_pin">ਘੱਟੋ-ਘੱਟ 4 ਅੰਕ</string>
+    <string name="lock_short_password">ਘੱਟੋ-ਘੱਟ 4 ਅੱਖਰ</string>
+    <string name="lock_mismatch">ਦੋਵੇਂ ਇੱਕੋ ਜਿਹੇ ਨਹੀਂ ਹਨ</string>
+    <string name="lock_enter_pin">ਤੁਹਾਡਾ PIN</string>
+    <string name="lock_enter_password">ਤੁਹਾਡਾ ਪਾਸਵਰਡ</string>
+    <string name="lock_wrong">ਗਲਤ ਹੈ, ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ</string>
+    <string name="lock_wait">ਬਹੁਤ ਜ਼ਿਆਦਾ ਕੋਸ਼ਿਸ਼ਾਂ: ਅਗਲੀ ਕੋਸ਼ਿਸ਼ %1$s ਬਾਅਦ</string>
+    <string name="lock_unlock">ਅਨਲੌਕ ਕਰੋ</string>
+    <string name="lock_title">Geode ਲੌਕ ਹੈ</string>
+    <string name="lock_fingerprint">ਫਿੰਗਰਪ੍ਰਿੰਟ ਨਾਲ ਅਨਲੌਕ ਕਰੋ</string>
+    <string name="lock_fingerprint_desc">ਕੋਡ ਦੀ ਥਾਂ। ਬਾਅਦ ਵਿੱਚ ਫ਼ੋਨ ਵਿੱਚ ਜੋੜਿਆ ਫਿੰਗਰਪ੍ਰਿੰਟ ਇਸਨੂੰ ਬੰਦ ਕਰ ਦਿੰਦਾ ਹੈ।</string>
+    <string name="lock_fingerprint_none">ਪਹਿਲਾਂ ਫ਼ੋਨ ਦੀਆਂ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਫਿੰਗਰਪ੍ਰਿੰਟ ਜੋੜੋ।</string>
+    <string name="lock_fingerprint_changed">ਫ਼ੋਨ ਦੇ ਫਿੰਗਰਪ੍ਰਿੰਟ ਬਦਲ ਗਏ ਹਨ, ਇਸ ਲਈ ਫਿੰਗਰਪ੍ਰਿੰਟ ਬੰਦ ਹੈ: ਕੋਡ ਨਾਲ ਅਨਲੌਕ ਕਰੋ ਅਤੇ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਇਸਨੂੰ ਦੁਬਾਰਾ ਚਾਲੂ ਕਰੋ।</string>
+    <string name="lock_prompt_title">Geode ਅਨਲੌਕ ਕਰੋ</string>
+    <string name="lock_prompt_code">ਕੋਡ ਵਰਤੋ</string>
+    <string name="lock_after">ਐਪ ਛੱਡਣ ਤੋਂ ਬਾਅਦ ਲੌਕ ਕਰੋ</string>
+    <string name="lock_after_now">ਤੁਰੰਤ</string>
+    <string name="lock_after_min">%1$d ਮਿੰਟ</string>
+    <string name="lock_change">PIN ਜਾਂ ਪਾਸਵਰਡ ਬਦਲੋ</string>
+    <string name="lock_off">ਲੌਕ ਬੰਦ ਕਰੋ</string>
+    <string name="lock_now">ਹੁਣੇ ਲੌਕ ਕਰੋ</string>
+    <string name="lock_note">ਜਦੋਂ ਤੱਕ ਲੌਕ ਚਾਲੂ ਹੈ, ਹਾਲੀਆ ਐਪਾਂ ਵਿੱਚ ਐਪ ਦੀ ਝਲਕ ਲੁਕੀ ਰਹਿੰਦੀ ਹੈ। ਵੈੱਬ ਚੈਟ ਅਤੇ ਨੈੱਟਵਰਕ ਤੇ API ਆਪਣਾ ਪਾਸਵਰਡ ਅਤੇ ਕੁੰਜੀ ਰੱਖਦੇ ਹਨ।</string>
+    <string name="lock_forgot">ਕੋਡ ਭੁੱਲ ਗਏ?</string>
+    <string name="lock_forgot_title">ਕੀ ਸਾਰੀਆਂ ਚੈਟਾਂ ਮਿਟਾਉਣੀਆਂ ਹਨ?</string>
+    <string name="lock_forgot_text">ਕੋਡ ਤੋਂ ਬਿਨਾਂ ਅੰਦਰ ਆਉਣ ਦਾ ਹੋਰ ਕੋਈ ਰਾਹ ਨਹੀਂ: ਸਾਰੀਆਂ ਚੈਟਾਂ ਆਪਣੀਆਂ ਫ਼ੋਟੋਆਂ, ਆਵਾਜ਼ਾਂ ਅਤੇ ਏਜੰਟ ਦੀਆਂ ਫ਼ਾਈਲਾਂ ਸਮੇਤ ਮਿਟ ਜਾਂਦੀਆਂ ਹਨ, ਫਿਰ ਲੌਕ। ਮਾਡਲ ਰਹਿੰਦੇ ਹਨ।</string>
+
+    <!-- the chat's text size; the models' search and capabilities -->
+    <string name="settings_chat_text">ਚੈਟ ਦੀ ਲਿਖਤ ਦਾ ਆਕਾਰ: %1$d%%</string>
+    <string name="settings_chat_text_desc">ਚੈਟ ਦੇ ਸੁਨੇਹੇ ਅਤੇ ਲਿਖਣ ਦੀ ਥਾਂ। ਗੱਲਬਾਤ ਉੱਤੇ ਦੋ ਉਂਗਲਾਂ ਨਾਲ ਵੀ ਇਸਨੂੰ ਬਦਲਿਆ ਜਾ ਸਕਦਾ ਹੈ।</string>
+    <string name="models_search">ਮਾਡਲ ਖੋਜੋ</string>
+    <string name="models_cap_photos">ਫ਼ੋਟੋਆਂ</string>
+    <string name="models_cap_video">ਵੀਡੀਓ</string>
+    <string name="models_cap_sound">ਆਵਾਜ਼</string>
+    <string name="models_cap_reasoning">ਤਰਕ</string>
+    <string name="models_no_match">ਕੋਈ ਮਾਡਲ ਮੇਲ ਨਹੀਂ ਖਾਂਦਾ</string>
+
+    <!-- the screen kept on, and the black screen against burn-in -->
+    <string name="settings_section_screen">ਸਕ੍ਰੀਨ</string>
+    <string name="screen_keep">ਸਕ੍ਰੀਨ ਚਾਲੂ ਰੱਖੋ</string>
+    <string name="screen_keep_off">ਨਹੀਂ: ਫ਼ੋਨ ਦੇ ਆਪਣੇ ਟਾਈਮਆਊਟ ਮੁਤਾਬਕ</string>
+    <string name="screen_keep_answering">ਜਦੋਂ Geode ਜਵਾਬ ਦੇ ਰਿਹਾ ਹੋਵੇ</string>
+    <string name="screen_keep_always">ਹਮੇਸ਼ਾ, ਜਦੋਂ ਤੱਕ Geode ਖੁੱਲ੍ਹਾ ਹੈ</string>
+    <string name="screen_black_after">%1$d ਮਿੰਟ ਬਿਨਾਂ ਛੂਹੇ ਕਾਲੀ ਸਕ੍ਰੀਨ</string>
+    <string name="screen_black_never">ਕਾਲੀ ਸਕ੍ਰੀਨ: ਕਦੇ ਨਹੀਂ</string>
+    <string name="screen_black_desc">ਬਰਨ-ਇਨ ਤੋਂ ਬਚਾਅ: OLED ਸਕ੍ਰੀਨ ਉੱਤੇ ਤਸਵੀਰ ਦੇ ਉਹ ਹਿੱਸੇ ਜੋ ਕਦੇ ਨਹੀਂ ਹਿੱਲਦੇ (ਬਾਰ, ਲਿਖਣ ਦੀ ਥਾਂ) ਘੰਟਿਆਂ ਵਿੱਚ ਸਕ੍ਰੀਨ ਉੱਤੇ ਛਪ ਸਕਦੇ ਹਨ। ਕਾਲੀ ਸਕ੍ਰੀਨ ਲਾਕ ਨਹੀਂ ਹੈ: ਫ਼ੋਨ ਅਨਲਾਕ ਹੀ ਰਹਿੰਦਾ ਹੈ, ਅਤੇ ਸਕ੍ਰੀਨ ਛੂਹਦੇ ਹੀ Geode ਵਾਪਸ ਆ ਜਾਂਦਾ ਹੈ।</string>
+    <string name="screen_black_off_warning">ਕਾਲੀ ਸਕ੍ਰੀਨ ਤੋਂ ਬਿਨਾਂ, ਘੰਟਿਆਂ ਤੱਕ ਸਥਿਰ ਰਹਿਣ ਵਾਲੀ ਤਸਵੀਰ OLED ਸਕ੍ਰੀਨ ਉੱਤੇ ਹਮੇਸ਼ਾ ਲਈ ਛਪ ਸਕਦੀ ਹੈ।</string>
+    <string name="screen_black_hint">ਵਾਪਸ ਆਉਣ ਲਈ ਸਕ੍ਰੀਨ ਨੂੰ ਛੂਹੋ</string>
+
+    <!-- a light model that wants 8 GB (Gemma 4 E4B) -->
+    <string name="models_catalog_mid">ਪ੍ਰੋਸੈਸਰ ਉੱਤੇ ਚੱਲਦਾ ਹੈ (ਜਿੱਥੇ NPU ਹੋਵੇ ਉਹ ਪ੍ਰੌਂਪਟ ਪੜ੍ਹਦਾ ਹੈ), 8 GB ਜਾਂ ਵੱਧ RAM ਵਾਲੇ ਫ਼ੋਨਾਂ ਉੱਤੇ</string>
+    <string name="models_catalog_ram_short">%1$s RAM: ਇਸ ਮਾਡਲ ਲਈ ਘੱਟ ਹੈ (ਇਸਨੂੰ 8 GB ਚਾਹੀਦੀ ਹੈ)</string>
+
+    <!-- answers read aloud (the phone's text-to-speech) -->
+    <string name="settings_section_voice">ਆਵਾਜ਼</string>
+    <string name="voice_read_aloud">ਜਵਾਬ ਉੱਚੀ ਪੜ੍ਹੋ</string>
+    <string name="voice_read_aloud_desc">ਜਵਾਬ ਲਿਖੇ ਜਾਣ ਵੇਲੇ ਵਾਕ-ਦਰ-ਵਾਕ। ਜਵਾਬ ਹੇਠਲਾ ਸਪੀਕਰ ਇਸਨੂੰ ਮੁੜ ਪੜ੍ਹਦਾ ਹੈ।</string>
+    <string name="voice_rate">ਬੋਲਣ ਦੀ ਰਫ਼ਤਾਰ: %1$d%%</string>
+    <string name="voice_none">ਇਸ ਫ਼ੋਨ ਵਿੱਚ ਟੈਕਸਟ-ਟੂ-ਸਪੀਚ ਇੰਜਣ ਨਹੀਂ ਹੈ: ਸਿਸਟਮ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਇੱਕ ਇੰਸਟਾਲ ਕਰੋ (ਜਿਵੇਂ Google ਦੀਆਂ ਸਪੀਚ ਸੇਵਾਵਾਂ)।</string>
+    <string name="chat_speak">ਉੱਚੀ ਪੜ੍ਹੋ</string>
+    <string name="chat_speak_stop">ਪੜ੍ਹਨਾ ਰੋਕੋ</string>
+    <string name="nav_model_settings">ਮਾਡਲ ਸੈਟਿੰਗਾਂ</string>
+    <string name="model_settings_selected">ਚੁਣਿਆ ਮਾਡਲ: %1$s</string>
+    <string name="model_settings_none">ਅਜੇ ਕੋਈ ਮਾਡਲ ਨਹੀਂ ਚੁਣਿਆ: ਇਹ ਸੈਟਿੰਗਾਂ ਉਸ ਮਾਡਲ ’ਤੇ ਲਾਗੂ ਹੁੰਦੀਆਂ ਹਨ ਜੋ ਤੁਸੀਂ ਚੁਣੋਗੇ।</string>
+    <string name="chat_take_photo">ਫ਼ੋਟੋ ਖਿੱਚੋ</string>
+    <string name="chat_record_video">ਵੀਡੀਓ ਰਿਕਾਰਡ ਕਰੋ</string>
+    <string name="chat_camera_denied">ਕੈਮਰੇ ਦੀ ਇਜਾਜ਼ਤ ਤੋਂ ਬਿਨਾਂ Geode ਫ਼ੋਟੋ ਜਾਂ ਵੀਡੀਓ ਨਹੀਂ ਲੈ ਸਕਦਾ</string>
+    <string name="chat_camera_none">ਇਸ ਫ਼ੋਨ ’ਤੇ ਕੋਈ ਕੈਮਰਾ ਐਪ ਨਹੀਂ ਹੈ</string>
+    <string name="voice_voice">ਆਵਾਜ਼</string>
+    <string name="voice_auto">ਆਪਣੇ-ਆਪ: ਹਰ ਭਾਸ਼ਾ ਦੀ ਡਿਫ਼ਾਲਟ ਆਵਾਜ਼</string>
+    <string name="voice_voice_desc">ਚੁਣੀ ਆਵਾਜ਼ ਆਪਣੀ ਭਾਸ਼ਾ ਪੜ੍ਹਦੀ ਹੈ; ਹੋਰ ਭਾਸ਼ਾਵਾਂ ਆਪਣੀ ਡਿਫ਼ਾਲਟ ਆਵਾਜ਼ ਰੱਖਦੀਆਂ ਹਨ।</string>
+    <string name="voice_pitch">ਆਵਾਜ਼ ਦੀ ਪਿੱਚ: %1$d%%</string>
+    <string name="voice_listen">ਸੁਣੋ</string>
+    <string name="voice_sample">ਜਵਾਬ ਇਸ ਤਰ੍ਹਾਂ ਸੁਣਾਈ ਦੇਣਗੇ।</string>
+    <string name="voice_engine_settings">ਟੈਕਸਟ-ਟੂ-ਸਪੀਚ ਸੈਟਿੰਗਾਂ</string>
+    <string name="voice_network">ਇੰਟਰਨੈੱਟ ਚਾਹੀਦਾ</string>
+    <string name="chat_read_aloud_on">ਜਵਾਬ ਉੱਚੀ ਪੜ੍ਹੇ ਜਾਂਦੇ ਹਨ</string>
+    <string name="chat_read_aloud_off">ਜਵਾਬ ਉੱਚੀ ਨਹੀਂ ਪੜ੍ਹੇ ਜਾਂਦੇ</string>
+    <string name="voice_engine">ਕੀ ਉੱਚੀ ਪੜ੍ਹਦਾ ਹੈ</string>
+    <string name="voice_engine_system">ਫ਼ੋਨ ਦਾ ਟੈਕਸਟ-ਟੂ-ਸਪੀਚ</string>
+    <string name="voice_engine_geode">Geode ਦੀ ਆਪਣੀ ਆਵਾਜ਼</string>
+    <string name="voice_engine_geode_desc">Supertonic 3: ਇਸ ਫ਼ੋਨ \'ਤੇ 31 ਭਾਸ਼ਾਵਾਂ ਪੜ੍ਹੀਆਂ ਜਾਂਦੀਆਂ ਹਨ, ਜਿਨ੍ਹਾਂ ਵਿੱਚ ਯੂਕਰੇਨੀ, ਰੂਸੀ ਅਤੇ ਅੰਗਰੇਜ਼ੀ ਵੀ ਹਨ; ਬਾਕੀ ਭਾਸ਼ਾਵਾਂ ਫ਼ੋਨ ਦਾ ਟੈਕਸਟ-ਟੂ-ਸਪੀਚ ਪੜ੍ਹਦਾ ਹੈ। ਇਹ ਸਟੋਰੇਜ ਵਿੱਚ ਰਹਿੰਦੀ ਹੈ ਅਤੇ ਸਿਰਫ਼ ਪੜ੍ਹਦੇ ਸਮੇਂ ਲਗਭਗ 300 MB ਮੈਮੋਰੀ ਲੈਂਦੀ ਹੈ।</string>
+    <string name="voice_download">ਆਵਾਜ਼ ਡਾਊਨਲੋਡ ਕਰੋ (%1$s)</string>
+    <string name="voice_downloading">ਆਵਾਜ਼ ਡਾਊਨਲੋਡ ਹੋ ਰਹੀ ਹੈ: %1$d%%</string>
+    <string name="voice_delete">ਆਵਾਜ਼ ਮਿਟਾਓ</string>
+    <string name="voice_download_failed">ਆਵਾਜ਼ ਡਾਊਨਲੋਡ ਨਹੀਂ ਹੋਈ: %1$s</string>
+    <string name="voice_female">ਔਰਤ ਦੀ ਆਵਾਜ਼ %1$d</string>
+    <string name="voice_male">ਮਰਦ ਦੀ ਆਵਾਜ਼ %1$d</string>
+    <string name="voice_license">ਆਵਾਜ਼ ਦਾ ਲਾਇਸੰਸ</string>
+    <string name="voice_license_note">Supertone ਦੀ Supertonic 3, Open RAIL-M ਲਾਇਸੰਸ ਅਧੀਨ: ਇਹ ਜੋ ਪੜ੍ਹਦੀ ਹੈ ਉਸ \'ਤੇ ਇਸ ਦੀ ਵਰਤੋਂ ਦੀਆਂ ਪਾਬੰਦੀਆਂ ਲਾਗੂ ਹੁੰਦੀਆਂ ਹਨ। sherpa-onnx ਨਾਲ ਚੱਲਦੀ ਹੈ।</string>
+    <string name="agent_folders">ਫ਼ੋਨ ਦੇ ਫ਼ੋਲਡਰ</string>
+    <string name="agent_folders_desc">ਇਸ ਫ਼ੋਨ ਦੇ ਉਹ ਫ਼ੋਲਡਰ ਜਿਨ੍ਹਾਂ ਨਾਲ ਹਰ ਚੈਟ ਦਾ ਏਜੰਟ ਕੰਮ ਕਰ ਸਕਦਾ ਹੈ: ਉਸ ਦੇ Linux ਵਿੱਚ ਉਹ /phone ਵਿੱਚ ਹੁੰਦੇ ਹਨ। ਏਜੰਟ ਹਰੇਕ ਦੀ ਇੱਕ ਕਾਪੀ \'ਤੇ ਕੰਮ ਕਰਦਾ ਹੈ, ਜੋ ਹਰ ਸੁਨੇਹੇ ਤੋਂ ਪਹਿਲਾਂ ਅੱਪਡੇਟ ਹੁੰਦੀ ਹੈ; ਪੜ੍ਹਨ ਅਤੇ ਲਿਖਣ ਵਾਲੇ ਫ਼ੋਲਡਰ ਵਿੱਚ ਏਜੰਟ ਦੀਆਂ ਤਬਦੀਲੀਆਂ ਉਸ ਦਾ ਕੰਮ ਪੂਰਾ ਹੋਣ \'ਤੇ ਵਾਪਸ ਜਾਂਦੀਆਂ ਹਨ। ਫ਼ੋਲਡਰ ਵਾਪਸ ਲੈਣ ਨਾਲ ਸਿਰਫ਼ ਕਾਪੀ ਮਿਟਦੀ ਹੈ।</string>
+    <string name="agent_folders_none">ਹਾਲੇ ਕੋਈ ਫ਼ੋਲਡਰ ਨਹੀਂ ਦਿੱਤਾ ਗਿਆ।</string>
+    <string name="agent_folders_add">ਫ਼ੋਲਡਰ ਦਿਓ</string>
+    <string name="agent_folder_read">ਸਿਰਫ਼ ਪੜ੍ਹਨਾ</string>
+    <string name="agent_folder_write">ਪੜ੍ਹਨਾ ਅਤੇ ਲਿਖਣਾ</string>
+    <string name="agent_folder_remove">ਵਾਪਸ ਲਓ</string>
+    <string name="agent_folder_files">ਫ਼ਾਈਲਾਂ: %1$d · %2$s</string>
+    <string name="agent_folder_copying">ਕਾਪੀ ਹੋ ਰਿਹਾ ਹੈ…</string>
+    <string name="agent_folder_skipped">ਕਾਪੀ ਨਹੀਂ ਹੋਈਆਂ: %1$d (ਇੱਕ ਕਾਪੀ ਵਿੱਚ ਵੱਧ ਤੋਂ ਵੱਧ 10,000 ਫ਼ਾਈਲਾਂ ਅਤੇ %2$s ਸਮਾਉਂਦੇ ਹਨ)</string>
+    <string name="agent_folder_error">ਫ਼ੋਲਡਰ ਪੜ੍ਹਿਆ ਨਹੀਂ ਜਾ ਸਕਦਾ: %1$s</string>
+    <string name="agent_folder_add_failed">ਫ਼ੋਲਡਰ ਏਜੰਟ ਨੂੰ ਨਹੀਂ ਦਿੱਤਾ ਜਾ ਸਕਿਆ</string>
+    <string name="models_services">ਸੇਵਾਵਾਂ ਦੇ ਮਾਡਲ</string>
+    <string name="models_services_desc">ਜਿਸ ਸੇਵਾ ਦੀ ਕੁੰਜੀ ਤੁਹਾਡੇ ਕੋਲ ਹੈ, ਉਸ ਦਾ ਮਾਡਲ ਫ਼ੋਨ ਦੇ ਮਾਡਲ ਦੀ ਥਾਂ ਚੈਟ ਵਿੱਚ ਜਵਾਬ ਦੇ ਸਕਦਾ ਹੈ: DeepSeek, OpenRouter, OpenAI, Anthropic ਜਾਂ ਉਹਨਾਂ ਦੇ API ਬੋਲਣ ਵਾਲੀ ਕੋਈ ਵੀ ਸੇਵਾ। ਚੈਟ ਜੋ ਭੇਜਦੇ ਹਨ ਉਹ ਉਸ ਸੇਵਾ ਨੂੰ ਜਾਂਦਾ ਹੈ; ਏਜੰਟ ਦਾ Linux ਅਤੇ ਉਸ ਦੀਆਂ ਫ਼ਾਈਲਾਂ ਫ਼ੋਨ ʼਤੇ ਹੀ ਰਹਿੰਦੀਆਂ ਹਨ।</string>
+    <string name="models_service_add">ਸੇਵਾ ਜੋੜੋ</string>
+    <string name="models_service_edit">ਬਦਲੋ</string>
+    <string name="service_name">ਨਾਂ</string>
+    <string name="service_url">API ਪਤਾ</string>
+    <string name="service_protocol">ਪ੍ਰੋਟੋਕੋਲ</string>
+    <string name="service_key">API ਕੁੰਜੀ</string>
+    <string name="service_key_kept">ਇਸ ਫ਼ੋਨ ʼਤੇ ਇਨਕ੍ਰਿਪਟ ਕਰਕੇ ਰੱਖੀ ਗਈ ਹੈ। ਬਦਲਣ ਲਈ ਨਵੀਂ ਲਿਖੋ।</string>
+    <string name="service_model">ਮਾਡਲ</string>
+    <string name="service_list">ਇਸ ਦੇ ਮਾਡਲ ਦਿਖਾਓ</string>
+    <string name="service_list_failed">ਮਾਡਲ ਨਹੀਂ ਮਿਲ ਸਕੇ: %1$s</string>
+    <string name="service_vision">ਮਾਡਲ ਤਸਵੀਰਾਂ ਪੜ੍ਹਦਾ ਹੈ</string>
+    <string name="service_context">ਸੰਦਰਭ, ਟੋਕਨ</string>
+    <string name="service_max">ਸਭ ਤੋਂ ਲੰਮਾ ਜਵਾਬ, ਟੋਕਨ</string>
+    <string name="service_leaves">ਇਸ ਮਾਡਲ ਵਾਲੀਆਂ ਚੈਟਾਂ %1$s ਨੂੰ ਭੇਜੀਆਂ ਜਾਂਦੀਆਂ ਹਨ ਅਤੇ ਉਸ ਦੀਆਂ ਸ਼ਰਤਾਂ ਮੁਤਾਬਕ ਸੰਭਾਲੀਆਂ ਜਾਂਦੀਆਂ ਹਨ। ਕੁੰਜੀ ਇਸ ਫ਼ੋਨ ʼਤੇ ਇਨਕ੍ਰਿਪਟ ਰਹਿੰਦੀ ਹੈ।</string>
+    <string name="chat_empty_remote">ਕੁਝ ਵੀ ਪੁੱਛੋ। ਜਵਾਬ %1$s (%2$s) ਤੋਂ ਆਉਂਦੇ ਹਨ: ਜੋ ਤੁਸੀਂ ਭੇਜਦੇ ਹੋ ਉਹ ਫ਼ੋਨ ਤੋਂ ਬਾਹਰ ਜਾਂਦਾ ਹੈ।</string>
+    <string name="chat_info_service">ਚੈਟ %1$s ਨੂੰ ਭੇਜੀ ਜਾਂਦੀ ਹੈ</string>
+    <string name="settings_about_services">ਅਤੇ ਜਦੋਂ ਤੁਸੀਂ ਮਾਡਲ ਸਕ੍ਰੀਨ ʼਤੇ ਕਿਸੇ ਸੇਵਾ ਦਾ ਮਾਡਲ ਚੁਣਦੇ ਹੋ, ਤਾਂ ਉਸ ਦੀਆਂ ਚੈਟਾਂ ਉਸ ਸੇਵਾ ਨੂੰ ਭੇਜੀਆਂ ਜਾਂਦੀਆਂ ਹਨ।</string>
 </resources>
