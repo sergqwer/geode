@@ -33,8 +33,8 @@ android {
         // 30: ActivityManager.getHistoricalProcessExitReasons for the memory test
         minSdk = 30
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.9.17"
+        versionCode = 20
+        versionName = "0.10.1"
         buildConfigField("byte[]", "SITE_MASK", javaBytes(siteMask))
         buildConfigField("byte[]", "SITE_KEY",
             javaBytes(ByteArray(siteKey.size) { (siteKey[it].toInt() xor siteMask[it].toInt()).toByte() }))
@@ -115,6 +115,8 @@ android {
             it.inputs.files(rootProject.fileTree("../work/tok"))
             it.systemProperty("geode.gemmatokdir", rootProject.file("../work/tok-gemma").absolutePath)
             it.inputs.files(rootProject.fileTree("../work/tok-gemma"))
+            it.systemProperty("geode.yue2tokdir", rootProject.file("../work/tok-yue2").absolutePath)
+            it.inputs.files(rootProject.fileTree("../work/tok-yue2"))
         }
     }
 }

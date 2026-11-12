@@ -25,6 +25,7 @@
 #include "geode_npu.h"
 #include "attn_cfg.h"
 #include "gdec_cfg.h"
+#include "nar_cfg.h"
 #include "wsrc.h"
 
 #if __HVX_ARCH__ >= 79
@@ -67,7 +68,10 @@ typedef struct {
     volatile int q_ready[A_HELPERS_MAX], s_done[A_HELPERS_MAX], p_ready[A_HELPERS_MAX], o_done[A_HELPERS_MAX];
     volatile int h_done[A_HELPERS_MAX];
     volatile int started, failed;
-    int no_hmx, sm_ieee, sm_check;
+    int no_hmx, sm_ieee, sm_check, sm_v1;
+    int e_up;                 // the weights 2^e_up larger than e^(s - max) (softmax_h2: E_UP; the others 0)
+    int log2;                 // ATTN_LOG2: the scores in log2 units (softmax_h2 only)
+    int sum_acc;              // softmax_h2's interior row sums by sf += hf x 1 (g_acc_from's order; not ATTN_SUM_CVT)
 } at_t;
 
 typedef struct {
@@ -84,6 +88,9 @@ static int g_cvt_to, g_cvt_from, g_orders_ok = -1;
 // the layers' steps' qf32 pairs (q_of_hf, hf_of_q): hf -> qf32 with the even rows' lanes in lo; qf32 -> hf from
 // combine(odd, even) with the even rows on the even lanes. Checked (anything else: unsupported)
 static int g_q_from_ok, g_q_to_ok;
+// sf += vmpy(hf, hf)'s pair (softmax_h2's row sums): 1 the even lanes' products in lo, 2 in hi, -1 neither (the sums
+// then as before: ATTN_SUM_CVT's)
+static int g_acc_from = -1;
 
 static inline void q_of_hf(HVX_Vector h, HVX_Vector *even, HVX_Vector *odd);
 static inline HVX_Vector hf_of_q(HVX_Vector even, HVX_Vector odd);
@@ -142,6 +149,20 @@ static void a_checks(void) {
                                     Q6_Vqf32_vadd_VsfVsf(*(const HVX_Vector *)b, Q6_V_vzero()));
         g_q_to_ok = 1;
         for (int i = 0; i < 32; ++i) g_q_to_ok &= (float)h2[2 * i] == a[i] && (float)h2[2 * i + 1] == b[i];
+    }
+    {
+        for (int i = 0; i < 32; ++i) h[2 * i] = (__fp16)a[i], h[2 * i + 1] = (__fp16)b[i];
+        HVX_VectorPair w2 = Q6_W_vcombine_VV(Q6_V_vzero(), Q6_V_vzero());
+        w2 = Q6_Wsf_vmpyacc_WsfVhfVhf(w2, *(const HVX_Vector *)h, Q6_Vh_vsplat_R(0x3C00));
+        w2 = Q6_Wsf_vmpyacc_WsfVhfVhf(w2, *(const HVX_Vector *)h, Q6_Vh_vsplat_R(0x3C00));   // (twice: the sum)
+        *(HVX_Vector *)lo = Q6_V_lo_W(w2);
+        *(HVX_Vector *)hi = Q6_V_hi_W(w2);
+        int al = 1, ah = 1;
+        for (int i = 0; i < 32; ++i) {
+            al &= lo[i] == 2.0f * a[i] && hi[i] == 2.0f * b[i];
+            ah &= hi[i] == 2.0f * a[i] && lo[i] == 2.0f * b[i];
+        }
+        g_acc_from = al ? 1 : ah ? 2 : -1;
     }
     g_orders_ok = g_cvt_to > 0 && g_cvt_from > 0 && unpack_ok && shuff_ok && g_q_from_ok && g_q_to_ok;
 }
@@ -222,9 +243,15 @@ static inline int lo_of(const attn_desc_t *d, int t) {   // the first position t
     const int lo = d->apos + t - d->window + 1;
     return lo > 0 ? lo : 0;
 }
+// an encoder's keys (attn_cfg.h nk: every query sees them all)
+static inline int keys_of(const attn_desc_t *d) { return d->nk ? d->nk : d->n; }
 static inline int hi_of(const attn_desc_t *d, int t) {   // the last one (an encoder's tokens: every one)
-    return t >= d->n ? -1 : (d->flags & ATTN_ENCODER) ? d->n - 1 : d->apos + t;
+    if (t >= d->n) return -1;
+    if (d->flags & ATTN_ENCODER) return (d->flags & ATTN_CAUSAL) ? keys_of(d) - d->n + t : keys_of(d) - 1;
+    return d->apos + t;
 }
+// one past the last position any token sees
+static inline int end_of(const attn_desc_t *d) { return (d->flags & ATTN_ENCODER) ? keys_of(d) : d->apos + d->n; }
 
 typedef struct {
     int t0, t1;   // the tile's tokens (t1 inclusive, < n)
@@ -295,13 +322,23 @@ static void copy_blocks(uint8_t *dst, const uint8_t *src, size_t n_bytes) {
     const HVX_Vector *s = (const HVX_Vector *)src;
     for (size_t i = 0; i < n_bytes / 128u; ++i) d[i] = s[i];
 }
-static inline size_t enc_blocks(const at_t *a) { return (size_t)(a->d->n + 31) / 32u; }   // a head's 32-position blocks
+// a head's 32-position blocks in all, and those in the first two buffers (attn_cfg.h npre: the rest in kv[2], kv[3])
+static inline size_t enc_blocks(const at_t *a) { return (size_t)(keys_of(a->d) + 31) / 32u; }
+static inline size_t enc_pre(const at_t *a) { return a->d->npre ? (size_t)a->d->npre : enc_blocks(a); }
+// block blk of the KV head's keys (value 0) or of its values' dim group dg (value 1), where the host put it
+static inline const uint8_t *enc_block(const at_t *a, size_t blk, int value, int dg) {
+    const size_t pre = enc_pre(a), dgs = (size_t)a->dgs;
+    const int tail = blk >= pre;
+    const size_t nb = tail ? enc_blocks(a) - pre : pre, j = tail ? blk - pre : blk;
+    const uint8_t *base = a->kv[2 * tail + value];
+    return value ? base + (((size_t)a->kh * dgs + (size_t)dg) * nb + j) * 2048u : base + ((size_t)a->kh * nb + j) * dgs * 2048u;
+}
 
 static void build_k(at_t *a, int th, int b) {
     const int hd = a->hd;
     if (a->d->flags & ATTN_ENCODER) {
         const size_t blk = (size_t)a->sb_lo / 32u + (size_t)b, bytes = (size_t)a->dgs * 2048u;
-        copy_blocks(a->K + (size_t)b * bytes, a->kv[0] + ((size_t)a->kh * enc_blocks(a) + blk) * bytes, bytes);
+        copy_blocks(a->K + (size_t)b * bytes, enc_block(a, blk, 0, 0), bytes);
         return;
     }
     __fp16 *rows = (__fp16 *)a->scr[th];
@@ -335,9 +372,9 @@ static void build_k(at_t *a, int th, int b) {
 static void build_v(at_t *a, int th, int b) {
     const int hd = a->hd, stride = hd / 64;
     if (a->d->flags & ATTN_ENCODER) {
-        const size_t blk = (size_t)a->sb_lo / 32u + (size_t)b, nb = enc_blocks(a);
+        const size_t blk = (size_t)a->sb_lo / 32u + (size_t)b;
         for (int dg = 0; dg < a->dgs; ++dg)
-            copy_blocks(a->V + ((size_t)dg * a->npb + b) * 2048u, a->kv[1] + (((size_t)a->kh * a->dgs + dg) * nb + blk) * 2048u, 2048u);
+            copy_blocks(a->V + ((size_t)dg * a->npb + b) * 2048u, enc_block(a, blk, 1, dg), 2048u);
         return;
     }
     __fp16 *rows = (__fp16 *)a->scr[th];
@@ -530,6 +567,147 @@ static void softmax_h(const at_t *a, uint8_t *S, const geo_t *g, float *mx, floa
     }
 }
 
+// softmax_h2's weight of one crouton, 2^E_UP larger than softmax_h's: 2^E_UP e^(s - max) = 2^-f 2^(E_UP - n) for
+// y = (max - s) log2 e = n + f (y at most 24; ATTN_LOG2: the scores in log2 units already, y = max - s): one power of
+// two, 2^(E_UP - n) in [2^-13, 2^11], always a normal hf, and every weight >= 2^-14 a normal hf too. softmax_h's two
+// powers 2^-n1 2^-n2 reach subnormal weights, and in a loop without a branch the compiler's lowering flushed those to
+// zero (weights under ~6e-5 lost: the rows' error up 28% on 4K keys). 2^-f a cubic fitted with hf coefficients:
+// 1.1e-4 at most, under hf's half step (2.4e-4) - softmax_h's quartic, its coefficients rounded to hf, 1.7e-4.
+// y >= 0 needs no abs: a lane a mask takes (y < 0, garbage) is zeroed after; the rows' maximum covers the rest
+#define E_UP 11
+typedef struct {
+    int log2e, c3;
+    HVX_Vector c2, c1, c0, y_max, e_top;
+} ex_t;
+static inline __attribute__((always_inline)) HVX_Vector exp_hf(const ex_t *k, HVX_Vector mv, HVX_Vector s, int log2) {
+    HVX_Vector y = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vsub_VhfVhf(mv, s));   // max - s
+    if (!log2) y = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfRhf(y, k->log2e));
+    y = Q6_Vh_vmin_VhVh(y, k->y_max);   // (on the bits: both positive)
+    const HVX_Vector n = Q6_Vh_equals_Vhf(y);
+    const HVX_Vector f = Q6_Vqf16_vsub_VhfVhf(y, Q6_Vhf_equals_Vh(n));
+    HVX_Vector q = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Rhf(f, k->c3), k->c2);
+    q = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Vqf16(q, f), k->c1);
+    q = Q6_Vqf16_vadd_Vqf16Vhf(Q6_Vqf16_vmpy_Vqf16Vqf16(q, f), k->c0);   // 2^-f
+    const HVX_Vector p2 = Q6_Vh_vsub_VhVh(k->e_top, Q6_Vh_vasl_VhR(n, 10));   // 2^(E_UP - n): its exponent field
+    return Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_Vqf16Vhf(q, p2));
+}
+
+// softmax_h restructured for the VLIW packets: the croutons no row of the tile masks - all of a prompt's but the
+// edges, all of an encoder's but the last - in loops without a branch (the compiler pipelines them: +60% at 1024 x
+// 16K keys), the maximum over four chains, the edges masked as before; the weights 2^E_UP larger (exp_hf), P V's
+// output scale and rows_out's 2^E_UP smaller (at_t e_up)
+static void softmax_h2(const at_t *a, uint8_t *S, const geo_t *g, float *mx, float *sm) {
+    const attn_desc_t *d = a->d;
+    int16_t iota_a[64] __attribute__((aligned(128)));
+    for (int i = 0; i < 64; ++i) iota_a[i] = (int16_t)(i / 2);   // lane 2c + s: position c
+    const HVX_Vector iota = *(const HVX_Vector *)iota_a, ninf = Q6_Vh_vsplat_R(0xFC00), zero = Q6_V_vzero();
+    ex_t k;
+    k.log2e = (int)((uint32_t)hf_bits(1.4426950409f) * 0x10001u), k.c3 = (int)((uint32_t)hf_bits(-0.0390625f) * 0x10001u);
+    k.c2 = Q6_Vh_vsplat_R(hf_bits(0.23046875f)), k.c1 = Q6_Vh_vsplat_R(hf_bits(-0.69140625f));
+    k.c0 = Q6_Vh_vsplat_R(hf_bits(1.0f)), k.y_max = Q6_Vh_vsplat_R(hf_bits(24.0f));
+    const int lg = (d->flags & ATTN_LOG2) != 0;
+    k.e_top = Q6_Vh_vsplat_R((15 + E_UP) << 10);
+    const HVX_Vector one = Q6_Vh_vsplat_R(0x3C00);   // (hf 1.0: the sums' factor)
+    const int acc_lo = g_acc_from == 1;
+    const int all_lo = lo_of(d, g->t1), all_hi = hi_of(d, g->t0);
+    const int base = a->sb_lo + 32 * g->b0, nb = g->nb;
+    // [j0, j1): the croutons inside [the largest first, the smallest last] - every row sees all 32 positions
+    int j0 = all_lo <= base ? 0 : (all_lo - base + 31) / 32;
+    int j1 = all_hi - 31 < base ? 0 : (all_hi - 31 - base) / 32 + 1;
+    j0 = j0 > nb ? nb : j0;
+    j1 = j1 > nb ? nb : j1 < j0 ? j0 : j1;
+    const size_t CS = 2048u / sizeof(HVX_Vector);   // vectors from a crouton to the next
+    for (int i = 0; i < 16; ++i) {
+        int ta, ha, tb, hb;
+        row_of(a, g, 2 * i, &ta, &ha);
+        row_of(a, g, 2 * i + 1, &tb, &hb);
+        int la = lo_of(d, ta) - base, ua_ = hi_of(d, ta) - base, lb = lo_of(d, tb) - base, ub_ = hi_of(d, tb) - base;
+        la = la < -30000 ? -30000 : la > 30000 ? 30000 : la;
+        lb = lb < -30000 ? -30000 : lb > 30000 ? 30000 : lb;
+        ua_ = ua_ < -30000 ? -30000 : ua_ > 30000 ? 30000 : ua_;
+        ub_ = ub_ < -30000 ? -30000 : ub_ > 30000 ? 30000 : ub_;
+        const HVX_Vector vlo = Q6_V_vsplat_R((int)(((uint32_t)(uint16_t)(la - 1)) | ((uint32_t)(uint16_t)(lb - 1) << 16)));
+        const HVX_Vector vhi = Q6_V_vsplat_R((int)(((uint32_t)(uint16_t)(ua_ + 1)) | ((uint32_t)(uint16_t)(ub_ + 1) << 16)));
+        HVX_Vector *const row = (HVX_Vector *)(S + (size_t)i * 128u);   // crouton j's vector at row[j * CS]
+        HVX_Vector m0 = ninf, m1 = ninf, m2 = ninf, m3 = ninf;
+        for (int j = 0; j < nb; ++j) {   // the edges, masked
+            if (j == j0) j = j1;
+            if (j >= nb) break;
+            const HVX_Vector pv = Q6_Vh_vadd_VhVh(iota, Q6_Vh_vsplat_R(32 * j));
+            const HVX_VectorPred q = Q6_Q_and_QQ(Q6_Q_vcmp_gt_VhVh(pv, vlo), Q6_Q_vcmp_gt_VhVh(vhi, pv));
+            m0 = Q6_Vhf_vfmax_VhfVhf(m0, Q6_V_vmux_QVV(q, row[(size_t)j * CS], ninf));
+        }
+        int j = j0;
+        for (; j + 4 <= j1; j += 4) {
+            m0 = Q6_Vhf_vfmax_VhfVhf(m0, row[(size_t)j * CS]);
+            m1 = Q6_Vhf_vfmax_VhfVhf(m1, row[(size_t)(j + 1) * CS]);
+            m2 = Q6_Vhf_vfmax_VhfVhf(m2, row[(size_t)(j + 2) * CS]);
+            m3 = Q6_Vhf_vfmax_VhfVhf(m3, row[(size_t)(j + 3) * CS]);
+        }
+        for (; j < j1; ++j) m1 = Q6_Vhf_vfmax_VhfVhf(m1, row[(size_t)j * CS]);
+        HVX_Vector m = Q6_Vhf_vfmax_VhfVhf(Q6_Vhf_vfmax_VhfVhf(m0, m1), Q6_Vhf_vfmax_VhfVhf(m2, m3));
+        for (int s = 64; s >= 4; s >>= 1) m = Q6_Vhf_vfmax_VhfVhf(m, Q6_V_vror_VR(m, s));   // (parity kept)
+        HVX_Vector mt __attribute__((aligned(128))) = m;
+        const uint16_t mab = ((const uint16_t *)&mt)[0], mbb = ((const uint16_t *)&mt)[1];
+        const int oka = mab != 0xFC00, okb = mbb != 0xFC00;
+        const HVX_Vector mv = Q6_V_vsplat_R((int)((uint32_t)(oka ? mab : 0) | ((uint32_t)(okb ? mbb : 0) << 16)));
+        const HVX_Vector okm = Q6_V_vsplat_R((int)((oka ? 0xFFFFu : 0u) | (okb ? 0xFFFF0000u : 0u)));
+        HVX_Vector sa0 = zero, sb0 = zero, sa1 = zero, sb1 = zero;
+        for (int jj = 0; jj < nb; ++jj) {   // the edges
+            if (jj == j0) jj = j1;
+            if (jj >= nb) break;
+            HVX_Vector e = Q6_V_vand_VV(exp_hf(&k, mv, row[(size_t)jj * CS], lg), okm);
+            const HVX_Vector pv = Q6_Vh_vadd_VhVh(iota, Q6_Vh_vsplat_R(32 * jj));
+            const HVX_VectorPred qm = Q6_Q_and_QQ(Q6_Q_vcmp_gt_VhVh(pv, vlo), Q6_Q_vcmp_gt_VhVh(vhi, pv));
+            e = Q6_V_vmux_QVV(qm, e, zero);
+            row[(size_t)jj * CS] = e;
+            HVX_Vector ea, eb;
+            sf_of(e, &ea, &eb);
+            // (the sums in sf, each step converted back: softmax_h's note on the compiler's qfloat pass)
+            sa0 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(sa0, ea)), sb0 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(sb0, eb));
+        }
+        // the croutons no row masks, one a step: two at a time ran slower (the registers spill), without the masks'
+        // branch the compiler pipelines the chain (+60% over softmax_h at 1024 x 16K)
+        // (no okm: a row without a position here is never read; lg a constant in each loop - a branch inside one
+        // stops the compiler pipelining it: 62 against 45 ms)
+#define SM2_INTERIOR(LG)                                                                                              \
+        for (j = j0; j < j1; ++j) {                                                                                   \
+            HVX_Vector *v0 = row + (size_t)j * CS;                                                                    \
+            const HVX_Vector e0 = exp_hf(&k, mv, *v0, LG);                                                            \
+            *v0 = e0;                                                                                                 \
+            HVX_Vector a0, b0;                                                                                        \
+            sf_of(e0, &a0, &b0);                                                                                      \
+            sa1 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(sa1, a0));                                                 \
+            sb1 = Q6_Vsf_equals_Vqf32(Q6_Vqf32_vadd_VsfVsf(sb1, b0));                                                 \
+        }
+        // the sums in IEEE sf by one instruction a vector (sf += hf x 1: the product exact, each step rounded to sf
+        // as the converted sums were) in place of a conversion, two qf32 adds and two conversions back
+#define SM2_INTERIOR_ACC(LG)                                                                                          \
+        {                                                                                                             \
+            HVX_VectorPair w = Q6_W_vcombine_VV(zero, zero);                                                          \
+            for (j = j0; j < j1; ++j) {                                                                               \
+                HVX_Vector *v0 = row + (size_t)j * CS;                                                                \
+                const HVX_Vector e0 = exp_hf(&k, mv, *v0, LG);                                                        \
+                *v0 = e0;                                                                                             \
+                w = Q6_Wsf_vmpyacc_WsfVhfVhf(w, e0, one);                                                             \
+            }                                                                                                         \
+            sa1 = acc_lo ? Q6_V_lo_W(w) : Q6_V_hi_W(w);                                                               \
+            sb1 = acc_lo ? Q6_V_hi_W(w) : Q6_V_lo_W(w);                                                               \
+        }
+        if (a->sum_acc) {
+            if (lg) SM2_INTERIOR_ACC(1)
+            else SM2_INTERIOR_ACC(0)
+        } else if (lg) SM2_INTERIOR(1)
+        else SM2_INTERIOR(0)
+#undef SM2_INTERIOR
+#undef SM2_INTERIOR_ACC
+        mx[2 * i] = oka ? (float)*(const __fp16 *)&mab : -INFINITY;
+        mx[2 * i + 1] = okb ? (float)*(const __fp16 *)&mbb : -INFINITY;
+        sm[2 * i] = oka ? f_hsum(f_add(sa0, sa1)) : 0.0f;
+        sm[2 * i + 1] = okb ? f_hsum(f_add(sb0, sb1)) : 0.0f;
+    }
+}
+
 // the tile's rows out: divided by their sums (one superblock), or joined with what the earlier ones left
 static void rows_out(at_t *a, int th, const geo_t *g, const float *mx, const float *sm) {
     const attn_desc_t *d = a->d;
@@ -547,7 +725,7 @@ static void rows_out(at_t *a, int th, const geo_t *g, const float *mx, const flo
             first[s] = 1;
             fo[s] = fb[s] = Q6_V_vzero();
             if (!ok[s]) continue;
-            const float up = (float)(1 << PV_SHIFT);
+            const float up = (float)(1 << (PV_SHIFT + a->e_up));
             if (!a->multi) {
                 fb[s] = f_sp(up / sm[rr]);
                 continue;
@@ -560,7 +738,8 @@ static void rows_out(at_t *a, int th, const geo_t *g, const float *mx, const flo
                 continue;
             }
             const float M = a->m[R] > mx[rr] ? a->m[R] : mx[rr];
-            const float eo = expf(a->m[R] - M), eb = expf(mx[rr] - M);
+            const float eo = a->log2 ? exp2f(a->m[R] - M) : expf(a->m[R] - M);
+            const float eb = a->log2 ? exp2f(mx[rr] - M) : expf(mx[rr] - M);
             a->l[R] = a->l[R] * eo + sm[rr] * eb;
             a->m[R] = M;
             first[s] = 0;
@@ -600,7 +779,8 @@ static inline int wait_for(at_t *a, volatile int *v, int want) {
     return 1;
 }
 
-// ATTN_DEBUG_SMCHECK: both softmaxes on copies of the tile's scores, the first difference kept (kind 1 the maximum,
+// ATTN_DEBUG_SMCHECK: the IEEE softmax and the hf one in use (softmax_h2, or softmax_h with ATTN_SOFTMAX_V1) on
+// copies of the tile's scores, the first difference kept (kind 1 the maximum,
 // 2 the sum, 3 a weight; the row pair, the crouton, the lane) and returned in usec
 static volatile int64_t g_sm_dbg;
 static void sm_check(const at_t *a, int th, const geo_t *g) {
@@ -613,9 +793,16 @@ static void sm_check(const at_t *a, int th, const geo_t *g) {
     memcpy(x, a->ss[th], bytes);
     memcpy(y, a->ss[th], bytes);
     float m0[32], s0[32], m1[32], s1[32];
-    softmax(a, x, g, m0, s0);
-    softmax_h(a, y, g, m1, s1);
     int64_t r = 0;
+    softmax(a, x, g, m0, s0);
+    float down = 1.0f;   // (softmax_h2's weights and sums 2^E_UP larger)
+    if (a->sm_v1) {
+        softmax_h(a, y, g, m1, s1);
+    } else {
+        softmax_h2(a, y, g, m1, s1);
+        down = 1.0f / (float)(1 << E_UP);
+        for (int k = 0; k < 32; ++k) s1[k] *= down;
+    }
     for (int k = 0; k < 32 && !r; ++k) {
         const float dm = m0[k] - m1[k], ds = s0[k] - s1[k];
         if (!(m0[k] == m1[k] || (dm < 1e-2f && dm > -1e-2f))) r = 1000000000000LL + 1000000000LL * 1 + 1000000LL * k + (int64_t)(m1[k] * 100.0f) % 1000000;
@@ -627,14 +814,14 @@ static void sm_check(const at_t *a, int th, const geo_t *g) {
         float se = 0, sa = 0;
         for (int j = 0; j < g->nb; ++j)
             for (int l = 0; l < 64; ++l) {
-                const float w = (float)wy[(size_t)j * 1024u + (size_t)vi * 64u + (size_t)l];
+                const float w = (float)wy[(size_t)j * 1024u + (size_t)vi * 64u + (size_t)l] * down;
                 sa += w;
                 if ((l & 1) == (k & 1)) se += w;
             }
         r = 1000000000000LL + 4000000000LL + 1000000LL * k + (int64_t)(se * 10.0f) % 1000 * 1000 + (int64_t)(sa * 10.0f) % 1000;
     }
     for (size_t i = 0; i < bytes / 2 && !r; ++i) {
-        const float u = (float)wx[i], v = (float)wy[i], dd = u - v;
+        const float u = (float)wx[i], v = (float)wy[i] * down, dd = u - v;
         if (!(dd < 3e-3f && dd > -3e-3f) || u != u || v != v)
             r = 1000000000000LL + 1000000000LL * 3 + 1000000LL * (int64_t)((i % 1024) / 64) + 1000 * (int64_t)(i / 1024) + (int64_t)(i % 64);
     }
@@ -658,7 +845,8 @@ static void helper_tiles(at_t *a, int th) {
         if (!wait_for(a, &a->s_done[th], r)) break;
         if (a->sm_check && !__atomic_load_n(&g_sm_dbg, __ATOMIC_ACQUIRE)) sm_check(a, th, &g);
         if (a->sm_ieee) softmax(a, a->ss[th], &g, mx, sm);
-        else softmax_h(a, a->ss[th], &g, mx, sm);
+        else if (a->sm_v1) softmax_h(a, a->ss[th], &g, mx, sm);
+        else softmax_h2(a, a->ss[th], &g, mx, sm);
         __atomic_thread_fence(__ATOMIC_SEQ_CST);
         __atomic_store_n(&a->p_ready[th], r, __ATOMIC_RELEASE);
         if (!wait_for(a, &a->o_done[th], r)) break;
@@ -706,7 +894,7 @@ static void hmx_tiles(at_t *a) {
 static void program(at_t *a, int th) {
     const attn_desc_t *d = a->d;
     int sense = 0, st = 0;
-    const int r_lo = lo_of(d, 0) / 32 * 32, r_hi = (d->apos + d->n + 31) / 32 * 32;
+    const int r_lo = lo_of(d, 0) / 32 * 32, r_hi = (end_of(d) + 31) / 32 * 32;
     const int n_sb = (r_hi - r_lo + a->sb_max - 1) / a->sb_max;
     for (int kh = 0; kh < d->nkv; ++kh)
         for (int sbi = 0; sbi < n_sb; ++sbi) {
@@ -763,11 +951,15 @@ static void *map_fd(int fd) {
 
 static int attn_check(const attn_desc_t *d) {
     const int group = d->nkv > 0 ? d->nh / d->nkv : 0;
+    if ((d->flags & ATTN_LOG2) && (d->flags & (ATTN_SOFTMAX_IEEE | ATTN_SOFTMAX_V1))) return AEE_EBADPARM;   // (softmax_h2's)
+    if ((d->flags & ATTN_CAUSAL) && (!(d->flags & ATTN_ENCODER) || keys_of(d) < d->n)) return AEE_EBADPARM;
     if (d->flags & ATTN_ENCODER)   // (the rows' state lives in VTCM: attn_prepare checks it fits)
         return d->version != ATTN_VERSION || d->n < 1 || d->apos != 0 || d->nkv < 1 || group < 1 ||
                        d->nh != group * d->nkv || 32 % group || d->hd < 32 || d->hd > 512 || d->hd % 32 ||
-                       d->window != 0 || d->n_chunks != 2 || d->q_stride < d->nh * d->hd ||
-                       d->o_stride < d->nh * d->hd || d->q_stride % 32 || d->o_stride % 32
+                       d->window != 0 || d->nk < 0 || keys_of(d) > 30000 || d->npre < 0 ||
+                       d->npre > (keys_of(d) + 31) / 32 || d->n_chunks != (d->npre ? 4 : 2) ||
+                       d->q_stride < d->nh * d->hd || d->o_stride < d->nh * d->hd || d->q_stride % 32 ||
+                       d->o_stride % 32
                    ? AEE_EBADPARM
                    : 0;
     if (d->version != ATTN_VERSION || d->n < 1 || d->apos < 0 || d->nkv < 1 || group < 1 || d->nh != group * d->nkv ||
@@ -796,6 +988,10 @@ static int attn_prepare(at_t *a, const attn_desc_t *d, const float *q, float *o,
     a->no_hmx = (d->flags & ATTN_DEBUG_NO_HMX) != 0;
     a->sm_ieee = (d->flags & ATTN_SOFTMAX_IEEE) != 0;
     a->sm_check = (d->flags & ATTN_DEBUG_SMCHECK) != 0;
+    a->sm_v1 = (d->flags & ATTN_SOFTMAX_V1) != 0;
+    a->e_up = a->sm_ieee || a->sm_v1 ? 0 : E_UP;
+    a->log2 = (d->flags & ATTN_LOG2) != 0;
+    a->sum_acc = !(d->flags & ATTN_SUM_CVT) && g_acc_from > 0;
     a->nh_ = helpers > A_HELPERS_MAX ? A_HELPERS_MAX : helpers;
     a->nthreads = a->nh_ + 1;
     // VTCM: the biases | the rows' max and sum | each thread's scratch | each helper's query, score and output tiles
@@ -804,7 +1000,7 @@ static int attn_prepare(at_t *a, const attn_desc_t *d, const float *q, float *o,
     const size_t scr = ((size_t)32 * d->hd * 2u + 64u * 128u + 2047u) / 2048u * 2048u, qo = (size_t)d->hd * 64u;
     const size_t fixed = 4096u + rows_bytes + (size_t)a->nthreads * scr + (size_t)a->nh_ * 2u * qo;
     if (fixed >= vsize) return AEE_ENOMEMORY;
-    const int r_lo = lo_of(d, 0) / 32 * 32, r_hi = (d->apos + d->n + 31) / 32 * 32;
+    const int r_lo = lo_of(d, 0) / 32 * 32, r_hi = (end_of(d) + 31) / 32 * 32;
     int sb = (int)((vsize - fixed) / ((size_t)4u * d->hd + 64u * (size_t)a->nh_)) / 32 * 32;
     if (ATTN_SB_OF(d->flags) && sb > (int)ATTN_SB_OF(d->flags) * 32) sb = (int)ATTN_SB_OF(d->flags) * 32;
     if (sb > r_hi - r_lo) sb = r_hi - r_lo;
@@ -830,7 +1026,8 @@ static int attn_prepare(at_t *a, const attn_desc_t *d, const float *q, float *o,
     memset(a->bias_s, 0, 4096);
     for (int ch = 0; ch < 32; ++ch) {   // output bias 0, scale 1 / 2^-PV_SHIFT (npu_imp.c's convention)
         ((uint32_t *)a->bias_s)[ch] = 15u << 10;
-        ((uint32_t *)a->bias_pv)[ch] = (uint32_t)(15 - PV_SHIFT) << 10;
+        const int ps = PV_SHIFT + a->e_up;   // (past 14: a subnormal scale, as npu_imp.c's out_shift)
+        ((uint32_t *)a->bias_pv)[ch] = ps <= 14 ? (uint32_t)(15 - ps) << 10 : 1u << (24 - ps);
     }
     if (a->multi)
         for (size_t r = 0; r < (size_t)d->n * d->nh; ++r) a->m[r] = -INFINITY, a->l[r] = 0.0f;
@@ -992,7 +1189,7 @@ static inline float q_hsum(HVX_Vector q) {
     return ((const float *)&t)[0];
 }
 
-static inline float sumsq(const HVX_Vector *v, int nv) {   // v: sf
+static inline HVX_Vector sumsq_q(const HVX_Vector *v, int nv) {   // v: sf; the lanes' partial sums (qf32)
     HVX_Vector s0 = Q6_V_vzero(), s1 = s0, s2 = s0, s3 = s0;
     int i = 0;
     for (; i + 4 <= nv; i += 4) {
@@ -1002,7 +1199,26 @@ static inline float sumsq(const HVX_Vector *v, int nv) {   // v: sf
         s3 = q_add(s3, q_muls(v[i + 3], v[i + 3]));
     }
     for (; i < nv; ++i) s0 = q_add(s0, q_muls(v[i], v[i]));
-    return q_hsum(q_add(q_add(s0, s1), q_add(s2, s3)));
+    return q_add(q_add(s0, s1), q_add(s2, s3));
+}
+static inline float sumsq(const HVX_Vector *v, int nv) { return q_hsum(sumsq_q(v, nv)); }   // v: sf
+
+// a qf32 vector's lanes summed, the total in every lane (sf): q_hsum's rotations, without the way out to a scalar
+static inline HVX_Vector q_allsum(HVX_Vector q) {
+    for (int s = 64; s >= 4; s >>= 1) q = q_add(q, Q6_V_vror_VR(q, s));
+    return sf_q(q);
+}
+
+// 1 / sqrt(m) in every lane (m: sf, positive): the bit trick's start (~3.4%) and three Newton steps, each result
+// back in sf at once (npu-problems 2.1) - fp32's own to an ulp or two
+static inline HVX_Vector rsqrt_sf(HVX_Vector m) {
+    const HVX_Vector three_half = f_sp(1.5f), hm = sf_q(q_muls(m, f_sp(0.5f)));
+    HVX_Vector y = Q6_Vw_vsub_VwVw(Q6_V_vsplat_R(0x5F3759DF), Q6_Vw_vasr_VwR(m, 1));
+    for (int i = 0; i < 3; ++i) {
+        const HVX_Vector t = sf_q(q_muls(sf_q(q_muls(y, y)), hm));
+        y = sf_q(q_muls(y, sf_q(Q6_Vqf32_vsub_VsfVsf(three_half, t))));
+    }
+    return y;
 }
 
 // x (n floats, 32 k) normed (RMSNorm, times wq: the weights in qf32; NULL: none) in place
@@ -1013,6 +1229,39 @@ static inline void norm_v(float *x, int n, const HVX_Vector *wq, float eps) {
         for (int i = 0; i < n / 32; ++i) v[i] = sf_q(q_mul(q_muls(v[i], f), wq[i]));
     else
         for (int i = 0; i < n / 32; ++i) v[i] = sf_q(q_muls(v[i], f));
+}
+
+// n heads of hd floats each (one after another) RMS-normed in place, times wq (the weights in qf32): norm_v's
+// arithmetic without its way through memory to a scalar square root and back for every head (~300 cycles a head of
+// latency, 0.07 s of a YuE2 velocity): the sums of squares totalled across the lanes and their reciprocal square
+// roots on HVX, two heads at a time (two chains interleaved)
+// (every qf32 result back in sf at once: two heads' chains interleaved keep many vectors live, and a qf32 value that
+// spills comes back corrupted - npu-problems 2.1; a first version kept qf32 sums and moved a velocity's error 15%)
+static inline HVX_Vector sf_add(HVX_Vector a, HVX_Vector b) { return sf_q(Q6_Vqf32_vadd_VsfVsf(a, b)); }
+static inline HVX_Vector sf_mul(HVX_Vector a, HVX_Vector b) { return sf_q(q_muls(a, b)); }
+static inline HVX_Vector head_rms(const HVX_Vector *v, int nv, HVX_Vector inv_n, HVX_Vector ve) {
+    HVX_Vector s = sf_mul(v[0], v[0]);
+    for (int i = 1; i < nv; ++i) s = sf_add(s, sf_mul(v[i], v[i]));
+    for (int r = 64; r >= 4; r >>= 1) s = sf_add(s, Q6_V_vror_VR(s, r));   // every lane the total
+    return rsqrt_sf(sf_add(sf_mul(s, inv_n), ve));
+}
+static void norm_heads(float *x, int n, int hd, const HVX_Vector *wq, float eps) {
+    const int nv = hd / 32;
+    const HVX_Vector inv_n = f_sp(1.0f / (float)hd), ve = f_sp(eps);
+    int h = 0;
+    for (; h + 2 <= n; h += 2) {
+        HVX_Vector *a = (HVX_Vector *)(x + (size_t)h * hd), *b = a + nv;
+        const HVX_Vector fa = head_rms(a, nv, inv_n, ve), fb = head_rms(b, nv, inv_n, ve);
+        for (int i = 0; i < nv; ++i) {
+            a[i] = sf_q(q_mul(q_muls(a[i], fa), wq[i]));
+            b[i] = sf_q(q_mul(q_muls(b[i], fb), wq[i]));
+        }
+    }
+    for (; h < n; ++h) {
+        HVX_Vector *a = (HVX_Vector *)(x + (size_t)h * hd);
+        const HVX_Vector fa = head_rms(a, nv, inv_n, ve);
+        for (int i = 0; i < nv; ++i) a[i] = sf_q(q_mul(q_muls(a[i], fa), wq[i]));
+    }
 }
 
 // rotate-half RoPE on the first `pairs` pairs (i, i + hd / 2) of a head
@@ -1947,6 +2196,538 @@ int geode_npu_gdec_close(remote_handle64 h) {
     return 0;
 }
 
+// =====================================================================================================================
+// ---- YuE2's NAR on the DSP (npu/nar_cfg.h): one velocity through every layer ---------------------------------------
+//
+// Per layer: the prefix's last A % 32 positions' blocks into the rows' bank; per slab of rows (NAR_SLAB) the input
+// norm into the products' tiles, the fused q k v on HMX, the queries normed and turned into QR (every row's: the
+// scale log2 e / sqrt(hd) is in q_norm), the keys normed and turned and the values into the rows' bank; then the
+// attention for every row at once (ATTN_ENCODER over the prefix's banks and the rows', ATTN_LOG2); per slab the
+// attention's rows (CR) into tiles, o on HMX, x += o and its norm into tiles, the MLP on HMX (gate, up and SiLU into
+// the middle, down), x += down. The steps between the products as gdec's: tasks of row pairs of the slab (rows
+// s0 + 2p, s0 + 2p + 1: vector p % 16 of every crouton of the slab's row tile p / 16), a pool waiting on a futex.
+
+#define ND_STACK 16384
+#define ND_TASK 2   // row pairs a task
+
+enum { NP_IN, NP_QKV, NP_ATTN, NP_CORE, NP_POST, NP_DOWN };
+
+typedef struct {
+    nar_cfg_t c;
+    nar_layout_t L;
+    uint8_t *P, *IO, *PQ;
+    const uint8_t *w[NAR_MAX_LAYERS];
+    uint8_t *kv[NAR_MAX_LAYERS][2];   // the prefix's banks (keys, values)
+    uint8_t *tk, *tv;                 // the rows'
+    uint8_t *RB;                      // the A % 32 positions' blocks, per layer
+    int mfd[3 * NAR_MAX_LAYERS + 4], n_mfd;   // the fds mapped (each get has its put at close)
+    int nb;                           // the rows' bank's blocks a KV head
+    // the call
+    int s0, ns;                       // the slab's first row, its rows
+    int xflags;                       // NAR_X_* (experiments)
+    const nlayer_t *ly;
+    int layer, phase;
+    attn_desc_t ad;
+    at_t at;
+    uint64_t *prof;
+    // the pool
+    qurt_thread_t tid[NAR_THREADS];
+    void *stack[NAR_THREADS];
+    int nthreads;
+    volatile int go, quit, running, failed;
+    int ctr;
+} nd_t;
+
+static nd_t *g_nd;
+
+static inline float *nd_x(nd_t *d, int r) { return (float *)(d->IO + d->c.io_x) + (size_t)r * (size_t)d->c.hidden; }
+static inline const HVX_Vector *nd_pq(const nd_t *d, uint32_t at) { return (const HVX_Vector *)(d->PQ + at); }
+static inline float *nd_tmp(nd_t *d, int th, int s) {
+    const int H = d->c.hidden, qd = d->c.nh * d->c.hd, tw = H > qd ? H : qd;
+    return (float *)(d->IO + d->L.TMP) + ((size_t)th * 2u + (size_t)s) * (size_t)tw;
+}
+
+// two rows (nv vectors of floats each; NULL: past the slab, zeros) into row pair p of the tiles of a product of ncb
+// croutons: normed (RMSNorm, wq its weights in qf32 - as tiles_k) or as they are (wq NULL)
+static void nd_tiles(nd_t *d, uint8_t *A, int ncb, int p, const float *r0, const float *r1, int nv,
+                     const HVX_Vector *wq) {
+    const HVX_Vector *x0 = (const HVX_Vector *)r0, *x1 = (const HVX_Vector *)r1;
+    const HVX_Vector z = Q6_V_vzero();
+    if (wq) {
+        const float n = (float)(nv * 32);
+        const HVX_Vector g0 = f_sp(x0 ? 1.0f / sqrtf(sumsq(x0, nv) / n + d->c.eps) : 0.0f);
+        const HVX_Vector g1 = f_sp(x1 ? 1.0f / sqrtf(sumsq(x1, nv) / n + d->c.eps) : 0.0f);
+        for (int cb = 0; cb < nv; ++cb) {
+            const HVX_Vector y0 = x0 ? q_mul(q_muls(x0[cb], g0), wq[cb]) : z;
+            const HVX_Vector y1 = x1 ? q_mul(q_muls(x1[cb], g1), wq[cb]) : z;
+            *cvec(A, ncb, p, cb) = hf_of_q(y0, y1);
+        }
+    } else {
+        for (int cb = 0; cb < nv; ++cb) *cvec(A, ncb, p, cb) = hf_of(x0 ? x0[cb] : z, x1 ? x1[cb] : z);
+    }
+    for (int cb = nv; cb < ncb; ++cb) *cvec(A, ncb, p, cb) = z;
+}
+
+// positions P0 and P0 + 1 of the rows' bank (r1 NULL: P0 alone), every KV head: the keys (value 0) in the bank's key
+// layout ((p, c) at (c / 32) 1024 + ((c % 32) / 2) 64 + (p % 32) 2 + c % 2 halves of the position's block), or the
+// values ((c, p) at ((p % 32) / 2) 64 + (c % 32) 2 + p % 2 of dim group c / 32's block: an even P0's pair one vector)
+static const int32_t g_odd_words[32] __attribute__((aligned(128))) = {
+    0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1};
+
+static void nd_put(nd_t *d, uint8_t *tk, uint8_t *tv, size_t nb, int P0, const float *r0, const float *r1, int value) {
+    const int hd = d->c.hd, dgs = hd / 32, nkv = d->c.nkv;
+    uint16_t h[64] __attribute__((aligned(128)));
+    const HVX_Vector z = Q6_V_vzero();
+    const HVX_VectorPred odd = Q6_Q_vand_VR(*(const HVX_Vector *)g_odd_words, 0x01010101);
+    // the odd halfwords' bytes (an odd P0's masked stores)
+    const HVX_VectorPred odd_h = Q6_Q_vand_VR(Q6_V_vsplat_R((int)0xFFFF0000u), 0x01010101);
+    for (int kh = 0; kh < nkv; ++kh) {
+        const HVX_Vector *a = (const HVX_Vector *)(r0 + (size_t)kh * hd);
+        const HVX_Vector *b = r1 ? (const HVX_Vector *)(r1 + (size_t)kh * hd) : NULL;
+        for (int dg = 0; dg < dgs; ++dg) {
+            // (P0 + 1 past the keys when r1 is NULL: masked, its zeros harmless)
+            const HVX_Vector av = a[dg], bv = b ? b[dg] : z;
+            if (!(P0 & 1)) {
+                if (value) {   // lane 2i: P0's dim i, 2i + 1: P0 + 1's - the pair's vector of the block
+                    uint16_t *blk = (uint16_t *)tv + (((size_t)kh * dgs + (size_t)dg) * nb + (size_t)(P0 / 32)) * 1024u;
+                    *(HVX_Vector *)(blk + (size_t)((P0 % 32) / 2) * 64u) = hf_of(av, bv);
+                } else {   // per dim pair j the 8 bytes P0's dims 2j, 2j + 1, then P0 + 1's, at line j of the block
+                    const HVX_Vector x = Q6_V_vmux_QVV(odd, Q6_V_vror_VR(bv, 124), av);   // a[2m], b[2m]
+                    const HVX_Vector y = Q6_V_vmux_QVV(odd, bv, Q6_V_vror_VR(av, 4));     // a[2m + 1], b[2m + 1]
+                    *(HVX_Vector *)h = hf_of(x, y);
+                    const uint64_t *src = (const uint64_t *)h;
+                    uint64_t *dst = (uint64_t *)((uint16_t *)tk + (((size_t)kh * nb + (size_t)(P0 / 32)) * dgs + (size_t)dg) * 1024u +
+                                                 (size_t)(P0 % 32) * 2u);
+                    for (int j = 0; j < 16; ++j) dst[(size_t)j * 16u] = src[j];
+                }
+                continue;
+            }
+            if (!(d->xflags & NAR_X_OLDPUT)) {
+                // an odd P0 (the prefix's A % 32 odd): the pair straddles two pairs of the value layout and is not
+                // 8-byte aligned in the key layout - the same halves stored by two masked vector stores (values) and
+                // 32-bit stores (keys) instead of 16-bit ones one at a time (~4000 a row pair, most of the phase)
+                const int P1 = P0 + 1;
+                if (value) {   // P0's dims to the odd lanes of its pair's vector, P0 + 1's to the even lanes of the next
+                    const HVX_Vector v = hf_of(av, bv);   // lane 2i: P0's dim i, 2i + 1: P0 + 1's
+                    const size_t g0 = ((size_t)kh * dgs + (size_t)dg) * nb;
+                    uint16_t *o0 = (uint16_t *)tv + (g0 + (size_t)(P0 / 32)) * 1024u + (size_t)((P0 % 32) / 2) * 64u;
+                    Q6_vmem_QRIV(odd_h, (HVX_Vector *)o0, Q6_V_vror_VR(v, 126));
+                    if (b) {
+                        uint16_t *o1 = (uint16_t *)tv + (g0 + (size_t)(P1 / 32)) * 1024u + (size_t)((P1 % 32) / 2) * 64u;
+                        Q6_vmem_QRIV(Q6_Q_not_Q(odd_h), (HVX_Vector *)o1, Q6_V_vror_VR(v, 2));
+                    }
+                } else {   // the even path's 8 bytes a dim pair j: P0's 4 to its line, P0 + 1's 4 to its own
+                    const HVX_Vector x = Q6_V_vmux_QVV(odd, Q6_V_vror_VR(bv, 124), av);
+                    const HVX_Vector y = Q6_V_vmux_QVV(odd, bv, Q6_V_vror_VR(av, 4));
+                    *(HVX_Vector *)h = hf_of(x, y);
+                    const uint32_t *src = (const uint32_t *)h;
+                    uint32_t *k0 = (uint32_t *)((uint16_t *)tk + (((size_t)kh * nb + (size_t)(P0 / 32)) * dgs + (size_t)dg) * 1024u +
+                                                (size_t)(P0 % 32) * 2u);
+                    uint32_t *k1 = (uint32_t *)((uint16_t *)tk + (((size_t)kh * nb + (size_t)(P1 / 32)) * dgs + (size_t)dg) * 1024u +
+                                                (size_t)(P1 % 32) * 2u);
+                    for (int j = 0; j < 16; ++j) {
+                        k0[(size_t)j * 32u] = src[2 * j];
+                        if (b) k1[(size_t)j * 32u] = src[2 * j + 1];
+                    }
+                }
+                continue;
+            }
+            const HVX_Vector v = hf_of(av, bv);   // lane 2i: P0's dim i, 2i + 1: P0 + 1's
+            *(HVX_Vector *)h = v;
+            for (int s = 0; s < (b ? 2 : 1); ++s) {
+                const int pos = P0 + s;
+                if (value) {
+                    uint16_t *o = (uint16_t *)tv + (((size_t)kh * dgs + (size_t)dg) * nb + (size_t)(pos / 32)) * 1024u +
+                                  (size_t)((pos % 32) / 2) * 64u + (size_t)(pos & 1);
+                    for (int i = 0; i < 32; ++i) o[2 * i] = h[2 * i + s];
+                } else {
+                    uint16_t *o = (uint16_t *)tk + (((size_t)kh * nb + (size_t)(pos / 32)) * dgs + (size_t)dg) * 1024u +
+                                  (size_t)(pos % 32) * 2u;
+                    for (int i = 0; i < 32; ++i) o[(i / 2) * 64 + (i & 1)] = h[2 * i + s];
+                }
+            }
+        }
+    }
+}
+
+// where row r's key and value go: a velocity's rows after the prefix's rem positions in the rows' bank; a prefix's
+// row r is position r - its layer's banks (the whole blocks), the rest RB's block (nb 1)
+static void nd_target(nd_t *d, int r, uint8_t **K, uint8_t **V, size_t *nb, int *P0) {
+    const nar_cfg_t *c = &d->c;
+    if (c->mode != NAR_MODE_PREFIX) {
+        *K = d->tk, *V = d->tv, *nb = (size_t)d->nb, *P0 = c->rem + r;
+    } else if (r < c->npre * 32) {
+        *K = d->kv[d->layer][0], *V = d->kv[d->layer][1], *nb = (size_t)c->npre, *P0 = r;
+    } else {
+        *K = d->RB + d->ly->rem, *V = *K + (size_t)c->nkv * (size_t)(c->hd / 32) * 2048u, *nb = 1, *P0 = r - c->npre * 32;
+    }
+}
+
+static void np_in(nd_t *d, int p, int th) {
+    (void)th;
+    const int H = d->c.hidden, r = d->s0 + 2 * p;
+    nd_tiles(d, d->IO + d->L.A, H / 32, p, 2 * p < d->ns ? nd_x(d, r) : NULL,
+             2 * p + 1 < d->ns ? nd_x(d, r + 1) : NULL, H / 32, nd_pq(d, d->ly->in_norm));
+}
+
+// the queries normed and turned into QR; the keys normed and turned, and the values, into the rows' bank
+static void np_qkv(nd_t *d, int p, int th) {
+    const nar_cfg_t *c = &d->c;
+    const nlayer_t *y = d->ly;
+    const int hd = c->hd, half = hd / 2, qd = c->nh * hd, kd = c->nkv * hd, ncb = (qd + 2 * kd) / 32;
+    const int r0 = d->s0 + 2 * p, ok0 = 2 * p < d->ns, ok1 = 2 * p + 1 < d->ns;
+    uint8_t *O = d->IO + d->L.QKV;
+    float *q0 = (float *)(d->IO + d->L.QR) + (size_t)r0 * (size_t)qd, *q1 = q0 + qd;   // (QR holds L.m rows)
+    float *k0 = nd_tmp(d, th, 0), *k1 = nd_tmp(d, th, 1);
+    const float *rope = (const float *)(d->IO + c->io_rope);
+    rows_of(O, ncb, p, 0, qd / 32, q0, q1);
+    for (int value = 0; value < 2; ++value) {
+        rows_of(O, ncb, p, (qd + value * kd) / 32, kd / 32, k0, k1);
+        if (!value && !(d->xflags & NAR_X_NONORM))
+            for (int s = 0; s < 2; ++s) {
+                if (!(s ? ok1 : ok0)) continue;
+                const float *rt = rope + (size_t)(r0 + s) * (size_t)hd;   // its cosines, then its sines
+                float *q = s ? q1 : q0, *k = s ? k1 : k0;
+                if (d->xflags & NAR_X_OLDNORM) {   // (each head's norm through a scalar square root, as before)
+                    for (int h = 0; h < c->nh; ++h) norm_v(q + (size_t)h * hd, hd, nd_pq(d, y->q_norm), c->eps);
+                    for (int kh = 0; kh < c->nkv; ++kh) norm_v(k + (size_t)kh * hd, hd, nd_pq(d, y->k_norm), c->eps);
+                } else {
+                    norm_heads(q, c->nh, hd, nd_pq(d, y->q_norm), c->eps);
+                    norm_heads(k, c->nkv, hd, nd_pq(d, y->k_norm), c->eps);
+                }
+                for (int h = 0; h < c->nh; ++h) rope_v(q + (size_t)h * hd, hd, rt, rt + half, half);
+                for (int kh = 0; kh < c->nkv; ++kh) rope_v(k + (size_t)kh * hd, hd, rt, rt + half, half);
+            }
+        if (ok0 && (value || !(d->xflags & NAR_X_NOPUTK))) {
+            uint8_t *K, *V;
+            size_t nb;
+            int P0;
+            nd_target(d, r0, &K, &V, &nb, &P0);   // (r0 even: a pair never straddles a block)
+            nd_put(d, K, V, nb, P0, k0, ok1 ? k1 : NULL, value);
+        }
+    }
+}
+
+static void np_core(nd_t *d, int p, int th) {
+    (void)th;
+    const int qd = d->c.nh * d->c.hd, r = d->s0 + 2 * p;
+    const float *CR = (const float *)(d->IO + d->L.CR);
+    nd_tiles(d, d->IO + d->L.A, qd / 32, p, 2 * p < d->ns ? CR + (size_t)r * (size_t)qd : NULL,
+             2 * p + 1 < d->ns ? CR + (size_t)(r + 1) * (size_t)qd : NULL, qd / 32, NULL);
+}
+
+// x's rows += a product's result croutons of pair p (hidden / 32 a row tile); NULL rows left out
+static void nd_add(nd_t *d, int p, uint8_t *buf, float *x0, float *x1) {
+    const int nv = d->c.hidden / 32;
+    HVX_Vector *a = (HVX_Vector *)x0, *b = (HVX_Vector *)x1;
+    for (int cb = 0; cb < nv; ++cb) {
+        HVX_Vector e, o;
+        q_of_hf(*cvec(buf, nv, p, cb), &e, &o);
+        if (a) a[cb] = sf_q(Q6_Vqf32_vadd_VsfVsf(a[cb], sf_q(e)));
+        if (b) b[cb] = sf_q(Q6_Vqf32_vadd_VsfVsf(b[cb], sf_q(o)));
+    }
+}
+
+static void np_post(nd_t *d, int p, int th) {
+    (void)th;
+    const int H = d->c.hidden, r = d->s0 + 2 * p;
+    float *x0 = 2 * p < d->ns ? nd_x(d, r) : NULL, *x1 = 2 * p + 1 < d->ns ? nd_x(d, r + 1) : NULL;
+    nd_add(d, p, d->IO + d->L.OO, x0, x1);
+    nd_tiles(d, d->IO + d->L.A, H / 32, p, x0, x1, H / 32, nd_pq(d, d->ly->mlp_norm));
+}
+
+static void np_down(nd_t *d, int p, int th) {
+    (void)th;
+    const int r = d->s0 + 2 * p;
+    nd_add(d, p, d->IO + d->L.D, 2 * p < d->ns ? nd_x(d, r) : NULL, 2 * p + 1 < d->ns ? nd_x(d, r + 1) : NULL);
+}
+
+static void nd_phase(nd_t *d, int th) {
+    if (d->phase == NP_ATTN) {
+        program(&d->at, th);
+        return;
+    }
+    static void (*const fns[])(nd_t *, int, int) = {np_in, np_qkv, NULL, np_core, np_post, np_down};
+    void (*fn)(nd_t *, int, int) = fns[d->phase];
+    const int pairs = ((d->ns + 31) & ~31) / 2, tasks = (pairs + ND_TASK - 1) / ND_TASK;
+    for (int t = __atomic_fetch_add(&d->ctr, 1, __ATOMIC_RELAXED); t < tasks;
+         t = __atomic_fetch_add(&d->ctr, 1, __ATOMIC_RELAXED)) {
+        const int p1 = (t + 1) * ND_TASK < pairs ? (t + 1) * ND_TASK : pairs;
+        for (int q = t * ND_TASK; q < p1; ++q) fn(d, q, th);
+    }
+}
+
+typedef struct {
+    nd_t *d;
+    int th;
+} nd_arg_t;
+static nd_arg_t g_nd_args[NAR_THREADS];
+
+static void nd_worker(void *arg) {
+    nd_arg_t *x = (nd_arg_t *)arg;
+    nd_t *d = x->d;
+    int seen = 0;
+    for (;;) {
+        int go;
+        while ((go = __atomic_load_n(&d->go, __ATOMIC_ACQUIRE)) == seen) qurt_futex_wait((void *)&d->go, seen);
+        seen = go;
+        if (__atomic_load_n(&d->quit, __ATOMIC_ACQUIRE)) break;
+        if (qurt_hvx_lock(QURT_HVX_MODE_128B) != QURT_EOK) {
+            d->failed = 1;
+        } else {
+            nd_phase(d, x->th);
+            qurt_hvx_unlock();
+        }
+        __atomic_add_fetch(&d->running, -1, __ATOMIC_ACQ_REL);
+    }
+    qurt_thread_exit(0);
+}
+
+// the pool through one phase, this thread too (the attention's: this one on HMX)
+static void nd_run(nd_t *d, int phase, int prof) {
+    const uint64_t t0 = HAP_perf_get_time_us();
+    d->phase = phase;
+    d->ctr = 0;
+    __atomic_store_n(&d->running, d->nthreads, __ATOMIC_RELEASE);
+    __atomic_add_fetch(&d->go, 1, __ATOMIC_ACQ_REL);
+    qurt_futex_wake((void *)&d->go, NAR_THREADS);
+    if (phase == NP_ATTN) program(&d->at, d->nthreads);
+    else nd_phase(d, NAR_THREADS);   // (its own TMP rows: nar_layout's)
+    while (__atomic_load_n(&d->running, __ATOMIC_ACQUIRE) > 0) asm volatile("pause(#16)");
+    d->prof[prof] += HAP_perf_get_time_us() - t0;
+}
+
+static void nd_free(nd_t *d) {
+    __atomic_store_n(&d->quit, 1, __ATOMIC_RELEASE);
+    __atomic_add_fetch(&d->go, 1, __ATOMIC_ACQ_REL);
+    qurt_futex_wake((void *)&d->go, NAR_THREADS);
+    for (int t = 0; t < d->nthreads; ++t) {
+        int st;
+        if (d->tid[t]) qurt_thread_join(d->tid[t], &st);
+    }
+    for (int t = 0; t < NAR_THREADS; ++t) free(d->stack[t]);
+    free(d->PQ);
+    for (int i = 0; i < d->n_mfd; ++i) HAP_mmap_put(d->mfd[i]);
+    free(d);
+}
+
+static uint8_t *nd_map(nd_t *d, int fd) {
+    if (fd <= 0) return NULL;
+    uint8_t *v = (uint8_t *)map_fd(fd);
+    if (v) d->mfd[d->n_mfd++] = fd;
+    return v;
+}
+
+int geode_npu_nar_open(remote_handle64 h, const unsigned char *cfg, int cfg_len, int p_fd, int io_fd) {
+    (void)h;
+    if (g_nd) return AEE_EALREADY;
+    if (cfg_len != (int)sizeof(nar_cfg_t)) return AEE_EBADPARM;
+    if (g_orders_ok < 0) a_checks();
+    if (!g_orders_ok) return AEE_EUNSUPPORTED;
+    const nar_cfg_t *c = (const nar_cfg_t *)cfg;
+    const int H = c->hidden, hd = c->hd, qd = c->nh * c->hd, F = c->ffn, pre = c->mode == NAR_MODE_PREFIX;
+    const int P = pre ? c->n : c->A;   // the prefix's positions
+    if (c->version != NAR_VERSION || c->n_layers < 1 || c->n_layers > NAR_MAX_LAYERS || H % 64 || H < 512 ||
+        H > 8192 || F % 32 || F < 512 || hd % 64 || hd > 512 || c->nkv < 1 || c->nh % c->nkv ||
+        32 % (c->nh / c->nkv) || qd < 512 || qd > 8192 || c->n < 1 || c->A < 0 || c->rem != P % 32 ||
+        c->npre != P / 32 || c->A + c->n > 30000 || c->p_norms % 128 || (c->rem && c->rb_fd <= 0) ||
+        (c->mode != NAR_MODE_VELOCITY && c->mode != NAR_MODE_PREFIX) || (pre && c->A != 0) ||
+        (!pre && (c->tk_fd <= 0 || c->tv_fd <= 0)))
+        return AEE_EBADPARM;
+    for (int l = 0; l < c->n_layers; ++l) {
+        const nlayer_t *y = &c->layers[l];
+        const uint32_t hb = (uint32_t)H * 4u, db = (uint32_t)hd * 4u;
+        if (y->w_fd <= 0 || ((y->qkv | y->o | y->gate | y->up | y->down) & 127) || y->in_norm + hb > c->p_norms ||
+            y->mlp_norm + hb > c->p_norms || y->q_norm + db > c->p_norms || y->k_norm + db > c->p_norms ||
+            ((y->in_norm | y->mlp_norm | y->q_norm | y->k_norm | y->rem) & 127) || (c->npre && (y->pk_fd <= 0 || y->pv_fd <= 0)))
+            return AEE_EBADPARM;
+        const int sh[4] = {y->sh_qkv, y->sh_o, y->sh_gu, y->sh_down};
+        for (int i = 0; i < 4; ++i)
+            if (sh[i] < 0 || sh[i] > 24) return AEE_EBADPARM;
+    }
+    nd_t *d = (nd_t *)calloc(1, sizeof *d);
+    if (!d) return AEE_ENOMEMORY;
+    memcpy(&d->c, c, sizeof *c);
+    d->L = nar_layout(&d->c);
+    d->nb = (c->rem + c->n + 31) / 32;
+    int e = 0;
+    if (d->L.end > c->io_bytes || !(d->P = nd_map(d, p_fd)) || !(d->IO = nd_map(d, io_fd)) ||
+        (!pre && (!(d->tk = nd_map(d, c->tk_fd)) || !(d->tv = nd_map(d, c->tv_fd)))) ||
+        (c->rem && !(d->RB = nd_map(d, c->rb_fd))))
+        e = AEE_EBADPARM;
+    for (int l = 0; l < c->n_layers && !e; ++l) {
+        const nlayer_t *y = &c->layers[l];
+        if (!(d->w[l] = nd_map(d, y->w_fd))) e = AEE_EBADPARM;
+        else if (c->npre && (!(d->kv[l][0] = nd_map(d, y->pk_fd)) || !(d->kv[l][1] = nd_map(d, y->pv_fd))))
+            e = AEE_EBADPARM;
+    }
+    if (!e) {
+        d->prof = (uint64_t *)(d->IO + c->io_bytes - 256u);
+        memset(d->prof, 0, 256);
+        // the norms' weights in qf32 (the CPU wrote them: seen afresh)
+        qurt_mem_cache_clean(0, 0, QURT_MEM_CACHE_FLUSH_INVALIDATE_ALL, QURT_MEM_DCACHE);
+        if (!(d->PQ = (uint8_t *)memalign(128, c->p_norms ? c->p_norms : 128))) {
+            e = AEE_ENOMEMORY;
+        } else {
+            const HVX_Vector *src = (const HVX_Vector *)d->P;
+            HVX_Vector *dst = (HVX_Vector *)d->PQ;
+            for (uint32_t i = 0; i < c->p_norms / 128u; ++i) dst[i] = q_sf(src[i]);
+        }
+    }
+    const int prio = helper_prio();
+    for (int t = 0; t < NAR_THREADS && !e; ++t) {
+        if (!(d->stack[t] = memalign(128, ND_STACK))) {
+            e = AEE_ENOMEMORY;
+            break;
+        }
+        qurt_thread_attr_t at;
+        qurt_thread_attr_init(&at);
+        qurt_thread_attr_set_name(&at, (char *)"geode_nar");
+        qurt_thread_attr_set_stack_addr(&at, d->stack[t]);
+        qurt_thread_attr_set_stack_size(&at, ND_STACK);
+        qurt_thread_attr_set_priority(&at, (unsigned short)prio);
+        g_nd_args[t].d = d;
+        g_nd_args[t].th = t;
+        if (qurt_thread_create(&d->tid[t], &at, nd_worker, &g_nd_args[t]) != QURT_EOK) {
+            d->tid[t] = 0;
+            e = AEE_ENOTALLOWED;
+            break;
+        }
+        ++d->nthreads;
+    }
+    if (e) {
+        nd_free(d);
+        return e;
+    }
+    g_nd = d;
+    return 0;
+}
+
+extern uint64_t g_gemm_tq[5];
+extern int g_gemm_x;
+
+int geode_npu_nar_run(remote_handle64 h, int flags, int64_t *usec) {
+    nd_t *d = g_nd;
+    *usec = 0;
+    if (!d) return AEE_EBADPARM;
+    uint64_t tq0[5];
+    memcpy(tq0, g_gemm_tq, sizeof tq0);
+    const nar_cfg_t *c = &d->c;
+    uint8_t *vtcm = NULL;
+    unsigned vsize = 0;
+    int e = geode_npu_vtcm(h, &vtcm, &vsize);
+    if (e) return e;
+    g_gemm_x = (flags & NAR_X_NOOUT) ? 1 : 0;
+    const uint64_t t0 = HAP_perf_get_time_us();
+    d->failed = 0;
+    d->xflags = flags & (NAR_X_NOPUTK | NAR_X_NONORM | NAR_X_OLDNORM | NAR_X_OLDPUT);
+    qurt_mem_cache_clean(0, 0, QURT_MEM_CACHE_FLUSH_INVALIDATE_ALL, QURT_MEM_DCACHE);   // x, the banks: the CPU's
+    d->prof[NAR_PROF_CACHE] += HAP_perf_get_time_us() - t0;
+    const int layers = NAR_DEBUG_LAYERS(flags) ? NAR_DEBUG_LAYERS(flags) : c->n_layers;
+    const nar_layout_t *L = &d->L;
+    const int H = c->hidden, hd = c->hd, qd = c->nh * hd, kd = c->nkv * hd, W = qd + 2 * kd, F = c->ffn, dgs = hd / 32;
+    const size_t kblk = (size_t)dgs * 2048u;
+    for (int l = 0; l < layers && l < c->n_layers && !e; ++l) {
+        const nlayer_t *y = &c->layers[l];
+        const uint8_t *w = d->w[l];
+        const int wf = y->wfmt ? HMX_Q8 : HMX_F16;   // (its matrices' blocks: fp16, or int8 + scales)
+        d->ly = y, d->layer = l;
+        uint64_t tp = HAP_perf_get_time_us();
+        const int pre = c->mode == NAR_MODE_PREFIX;
+        if (c->rem && !pre) {   // the prefix's last positions: the first block of each KV head (the rows overwrite the rest)
+            const uint8_t *src = d->RB + y->rem;
+            for (int kh = 0; kh < c->nkv; ++kh)
+                copy_blocks(d->tk + (size_t)kh * (size_t)d->nb * kblk, src + (size_t)kh * kblk, kblk);
+            src += (size_t)c->nkv * kblk;
+            for (int g = 0; g < c->nkv * dgs; ++g)
+                copy_blocks(d->tv + (size_t)g * (size_t)d->nb * 2048u, src + (size_t)g * 2048u, 2048u);
+        }
+        d->prof[NAR_PROF_KV] += HAP_perf_get_time_us() - tp;
+        for (int s0 = 0; s0 < c->n && !e; s0 += NAR_SLAB) {
+            d->s0 = s0, d->ns = c->n - s0 < NAR_SLAB ? c->n - s0 : NAR_SLAB;
+            const int ms = (d->ns + 31) & ~31;
+            nd_run(d, NP_IN, NAR_PROF_IN);
+            tp = HAP_perf_get_time_us();
+            e = geode_npu_gemm_src(h, d->IO + L->A, w + y->qkv, NULL, d->IO + L->QKV, ms, H, W, y->sh_qkv | wf);
+            d->prof[NAR_PROF_QKV] += HAP_perf_get_time_us() - tp;
+            if (!e) nd_run(d, NP_QKV, NAR_PROF_KV);
+        }
+        if (e) break;
+        // (the prefix: the model's last layer's keys and values are all it gives; a group's last before more: whole)
+        if (pre && l == c->n_layers - 1 && !(flags & NAR_RUN_MORE)) break;
+        // the attention: every row over the prefix's A keys and the rows' own (the rows' just written: in the DSP's
+        // cache, which it reads through)
+        attn_desc_t *ad = &d->ad;
+        memset(ad, 0, sizeof *ad);
+        ad->version = ATTN_VERSION;
+        ad->n = c->n, ad->apos = 0, ad->nh = c->nh, ad->nkv = c->nkv, ad->hd = hd, ad->window = 0;
+        ad->n_attn = 1, ad->kv_chunk = 32;
+        ad->q_stride = ad->o_stride = qd;
+        ad->flags = (int32_t)(ATTN_ENCODER | ATTN_LOG2 | (pre ? ATTN_CAUSAL : 0u) | ((uint32_t)c->attn_flags & ~7u));
+        ad->nk = c->A + c->n, ad->npre = c->npre;
+        uint8_t *kv[4];
+        uint8_t *tk = d->tk, *tv = d->tv;   // the blocks after the whole ones (a prefix: RB's, when it has any)
+        if (pre) {
+            tk = c->rem ? d->RB + y->rem : d->kv[l][0];
+            tv = c->rem ? tk + (size_t)c->nkv * kblk : d->kv[l][1];
+        }
+        if (c->npre) {
+            ad->n_chunks = 4;
+            kv[0] = d->kv[l][0], kv[1] = d->kv[l][1], kv[2] = tk, kv[3] = tv;
+        } else {
+            ad->n_chunks = 2;
+            kv[0] = tk, kv[1] = tv;
+        }
+        if ((e = attn_check(ad))) break;
+        if ((e = attn_prepare(&d->at, ad, (const float *)(d->IO + L->QR), (float *)(d->IO + L->CR), kv, vtcm, vsize,
+                              d->nthreads)))
+            break;
+        nd_run(d, NP_ATTN, NAR_PROF_ATTN);
+        if (d->at.failed) e = AEE_EFAILED;
+        for (int s0 = 0; s0 < c->n && !e; s0 += NAR_SLAB) {
+            d->s0 = s0, d->ns = c->n - s0 < NAR_SLAB ? c->n - s0 : NAR_SLAB;
+            const int ms = (d->ns + 31) & ~31;
+            nd_run(d, NP_CORE, NAR_PROF_CORE);
+            tp = HAP_perf_get_time_us();
+            e = geode_npu_gemm_src(h, d->IO + L->A, w + y->o, NULL, d->IO + L->OO, ms, qd, H, y->sh_o | wf);
+            d->prof[NAR_PROF_O] += HAP_perf_get_time_us() - tp;
+            if (e) break;
+            nd_run(d, NP_POST, NAR_PROF_POST);
+            tp = HAP_perf_get_time_us();
+            e = geode_npu_glu_src(h, d->IO + L->A, w + y->gate, w + y->up, NULL, NULL, d->IO + L->MID, ms, H, F,
+                                  y->sh_gu | wf, y->sh_gu | wf, F / 32, 1);
+            d->prof[NAR_PROF_GLU] += HAP_perf_get_time_us() - tp;
+            if (!e)
+                e = geode_npu_gemm_src(h, d->IO + L->MID, w + y->down, NULL, d->IO + L->D, ms, F, H,
+                                       y->sh_down | wf);
+            d->prof[NAR_PROF_MLP] += HAP_perf_get_time_us() - tp;
+            if (e) break;
+            nd_run(d, NP_DOWN, NAR_PROF_DOWN);
+        }
+    }
+    if (!e && d->failed) e = AEE_EFAILED;
+    // (the times live in IO, which the CPU reads after the flush: written before it - the flush's own after it, its
+    // line flushed on its own)
+    ++d->prof[NAR_PROF_CALLS];
+    for (int i = 0; i < 5; ++i)
+        d->prof[NAR_PROF_G_ACOPY + i] += HAP_perf_qtimer_count_to_us(g_gemm_tq[i] - tq0[i]);
+    g_gemm_x = 0;
+    const uint64_t tf = HAP_perf_get_time_us();
+    qurt_mem_cache_clean(0, 0, QURT_MEM_CACHE_FLUSH_ALL, QURT_MEM_DCACHE);   // x out to where the CPU reads it
+    d->prof[NAR_PROF_CACHE] += HAP_perf_get_time_us() - tf;
+    qurt_mem_cache_clean((qurt_addr_t)&d->prof[NAR_PROF_CACHE], sizeof d->prof[0], QURT_MEM_CACHE_FLUSH, QURT_MEM_DCACHE);
+    *usec = (int64_t)(HAP_perf_get_time_us() - t0);
+    return e;
+}
+
+int geode_npu_nar_close(remote_handle64 h) {
+    (void)h;
+    if (!g_nd) return 0;
+    nd_free(g_nd);
+    g_nd = NULL;
+    return 0;
+}
+
 #else   // v73 / v75: no IEEE single-precision HVX for the softmax and the rest
 int geode_npu_attn(remote_handle64 h, const unsigned char *desc, int desc_len, const unsigned char *q, int q_len,
                    unsigned char *o, int o_len, int64_t *usec) {
@@ -1968,6 +2749,19 @@ int geode_npu_gdec_prefill(remote_handle64 h, int n, int apos, int flags, int64_
     return AEE_EUNSUPPORTED;
 }
 int geode_npu_gdec_close(remote_handle64 h) {
+    (void)h;
+    return 0;
+}
+int geode_npu_nar_open(remote_handle64 h, const unsigned char *cfg, int cfg_len, int p_fd, int io_fd) {
+    (void)h, (void)cfg, (void)cfg_len, (void)p_fd, (void)io_fd;
+    return AEE_EUNSUPPORTED;
+}
+int geode_npu_nar_run(remote_handle64 h, int flags, int64_t *usec) {
+    (void)h, (void)flags;
+    *usec = 0;
+    return AEE_EUNSUPPORTED;
+}
+int geode_npu_nar_close(remote_handle64 h) {
     (void)h;
     return 0;
 }

@@ -15,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Lan
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Terminal
@@ -75,6 +77,8 @@ private enum class Screen(val label: Int, val icon: ImageVector) {
     BENCH(R.string.nav_bench, Icons.Outlined.Speed),
     SERVER(R.string.nav_server, Icons.Outlined.Lan),
     AGENT(R.string.nav_agent, Icons.Outlined.Terminal),
+    MUSIC(R.string.nav_music, Icons.Outlined.MusicNote),
+    MUSIC_SETTINGS(R.string.nav_music_settings, Icons.Outlined.LibraryMusic),
     SETTINGS(R.string.nav_settings, Icons.Outlined.Settings),
 }
 
@@ -118,6 +122,12 @@ private fun App(app: GeodeApp, chat: ChatViewModel) {
             xyz.tifu.geode.bench.DeviceReport.requested.value = false
         }
     }
+    // a song's notification tapped (MainActivity): the Music screen
+    val musicAsked by xyz.tifu.geode.music.MusicClient.openRequested.collectAsStateWithLifecycle()
+    if (musicAsked) LaunchedEffect(Unit) {
+        screen = Screen.MUSIC.ordinal
+        xyz.tifu.geode.music.MusicClient.openRequested.value = false
+    }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val openDrawer: () -> Unit = { scope.launch { drawer.open() } }
@@ -126,7 +136,10 @@ private fun App(app: GeodeApp, chat: ChatViewModel) {
         scope.launch { drawer.close() }
     }
 
-    BackHandler(enabled = drawer.isClosed && screen != Screen.CHAT.ordinal) { screen = Screen.CHAT.ordinal }
+    // (the Music settings go back to the Music screen they are opened from)
+    BackHandler(enabled = drawer.isClosed && screen != Screen.CHAT.ordinal) {
+        screen = if (screen == Screen.MUSIC_SETTINGS.ordinal) Screen.MUSIC.ordinal else Screen.CHAT.ordinal
+    }
 
     // a web chat sign-in code (scanned, or a geode:// link the camera app opened): asked about over any screen
     val qr by QrLogins.incoming.collectAsStateWithLifecycle()
@@ -162,6 +175,11 @@ private fun App(app: GeodeApp, chat: ChatViewModel) {
                     Screen.BENCH -> BenchScreen(viewModel { BenchViewModel(app) }, openDrawer)
                     Screen.SERVER -> ServerScreen(viewModel { ServerViewModel(app) }, openDrawer)
                     Screen.AGENT -> AgentScreen(viewModel { AgentViewModel(app) }, openDrawer)
+                    // (one view model for both: the activity keeps it by its class)
+                    Screen.MUSIC -> xyz.tifu.geode.ui.music.MusicScreen(viewModel { xyz.tifu.geode.ui.music.MusicViewModel(app) },
+                        openDrawer, openSettings = { screen = Screen.MUSIC_SETTINGS.ordinal })
+                    Screen.MUSIC_SETTINGS -> xyz.tifu.geode.ui.music.MusicSettingsScreen(
+                        viewModel { xyz.tifu.geode.ui.music.MusicViewModel(app) }, back = { screen = Screen.MUSIC.ordinal })
                     Screen.SETTINGS -> SettingsScreen(viewModel { SettingsViewModel(app) }, openDrawer)
                 }
             }

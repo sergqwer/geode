@@ -1,5 +1,6 @@
 package xyz.tifu.geode.models
 
+import xyz.tifu.geode.data.AppSettings
 import android.content.Context
 import android.os.StatFs
 import org.json.JSONObject
@@ -118,8 +119,13 @@ data class PartialModel(val id: String, val dir: File, val source: TransferSourc
  * real file on /data (shared storage goes through FUSE). A transfer writes into models/.partial-<id>/ and renames
  * it when every file is complete and checked, so a model directory is either whole or absent.
  */
-class ModelStore(context: Context) {
-    val root = File(context.filesDir, "models").apply { mkdirs() }
+class ModelStore(val root: File) {
+    /** The chat's models (files/models); the song model has a store of its own (MusicModels: files/music/models). */
+    constructor(context: Context) : this(File(context.filesDir, "models"))
+
+    init {
+        root.mkdirs()
+    }
 
     fun dir(id: String) = File(root, id)
     fun partialDir(id: String) = File(root, PARTIAL + id)
@@ -140,6 +146,10 @@ class ModelStore(context: Context) {
     fun find(id: String): InstalledModel? = dir(id).takeIf { it.isDirectory }?.let { d ->
         manifest(d)?.let { InstalledModel(id, d, it) }
     }
+
+    /** The model [s] has selected, as the user left its inputs and drafting (Model settings); null: none, or gone. */
+    fun selected(s: AppSettings): InstalledModel? =
+        s.selectedModel.takeIf { it.isNotEmpty() }?.let(::find)?.copy(off = s.featuresOff)
 
     fun delete(id: String) {
         dir(id).deleteRecursively()

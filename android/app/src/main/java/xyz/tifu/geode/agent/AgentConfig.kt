@@ -1,5 +1,6 @@
 package xyz.tifu.geode.agent
 
+import xyz.tifu.geode.util.writeAtomic
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
@@ -11,7 +12,6 @@ import xyz.tifu.geode.util.bool
 import xyz.tifu.geode.util.list
 import xyz.tifu.geode.util.str
 import java.io.File
-import java.io.FileOutputStream
 
 /**
  * An MCP server the agent's sessions open with (ACP's mcpServers): one run in the agent's Linux and spoken to over its
@@ -90,17 +90,14 @@ class AgentConfig(context: Context) {
     fun setEnabled(name: String, on: Boolean) = store(_servers.value.map { if (it.name == name) it.copy(enabled = on) else it })
 
     private fun store(list: List<McpServer>) {
-        file.parentFile?.mkdirs()
-        val tmp = File(file.path + ".tmp")
-        FileOutputStream(tmp).use {
-            it.write(Json.write(list.map { s ->
+        // (not written - the storage full: the list holds for this run, as it did before)
+        runCatching {
+            writeAtomic(file, Json.write(list.map { s ->
                 linkedMapOf("name" to s.name, "http" to s.http, "command" to s.command, "args" to s.args,
                     "env" to s.env.map { (k, v) -> listOf(k, v) }, "url" to s.url,
                     "headers" to s.headers.map { (k, v) -> listOf(k, v) }, "enabled" to s.enabled)
-            }).toByteArray())
-            it.fd.sync()
+            }))
         }
-        tmp.renameTo(file)
         _servers.value = list
         version++
     }

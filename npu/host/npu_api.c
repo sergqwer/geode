@@ -14,6 +14,7 @@
 #include "remote.h"
 #include "rpcmem.h"
 #include "geode_npu.h"
+#include "geode_hvx.h"
 #include "npu_api.h"
 
 typedef struct {
@@ -37,6 +38,7 @@ typedef struct {   // a gnpu_shared_alloc buffer
     void *p;
     size_t len;
     int fd;
+    int mapped;   // in the DSP's address space now (gnpu_shared_map)
 } Shared;
 
 struct gnpu {
@@ -44,11 +46,12 @@ struct gnpu {
     Mat *mats;
     int n_mats, cap;
     Shared *shared;
-    int n_shared, shared_cap, dec, gdec;
+    int n_shared, shared_cap, dec, gdec, nar;
     uint8_t *a, *o[4];   // the activations' row tiles, each matrix's result croutons (rpcmem: FastRPC passes them
                          // without copies)
     uint8_t *mid;        // gnpu_mlp: act(gate) * up as the DSP leaves it, the down parts' input tiles
     uint8_t *attn[2];    // gnpu_attn's queries and output (gnpu_attn_buffer)
+    Shared mlp_s;        // gnpu_mlp_f16's middle, the DSP's alone (one of the shared buffers)
     size_t a_cap, o_cap[4], mid_cap, attn_cap[2], bytes;
     double dsp_s, conv_s;
     gnpu_par_fn par;     // the engine's threads for the conversions (gnpu_set_par)
@@ -148,13 +151,14 @@ void gnpu_close(gnpu *g) {
     if (!g) return;
     if (g->dec) geode_npu_dec_close(g->h);
     if (g->gdec) geode_npu_gdec_close(g->h);
+    if (g->nar) geode_npu_nar_close(g->h);
     for (int i = 0; i < g->n_mats; ++i)
         if (g->mats[i].t8) {   // the DSP's mappings of the shared buffers given back before they are unmapped
             geode_npu_mat_t8_clear(g->h);
             break;
         }
     for (int i = 0; i < g->n_shared; ++i) {
-        fastrpc_munmap(CDSP_DOMAIN_ID, g->shared[i].fd, g->shared[i].p, g->shared[i].len);
+        if (g->shared[i].mapped) fastrpc_munmap(CDSP_DOMAIN_ID, g->shared[i].fd, g->shared[i].p, g->shared[i].len);
         rpcmem_free(g->shared[i].p);
     }
     free(g->shared);
@@ -696,6 +700,39 @@ int gnpu_gemm_f16(gnpu *g, int fd, uint64_t off, int64_t rows, int64_t cols, int
     return gnpu_gemm_f16c(g, fd, off, rows, cols, shift, n, xs, ys, NULL);
 }
 
+int gnpu_mlp_f16(gnpu *g, int fd, uint64_t g_off, uint64_t u_off, uint64_t d_off, int64_t hidden, int64_t ff,
+                 int g_shift, int u_shift, int d_shift, int act, int n, const float *const *xs, float *const *ys) {
+    if (!g || n <= 0 || hidden < 512 || ff < 512 || (hidden & 31) || (ff & 31) || ((g_off | u_off | d_off) & 127) ||
+        g_shift < 0 || g_shift > 24 || u_shift < 0 || u_shift > 24 || d_shift < 0 || d_shift > 24)
+        return -1;
+    const int k = (int)hidden, f = (int)ff, m = (n + 31) & ~31;
+    const size_t mid = (size_t)m * (size_t)f * 2u;
+    if (g->mlp_s.len < mid) {   // (a smaller one stays the session's until it closes)
+        int sfd = -1;
+        void *p = gnpu_shared_alloc(g, mid, 1, &sfd);
+        if (!p) return -1;
+        g->mlp_s = (Shared){p, mid, sfd};
+    }
+    if (grow(&g->a, &g->a_cap, (size_t)m * k * 2u) || grow(&g->o[0], &g->o_cap[0], (size_t)m * (size_t)k * 2u))
+        return -1;
+    const double t0 = now_s();
+    InJob in = {xs, (__fp16 *)g->a, n, k, k};
+    run_par(g, (m / 32) * (k / 32), in_items, &in);
+    double conv = now_s() - t0;
+    long long us = 0;
+    const int err = geode_npu_mlp_f16(g->h, g->a, m * k * 2, fd, g_off, u_off, d_off, g->mlp_s.fd, g->mlp_s.len, g->o[0],
+                                      m * k * 2, m, k, f, g_shift, u_shift, d_shift, act, &us);
+    if (!err) {
+        const double t1 = now_s();
+        OutJob out = {ys, (const __fp16 *)g->o[0], n, k, 0, NULL};
+        run_par(g, (m / 32) * (k / 32), out_items, &out);
+        conv += now_s() - t1;
+    }
+    g->dsp_s += (double)us * 1e-6;
+    g->conv_s += conv;
+    return err;
+}
+
 void gnpu_set_par(gnpu *g, gnpu_par_fn par, void *ctx) {
     if (!g) return;
     g->par = par;
@@ -711,10 +748,12 @@ double gnpu_dsp_seconds(const gnpu *g) { return g ? g->dsp_s : 0.0; }
 
 void *gnpu_shared_alloc(gnpu *g, size_t bytes, int cached, int *fd) {
     if (!g || !bytes || bytes > 0x7FFFFFFFu) return NULL;
-    void *p = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, cached ? RPCMEM_DEFAULT_FLAGS : RPCMEM_FLAG_UNCACHED, (int)bytes);
+    const int map = !(cached & GNPU_SHARED_UNMAPPED);
+    void *p = rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, (cached & GNPU_SHARED_CACHED) ? RPCMEM_DEFAULT_FLAGS : RPCMEM_FLAG_UNCACHED,
+                           (int)bytes);
     if (!p) return NULL;
     const int f = rpcmem_to_fd(p);
-    if (f < 0 || fastrpc_mmap(CDSP_DOMAIN_ID, f, p, 0, bytes, FASTRPC_MAP_FD)) {
+    if (f < 0 || (map && fastrpc_mmap(CDSP_DOMAIN_ID, f, p, 0, bytes, FASTRPC_MAP_FD))) {
         rpcmem_free(p);
         return NULL;
     }
@@ -722,17 +761,48 @@ void *gnpu_shared_alloc(gnpu *g, size_t bytes, int cached, int *fd) {
         const int cap = g->shared_cap ? 2 * g->shared_cap : 16;
         Shared *s = (Shared *)realloc(g->shared, (size_t)cap * sizeof *s);
         if (!s) {
-            fastrpc_munmap(CDSP_DOMAIN_ID, f, p, bytes);
+            if (map) fastrpc_munmap(CDSP_DOMAIN_ID, f, p, bytes);
             rpcmem_free(p);
             return NULL;
         }
         g->shared = s;
         g->shared_cap = cap;
     }
-    g->shared[g->n_shared++] = (Shared){p, bytes, f};
+    g->shared[g->n_shared++] = (Shared){p, bytes, f, map};
     g->bytes += bytes;
     *fd = f;
     return p;
+}
+
+int gnpu_shared_map(gnpu *g, void *p, int on) {
+    if (!g || !p) return -1;
+    for (int i = 0; i < g->n_shared; i++)
+        if (g->shared[i].p == p) {
+            Shared *s = &g->shared[i];
+            if (!on == !s->mapped) return 0;
+            if (on) {
+                const int e = fastrpc_mmap(CDSP_DOMAIN_ID, s->fd, p, 0, s->len, FASTRPC_MAP_FD);
+                if (e) return e;
+            } else {
+                fastrpc_munmap(CDSP_DOMAIN_ID, s->fd, p, s->len);
+            }
+            s->mapped = on != 0;
+            return 0;
+        }
+    return -1;
+}
+
+int gnpu_shared_free(gnpu *g, void *p) {
+    if (!g || !p) return -1;
+    for (int i = 0; i < g->n_shared; i++)
+        if (g->shared[i].p == p) {
+            if (g->shared[i].mapped) fastrpc_munmap(CDSP_DOMAIN_ID, g->shared[i].fd, p, g->shared[i].len);
+            rpcmem_free(p);
+            g->bytes -= g->shared[i].len;
+            g->shared[i] = g->shared[--g->n_shared];
+            return 0;
+        }
+    return -1;
 }
 
 long long gnpu_dec_size(gnpu *g, const void *cfg, int cfg_len) {
@@ -826,6 +896,26 @@ int gnpu_gdec_prefill(gnpu *g, int n, int apos, int flags, double *dsp_s) {
     return e;
 }
 
+int gnpu_nar_open(gnpu *g, const void *cfg, int cfg_len, int p_fd, int io_fd) {
+    if (!g) return -1;
+    if (g->nar) geode_npu_nar_close(g->h), g->nar = 0;
+    const int e = geode_npu_nar_open(g->h, (const unsigned char *)cfg, cfg_len, p_fd, io_fd);
+    if (!e) g->nar = 1;
+    return e;
+}
+
+int gnpu_nar_run(gnpu *g, int flags, double *dsp_s) {
+    if (!g || !g->nar) return -1;
+    long long us = 0;
+    const int e = geode_npu_nar_run(g->h, flags, &us);
+    if (dsp_s) *dsp_s = (double)us * 1e-6;
+    return e;
+}
+
+void gnpu_nar_close(gnpu *g) {
+    if (g && g->nar) geode_npu_nar_close(g->h), g->nar = 0;
+}
+
 void gnpu_gdec_close(gnpu *g) {
     if (g && g->gdec) geode_npu_gdec_close(g->h);
     if (g) g->gdec = 0;
@@ -848,5 +938,101 @@ int gnpu_dec_draft(gnpu *g, const float *e, const float *h, int n, int hidden, i
                                       n * hidden * 4, pos, p3, 3 * n, draft, prob, &us);
     if (dsp_s) *dsp_s = (double)us * 1e-6;
     g->dsp_s += (double)us * 1e-6;
+    return r;
+}
+
+// ---- the v66 module (npu/hvx66): the "Fast" sound's 8-bit products on a DSP without HMX
+struct gnpu_hvx {
+    remote_handle64 h;
+};
+
+gnpu_hvx *gnpu_hvx_open(const char *skel_dir, char *err, int err_len) {
+    gnpu_library_path(skel_dir);
+    const int arch = gnpu_arch();
+    if (arch < 66 || arch > 72) {   // (v73 and newer: the HMX module; older: nothing built for it)
+        snprintf(err, (size_t)err_len, "Hexagon v%d: not a v66 .. v72", arch);
+        return NULL;
+    }
+    struct remote_rpc_control_unsigned_module um = {CDSP_DOMAIN_ID, 1};
+    int e = remote_session_control(DSPRPC_CONTROL_UNSIGNED_MODULE, (void *)&um, sizeof um);
+    if (e) {
+        snprintf(err, (size_t)err_len, "no unsigned PD (0x%x)", e);
+        return NULL;
+    }
+    remote_handle64 h = 0;
+    if ((e = geode_hvx_open("file:///libgeode_hvx_skel_v66.so?geode_hvx_skel_handle_invoke&_modver=1.0&_dom=cdsp", &h))) {
+        snprintf(err, (size_t)err_len, "the v66 module did not open (0x%x, Hexagon v%d)", e, arch);
+        return NULL;
+    }
+    int y = 0, hvx = -1, dot = 0;   // HVX there and computing (320 (x & 127) for x)
+    if ((e = geode_hvx_ping(h, 5, &y, &hvx, &dot)) || y != 6 || hvx != 0 || dot != 1600) {
+        snprintf(err, (size_t)err_len, "the v66 module's HVX check failed (0x%x, hvx %d, dot %d)", e, hvx, dot);
+        geode_hvx_close(h);
+        return NULL;
+    }
+    gnpu_hvx *g = (gnpu_hvx *)calloc(1, sizeof *g);
+    if (!g) {
+        geode_hvx_close(h);
+        snprintf(err, (size_t)err_len, "memory");
+        return NULL;
+    }
+    g->h = h;
+    return g;
+}
+
+void gnpu_hvx_close(gnpu_hvx *g) {
+    if (!g) return;
+    geode_hvx_close(g->h);
+    free(g);
+}
+
+void *gnpu_hvx_alloc(size_t bytes, int cached) {
+    if (!bytes || bytes > 0x7FFFFFFFu) return NULL;
+    return rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, cached ? RPCMEM_DEFAULT_FLAGS : RPCMEM_FLAG_UNCACHED, (int)bytes);
+}
+
+void gnpu_hvx_free(void *p) {
+    if (p) rpcmem_free(p);
+}
+
+int gnpu_hvx_q4_gemm(gnpu_hvx *g, const uint8_t *w, size_t w_len, int rows, int k, int n8, const int8_t *x,
+                     const int32_t *xs, const int32_t *wq, int32_t *y, int threads, int kchunk, int quad, int *amax,
+                     long long *usec) {
+    if (amax) *amax = 0;
+    if (!g || rows < 32 || k < 64 || n8 < 8) return -1;
+    // (every length in 64 bits before it narrows to the idl's int)
+    const int64_t P = k / 32, xl = (int64_t)n8 * k, xsl = (int64_t)n8 * P * 8, wql = (int64_t)rows * P * 4,
+                  yl = (int64_t)n8 * rows * 4;
+    if (w_len > 0x7FFFFFFFu || xl > 0x7FFFFFFF || xsl > 0x7FFFFFFF || wql > 0x7FFFFFFF || yl > 0x7FFFFFFF) return -1;
+    long long us = 0;
+    int am = 0;
+    const int r = geode_hvx_q4_gemm(g->h, w, (int)w_len, rows, k, n8, (const unsigned char *)x, (int)xl,
+                                    (const unsigned char *)xs, (int)xsl, (const unsigned char *)wq, (int)wql,
+                                    (unsigned char *)y, (int)yl, threads, kchunk, quad, &am, &us);
+    if (usec) *usec = us;
+    if (amax) *amax = am;
+    return r;
+}
+
+// (weak: an older libcdsprpc.so may lack it - remote.h's own advice; NULL then)
+#pragma weak remote_register_buf_attr
+int gnpu_hvx_keep(void *p, size_t bytes, int on) {
+    if (!remote_register_buf_attr || !p || bytes > 0x7FFFFFFFu) return -1;
+    if (on) remote_register_buf_attr(p, (int)bytes, rpcmem_to_fd(p), FASTRPC_ATTR_KEEP_MAP);
+    else remote_register_buf_attr(p, (int)bytes, -1, 0);
+    return 0;
+}
+
+int gnpu_hvx_q8_gemm(gnpu_hvx *g, const uint8_t *w, size_t w_len, int rows, int k, int n8, const int8_t *x,
+                     const int32_t *corr, const int32_t *aq, const int32_t *wq, int32_t *y, int threads,
+                     long long *usec) {
+    if (!g || w_len > 0x7FFFFFFFu) return -1;
+    const int G = k / 32;
+    long long us = 0;
+    const int r = geode_hvx_q8_gemm(g->h, w, (int)w_len, rows, k, n8, (const unsigned char *)x, n8 * k,
+                                    (const unsigned char *)corr, n8 * G * 4, (const unsigned char *)aq, n8 * G * 4,
+                                    (const unsigned char *)wq, rows * G * 4, (unsigned char *)y, n8 * rows * 4, threads,
+                                    &us);
+    if (usec) *usec = (long long)us;
     return r;
 }

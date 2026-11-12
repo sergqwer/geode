@@ -16,6 +16,7 @@
 #include "pack.hpp"
 #include "gpu.hpp"
 #include "gpu8.hpp"
+#include "hvx_llm.hpp"
 #include "threads.hpp"
 #include "audio.hpp"
 #include "vision.hpp"
@@ -798,6 +799,17 @@ private:
     // Gemma 4's q4i matrices into tile8 in memory the DSP maps, registered there (Npu::adopt_t8): the matrices it
     // placed (the rest stay for setup_npu's hmx4 copies)
     int npu_one_copy();
+    // A Hexagon v66 class DSP (no HMX: the Snapdragon 720G's; hvx_llm.hpp): a prompt's 4-bit products split by rows
+    // between its HVX and the CPU. hvx_one_copy: the q4i / q4 matrices into tile8 in its rpcmem (one copy, the pack's
+    // pages back); hvx_same_x_: the product's activations are the previous one's (matmul_many's next matrix)
+    std::unique_ptr<HvxGemm> hvx_;
+    std::string hvx_status_ = "off";
+    bool hvx_same_x_ = false;
+    double hvx_check_worst_ = 0.0, hvx_check_sum_ = 0.0;   // GEODE_HVX_CHECK: the DSP's rows against the CPU's
+    uint64_t hvx_check_n_ = 0;
+    void setup_hvx();
+    int hvx_one_copy();
+    int64_t hvx_rows(const QView &m, int n) const { return hvx_ && !check_ && !exact_ ? hvx_->rows_for(m, n) : 0; }
     // the media encoders' way onto HMX (v79+, the NPU's products on), or none
     MediaNpu media_npu() const {
         MediaNpu v;

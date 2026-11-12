@@ -59,7 +59,7 @@ class TemplateException(message: String) : IllegalArgumentException(message)
  * (their JSON in the system message, calls as XML: <tool_call><function=..><parameter=..>), tool outputs (gathered
  * into a user message of <tool_response> blocks), images in their place among the text, the reasoning of the answers
  * after the last question kept (the earlier ones dropped). TemplateTest checks it against transformers'
- * apply_chat_template. [ChatFormat] stays the app chat's: the same turns without tools.
+ * apply_chat_template.
  *
  * The text between two special tokens is encoded in one go, as Hugging Face's tokenizer splits the rendered string
  * at its added tokens; image pads are put in by the image's size (the engine puts the image's features there).

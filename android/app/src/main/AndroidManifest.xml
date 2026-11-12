@@ -102,6 +102,18 @@
                 android:value="A local-network AI server the user turned on: devices on the same Wi-Fi use the on-device language model through an OpenAI- and Anthropic-compatible API; the notification shows the address and turns it off." />
         </service>
 
+        <!-- The songs (YuE2) in a process of their own: the song model's memory is never the app's, and a song
+             the system stops takes nothing else down -->
+        <service
+            android:name=".music.MusicService"
+            android:exported="false"
+            android:process=":music"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="On-device music generation: the song model keeps composing the song the user asked for while the app is in the background; the notification shows its progress and can cancel it." />
+        </service>
+
         <!-- The agents' files handed to other apps (a share, an "open with") -->
         <provider
             android:name="androidx.core.content.FileProvider"

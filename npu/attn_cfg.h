@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 
-#define ATTN_VERSION 1
+#define ATTN_VERSION 2
 #define ATTN_MAX_CHUNKS 256
 #define ATTN_MAX_ROWS 16384   // n x nh at most (a row: a token's query head)
 
@@ -29,20 +29,34 @@ typedef struct {
     int32_t q_stride, o_stride;   // floats from a token's row to the next one's (nh hd at least, multiples of 32)
     int32_t flags;                // ATTN_*
     int32_t kv_fd[ATTN_MAX_CHUNKS];
+    // ATTN_ENCODER only: the keys every query sees (0: n, the queries' own), and how many of their 32-position blocks
+    // the first two buffers hold (0: all of them) - the rest in kv_fd[2] (keys) and kv_fd[3] (values), laid out alike
+    // from block npre on (YuE2's NAR: the AR prefix's blocks once a song, the rows' own rewritten every layer)
+    int32_t nk, npre;
 } attn_desc_t;
 
 // flags
 #define ATTN_HELPERS(h) ((h) & 7)        // HVX helper threads (0: the default, 4)
+#define ATTN_SUM_CVT (1u << 3)           // softmax_h2's row sums as they were (each weight hf -> sf, then added: A/B
+                                         // against the one-instruction sf += hf x 1 accumulation)
 #define ATTN_MAX_SB(p) ((uint32_t)(p) << 8)   // finding faults / testing the joins: at most p x 32 positions a
                                               // superblock (0: as many as VTCM holds)
 #define ATTN_SB_OF(f) (((uint32_t)(f) >> 8) & 0xFFFF)
 #define ATTN_DEBUG_NO_HMX (1u << 24)     // the products left out (the softmax and the rest timed alone)
 #define ATTN_SOFTMAX_IEEE (1u << 25)     // the softmax in IEEE sf as it was (a check of the hf one)
 #define ATTN_DEBUG_SMCHECK (1u << 26)    // both softmaxes on each tile, the first difference in usec (debugging)
+#define ATTN_SOFTMAX_V1 (1u << 28)       // the hf softmax's first form (softmax_h: A/B against softmax_h2)
+#define ATTN_LOG2 (1u << 29)             // the queries carry log2 e too: the scores in log2 units (one product fewer
+                                         // a weight; not with ATTN_SOFTMAX_IEEE / ATTN_SOFTMAX_V1)
 // An encoder's attention (Gemma 4's vision tower): apos 0, every token sees all n, and the keys and values are fp16
 // HMX blocks the host made - kv_fd[0] the keys, per KV head [block of 32 positions][hd / 32] 2 KB weight blocks
 // (the block's positions its outputs, 32 dims its inputs: element (p, c) at (c / 2) 64 + p 2 + c % 2), kv_fd[1] the
 // values, per KV head [hd / 32][block] 2 KB weight blocks (32 dims the outputs, the positions the inputs: element
 // (c, p) at (p / 2) 64 + c 2 + p % 2); positions n .. up to a multiple of 32 zero. n_chunks 2; hd a multiple of 32;
-// slot, n_attn, kv_chunk, kv_row, kv_heads unused.
+// slot, n_attn, kv_chunk, kv_row, kv_heads unused. With nk: every query sees the nk keys instead (positions nk .. up
+// to a multiple of 32 masked); with npre too: blocks [0, npre) in kv_fd[0] / [1] (per KV head npre blocks), blocks
+// [npre, (nk + 31) / 32) in kv_fd[2] / [3] (per KV head the rest), n_chunks 4.
 #define ATTN_ENCODER (1u << 27)
+// with ATTN_ENCODER: causal over the rows - row t sees keys 0 .. nk - n + t (the keys before the rows, then the rows'
+// own up to itself: the AR's prefill as the NAR's prefix, npu/nar_cfg.h NAR_MODE_PREFIX)
+#define ATTN_CAUSAL (1u << 30)

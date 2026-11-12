@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import xyz.tifu.geode.GeodeApp
 import xyz.tifu.geode.R
+import xyz.tifu.geode.data.ChatClaims
 import xyz.tifu.geode.data.ChatStats
 import xyz.tifu.geode.data.ChatStore
 import xyz.tifu.geode.data.Compactions
@@ -26,7 +27,6 @@ import xyz.tifu.geode.agent.finished
 import xyz.tifu.geode.agent.withAgent
 import xyz.tifu.geode.ui.chat.ChatMessage
 import xyz.tifu.geode.ui.chat.ChatVideo
-import xyz.tifu.geode.agent.VideoInput
 import xyz.tifu.geode.media.AudioStore
 import xyz.tifu.geode.media.Wav
 import xyz.tifu.geode.util.Json
@@ -48,7 +48,8 @@ import java.util.concurrent.ConcurrentHashMap
  * browser sees what the agent does as it does it (a line per tool, then the answer). Answers are saved into the chat
  * as the app saves them; the app's chat follows ([changes]). An answer goes on when the browser goes away.
  */
-class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private val password: () -> String?) {
+class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private val music: MusicApi,
+              private val password: () -> String?) {
     private val store = ChatStore(app)
     private val images = ImageStore(app)
     private val clips = AudioStore(app)
@@ -88,6 +89,7 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
                 req.method == "GET" && path.startsWith("/web/audio/") -> audio(r, path.removePrefix("/web/audio/"))
                 req.method == "POST" && path == "/web/send" -> send(req, r)
                 req.method == "POST" && path == "/web/stop" -> stop(r)
+                path == "/web/music" || path.startsWith("/web/music/") -> music(req, r, path.removePrefix("/web/music"))
                 else -> r.json(404, mapOf("error" to "No such page: ${req.method} ${req.path}"))
             }
         } catch (e: ApiError) {
@@ -158,6 +160,88 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
             "or" to t(R.string.web_or),
             "installing" to t(R.string.agent_starting),
             "files" to t(R.string.agent_files),
+            // the Music page: the Music screen's own strings (with their %1$s / %1$d / %1$.2f: the page fills them)
+            "music" to t(R.string.nav_music),
+            "mCreate" to t(R.string.music_tab_create),
+            "mLibrary" to t(R.string.music_tab_library),
+            "mEmpty" to t(R.string.web_music_empty),
+            "mNoModel" to t(R.string.music_no_model),
+            "mTitle" to t(R.string.music_title),
+            "mStyle" to t(R.string.music_style),
+            "mStyleHint" to t(R.string.music_style_hint),
+            "mPresets" to t(R.string.music_presets),
+            "mGenre" to t(R.string.music_add_genre),
+            "mLyrics" to t(R.string.music_lyrics),
+            "mLyricsHint" to t(R.string.music_lyrics_placeholder),
+            "mSection" to t(R.string.music_tool_section),
+            "mPause" to t(R.string.music_tool_pause),
+            "mStress" to t(R.string.music_tool_stress),
+            "mWriteAi" to t(R.string.music_tool_write),
+            "mToolsHint" to t(R.string.music_tools_hint),
+            "mInstrumental" to t(R.string.music_instrumental),
+            "mLines" to t(R.string.music_sung_lines),
+            "mMode" to t(R.string.music_mode),
+            "mModeFull" to t(R.string.music_mode_full),
+            "mModeMelody" to t(R.string.music_mode_melody),
+            "mModeOff" to t(R.string.music_mode_off),
+            "mModeFullDesc" to t(R.string.music_mode_full_desc),
+            "mModeMelodyDesc" to t(R.string.music_mode_melody_desc),
+            "mModeOffDesc" to t(R.string.music_mode_off_desc),
+            "mLenAuto" to t(R.string.music_length_auto),
+            "mLenMax" to t(R.string.music_length_max),
+            "mTakes" to t(R.string.music_takes),
+            "mAdvanced" to t(R.string.web_music_advanced),
+            "mSeed" to t(R.string.music_seed),
+            "mSeedRandom" to t(R.string.music_seed_random),
+            "mSteps" to t(R.string.music_steps),
+            "mCfgAuto" to t(R.string.music_cfg_auto),
+            "mCfg" to t(R.string.music_cfg),
+            "mPrecision" to t(R.string.music_precision),
+            "mPrecBest" to t(R.string.music_precision_best),
+            "mPrecBalanced" to t(R.string.music_precision_balanced),
+            "mPrecFast" to t(R.string.music_precision_fast),
+            "mFormat" to t(R.string.music_format),
+            "mMake" to t(R.string.music_make),
+            "mWriter" to t(R.string.music_writer_title),
+            "mIdea" to t(R.string.music_writer_idea),
+            "mIdeaHint" to t(R.string.music_writer_idea_hint),
+            "mExtra" to t(R.string.music_writer_extra),
+            "mWLength" to t(R.string.music_writer_length),
+            "mLenShort" to t(R.string.music_length_short),
+            "mLenNormal" to t(R.string.music_length_normal),
+            "mLenLong" to t(R.string.music_length_long),
+            "mLenVeryLong" to t(R.string.music_length_very_long),
+            "mLanguage" to t(R.string.music_language),
+            "mLangAuto" to t(R.string.music_language_auto),
+            "mWrite" to t(R.string.music_writer_write),
+            "mAgain" to t(R.string.music_writer_again),
+            "mWStop" to t(R.string.music_writer_stop),
+            "mUse" to t(R.string.music_writer_use),
+            "mWaiting" to t(R.string.music_waiting),
+            "mMaking" to t(R.string.music_making),
+            "mFailed" to t(R.string.music_failed),
+            "mCancelled" to t(R.string.music_cancelled),
+            "mInterrupted" to t(R.string.music_interrupted),
+            "mDone" to t(R.string.music_done_line),
+            "mElapsed" to t(R.string.music_elapsed),
+            "mCancel" to t(R.string.music_cancel),
+            "mDelete" to t(R.string.music_delete),
+            "mDeleteAsk" to t(R.string.music_delete_ask),
+            "mEdit" to t(R.string.music_edit),
+            "mSameMelody" to t(R.string.music_again_melody),
+            "mOnMelody" to t(R.string.music_same_melody_of),
+            "mNewMelody" to t(R.string.music_new_melody),
+            "mDownload" to t(R.string.music_download),
+            "mScoreMidi" to t(R.string.web_music_score_midi),
+            "mMidi" to t(R.string.music_midi_import),
+            "mMidiFailed" to t(R.string.music_midi_failed),
+            "mMidiBig" to t(R.string.music_midi_err_big),
+            "mScoresFirst" to t(R.string.music_scores_first),
+            "mScoresFirstDesc" to t(R.string.music_scores_first_desc),
+            "mMakeScores" to t(R.string.music_make_scores),
+            "mPlan" to t(R.string.music_plan_line),
+            "mSing" to t(R.string.music_sing_score),
+            "mLicense" to t(R.string.music_license),
         )
     }
 
@@ -185,7 +269,7 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
                 return r.json(429, mapOf("error" to "Too many wrong passwords: wait a minute."))
             }
         }
-        val given = runCatching { (Json.parse(String(req.body, Charsets.UTF_8)) as Map<*, *>)["password"] as String }
+        val given = runCatching { req.json()["password"] as String }
             .getOrNull().orEmpty()
         val need = password()?.let(::normal)
         if (need.isNullOrEmpty() || !MessageDigest.isEqual(normal(given).toByteArray(), need.toByteArray())) {
@@ -269,7 +353,8 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
 
     private suspend fun delete(r: HttpResponder, id: String) {
         if (!validId(id)) throw ApiError(404, "No such chat.")
-        if (running == id || app.agent.turn.value == id) throw ApiError(409, "The chat is being answered.")
+        if (running == id || app.agent.turn.value == id || ChatClaims.holder(id) != null)
+            throw ApiError(409, "The chat is being answered.")
         withContext(Dispatchers.IO) { store.delete(id) }
         _changes.tryEmit(id)
         r.json(200, mapOf("ok" to true))
@@ -294,6 +379,11 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
         r.send(200, "audio/wav", wav, mapOf("Cache-Control" to "private, max-age=86400"))
     }
 
+    // ---- the Music page: MusicApi's routes behind the sign-in ----
+
+    private suspend fun music(req: HttpRequest, r: HttpResponder, rest: String) =
+        music.handle(req, r, rest, "/web/music/songs")
+
     /** The browser's own answer stopped whole (the agent's turn, its console and whatever it started). */
     private fun stop(r: HttpResponder) {
         if (running != null) {
@@ -311,8 +401,7 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
      * done (the answer as saved) or error.
      */
     private suspend fun send(req: HttpRequest, r: HttpResponder) {
-        val b = runCatching { Json.parse(String(req.body, Charsets.UTF_8)) as? Map<String, Any?> }.getOrNull()
-            ?: throw ApiError(400, "The body is not a JSON object.")
+        val b = req.json()
         val text = b.str("text").orEmpty().trim()
         val sent = b.list("images").orEmpty().filterIsInstance<String>()
         // clips and videos as the page made them of the picked files: WAVs (16 kHz mono, the first 30 s) and frames
@@ -323,14 +412,36 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
         // each clip is up to 30 s of samples once decoded, each video up to 32 frames: a message's few at most
         if (sent.size > MAX_IMAGES || sentClips.size > MAX_CLIPS || sentVideos.size > MAX_VIDEOS)
             throw ApiError(413, "Too many attachments: at most $MAX_IMAGES images, $MAX_CLIPS clips and $MAX_VIDEOS videos a message.")
-        if (running != null) throw ApiError(409, "An answer is being written already.")
+        val id = b.str("chat")?.takeIf(::validId) ?: System.currentTimeMillis().toString()
+        // the web's one answer and the chat reserved before anything suspends (two requests at once never both pass);
+        // the chat is the web's until its answer is saved - the phone's chat sends nothing to it meanwhile (each saves
+        // the whole chat it knows, the later one would drop the other's question and answer)
+        val claim = synchronized(this) {
+            if (running != null) throw ApiError(409, "An answer is being written already.")
+            // the phone is answering this very chat (or its question waits for the agent): its answer first
+            if (app.agent.turn.value == id) throw ApiError(409, "An answer is being written already.")
+            ChatClaims.claim(id, ChatClaims.Side.WEB, takeover = false)?.also { running = id }
+                ?: throw ApiError(409, "An answer is being written already.")
+        }
+        runningJob = currentCoroutineContext()[Job]
+        try {
+            answer(r, id, text, sent, sentClips, sentVideos)
+        } finally {
+            synchronized(this) {
+                running = null
+                runningJob = null
+            }
+            ChatClaims.release(claim)
+        }
+    }
+
+    /** [send]'s question in the chat [id] (reserved for it: [running], its claim) saved and answered. */
+    private suspend fun answer(r: HttpResponder, id: String, text: String, sent: List<String>, sentClips: List<String>,
+                               sentVideos: List<Map<*, *>>) {
         val model = engine.model()
         if (sent.isNotEmpty() && !model.vision) throw ApiError(400, "The selected model reads no images.")
         if (sentClips.isNotEmpty() && !model.audio) throw ApiError(400, "The selected model hears no audio.")
         if (sentVideos.isNotEmpty() && !model.video) throw ApiError(400, "The selected model watches no video.")
-        val id = b.str("chat")?.takeIf(::validId) ?: System.currentTimeMillis().toString()
-        // the phone's agent is answering this very chat: its answer first
-        if (app.agent.turn.value == id) throw ApiError(409, "An answer is being written already.")
         val saved = withContext(Dispatchers.IO) { store.load(id) }
         val names = withContext(Dispatchers.IO) {
             sent.map { b64 ->
@@ -357,8 +468,6 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
         var session = saved?.agentSession
         // the question is saved before the answer is written: the app's chat shows it at once
         save(id, title, created, before, stats, session)
-        running = id
-        runningJob = currentCoroutineContext()[Job]
         var answer = ChatMessage(nextId, user = false, text = "", streaming = true)
         var gone = false
         fun out(name: String, v: Any?) {
@@ -374,11 +483,8 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
             r.events()
             out("start", linkedMapOf("chat" to id, "title" to title, "question" to json(question)))
             // a chat the agent has no session of yet (one from before every chat was the agent's): its messages so far
-            val task = (if (session == null) AgentTurns.earlier(saved?.messages.orEmpty()) else "") + text
-            val files = withContext(Dispatchers.IO) { names.map { images.file(it) }.filter { it.isFile } }
-            val sounds = withContext(Dispatchers.IO) { heard.map { clips.file(it) }.filter { it.isFile } }
-            val films = watched.map { v ->
-                VideoInput(v.frames.map { images.file(it) }.zip(v.seconds), v.audio?.let { clips.file(it) }, v.ms)
+            val input = withContext(Dispatchers.IO) {
+                AgentTurns.input(question, saved?.messages.orEmpty().takeIf { session == null }, images, clips)
             }
             val stop = coroutineScope {
                 // the counts of the agent's requests (the chat's), and the answer's speed
@@ -390,7 +496,7 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
                     }
                 }
                 try {
-                    app.agent.prompt(id, session, task, files, sounds, films) { e ->
+                    app.agent.prompt(id, session, input) { e ->
                         when (e) {
                             is AgentEvent.Session -> session = e.id
                             AgentEvent.Waiting -> out("status", mapOf("waiting" to true))
@@ -428,9 +534,6 @@ class WebChat(private val app: GeodeApp, private val engine: ApiEngine, private 
             android.util.Log.w("GeodeWebChat", "the agent's answer failed", e)
             save(id, title, created, before + answer.finished(emptyList()).copy(error = why), stats, session)
             out("error", mapOf("message" to why))
-        } finally {
-            running = null
-            runningJob = null
         }
     }
 

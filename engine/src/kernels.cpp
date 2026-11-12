@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 
 #if defined(__aarch64__) && defined(__ARM_FEATURE_DOTPROD)
 #include <arm_neon.h>
@@ -746,6 +747,110 @@ void rows_quad_mmla(const QView &m, const int8_t *const *pq, const float *const 
     }
 }
 
+// ---- SMMLA for Q8 (the pack's rows: the codes, then a scale byte a block): two rows against two tokens a block,
+// bit for bit rows_q_neon<Q8>. A block's integer sum is the same 16 products in int32 (two SMMLAs: values 0-7, then
+// 8-15), and every (row, token) keeps row_dots' four accumulators (block b of each group of 64 in lane b there,
+// acc[..][b] here) through the same fma with the same scale product, summed as vaddvq does: (b0 + b1) + (b2 + b3).
+// SDOT spends three pairwise adds a token a group gathering a block's four partial sums; SMMLA's lanes are whole
+// blocks already, and one instruction does 32 products to SDOT's 16.
+
+// tokens a0 and a1 (a1 nullptr: zeros) as SMMLA's right operands: a block's 32 bytes [t0 0-7 | t1 0-7 | t0 8-15 |
+// t1 8-15], its scales [s0 s1 s0 s1]
+void q8_pair(const QAct *a0, const QAct *a1, int64_t nblk, int8_t *q, float *s) {
+    for (int64_t b = 0; b < nblk; ++b) {
+        const int64x2_t l0 = vreinterpretq_s64_s8(vld1q_s8(a0->q.data() + 16 * b));
+        const int64x2_t l1 = a1 ? vreinterpretq_s64_s8(vld1q_s8(a1->q.data() + 16 * b)) : vdupq_n_s64(0);
+        vst1q_s8(q + 32 * b, vreinterpretq_s8_s64(vzip1q_s64(l0, l1)));
+        vst1q_s8(q + 32 * b + 16, vreinterpretq_s8_s64(vzip2q_s64(l0, l1)));
+        const float s0 = a0->scale[static_cast<size_t>(b)], s1 = a1 ? a1->scale[static_cast<size_t>(b)] : 0.0f;
+        s[4 * b] = s0, s[4 * b + 1] = s1, s[4 * b + 2] = s0, s[4 * b + 3] = s1;
+    }
+}
+
+// rows w0 and w1 against TP token pairs: out[P] lanes r0t0 r0t1 r1t0 r1t1 (before the post scale)
+template <int TP>
+__attribute__((target("arch=armv8.2-a+dotprod+fp16+i8mm")))
+inline void q8_rows_mmla(const uint8_t *w0, const uint8_t *w1, int64_t cols, const int8_t *const *pq,
+                         const float *const *ps, float32x4_t (&out)[TP]) {
+    float32x4_t acc[TP][4];
+    for (int P = 0; P < TP; ++P)
+        for (int b = 0; b < 4; ++b) acc[P][b] = vdupq_n_f32(0.0f);
+    const int8_t *c0 = reinterpret_cast<const int8_t *>(w0), *c1 = reinterpret_cast<const int8_t *>(w1);
+    const uint8_t *sb0 = w0 + cols, *sb1 = w1 + cols;
+    const int64_t groups = cols / 64;
+    for (int64_t g = 0; g < groups; ++g) {
+        // the two rows' four block scales / 256 as [r0 r0 r1 r1] a block
+        const float32x4_t s0 = block_scales_div256(sb0 + 4 * g), s1 = block_scales_div256(sb1 + 4 * g);
+        const float32x4_t zl = vzip1q_f32(s0, s1), zh = vzip2q_f32(s0, s1);
+        const float32x4_t wd[4] = {vzip1q_f32(zl, zl), vzip2q_f32(zl, zl), vzip1q_f32(zh, zh), vzip2q_f32(zh, zh)};
+        for (int B = 0; B < 4; ++B) {
+            const int64_t blk = 4 * g + B;
+            const int64x2_t r0 = vreinterpretq_s64_s8(vld1q_s8(c0 + 16 * blk)), r1 = vreinterpretq_s64_s8(vld1q_s8(c1 + 16 * blk));
+            const int8x16_t lo = vreinterpretq_s8_s64(vzip1q_s64(r0, r1)), hi = vreinterpretq_s8_s64(vzip2q_s64(r0, r1));
+            for (int P = 0; P < TP; ++P) {
+                const int8_t *x = pq[P] + 32 * blk;
+                const int32x4_t d = vmmlaq_s32(vmmlaq_s32(vdupq_n_s32(0), lo, vld1q_s8(x)), hi, vld1q_s8(x + 16));
+                acc[P][B] = vfmaq_f32(acc[P][B], vcvtq_f32_s32(d), vmulq_f32(wd[B], vld1q_f32(ps[P] + 4 * blk)));
+            }
+        }
+    }
+    for (int P = 0; P < TP; ++P) out[P] = vaddq_f32(vaddq_f32(acc[P][0], acc[P][1]), vaddq_f32(acc[P][2], acc[P][3]));
+}
+
+// rows [r0, r1) against n tokens whose pairs q8_pair packed; an odd last row on the SDOT kernel (the same bits)
+void rows_q8_mmla(const QView &m, const QAct *const *acts, const int8_t *const *pq, const float *const *ps, int n,
+                  float *const *ys, int64_t r0, int64_t r1) {
+    const float post = m.global * level_scale(m.type) * 256.0f;
+    const int np = (n + 1) / 2;
+    int64_t r = r0;
+    for (; r + 1 < r1; r += 2) {
+        const uint8_t *w0 = m.data + static_cast<size_t>(r) * m.row_bytes, *w1 = w0 + m.row_bytes;
+        for (int P0 = 0; P0 < np; P0 += 4) {
+            const int tp = std::min(4, np - P0);
+            float32x4_t out[4];
+            switch (tp) {
+            case 1: { float32x4_t o[1]; q8_rows_mmla<1>(w0, w1, m.cols, pq + P0, ps + P0, o); out[0] = o[0]; break; }
+            case 2: { float32x4_t o[2]; q8_rows_mmla<2>(w0, w1, m.cols, pq + P0, ps + P0, o); out[0] = o[0], out[1] = o[1]; break; }
+            case 3: {
+                float32x4_t o[3];
+                q8_rows_mmla<3>(w0, w1, m.cols, pq + P0, ps + P0, o);
+                out[0] = o[0], out[1] = o[1], out[2] = o[2];
+                break;
+            }
+            default: q8_rows_mmla<4>(w0, w1, m.cols, pq + P0, ps + P0, out); break;
+            }
+            for (int P = 0; P < tp; ++P) {
+                float o[4];
+                vst1q_f32(o, out[P]);
+                for (int j = 0; j < 2; ++j) {
+                    const int t = 2 * (P0 + P) + j;
+                    if (t >= n) break;
+                    ys[t][r] = o[j] * post;
+                    ys[t][r + 1] = o[2 + j] * post;
+                }
+            }
+        }
+    }
+    if (r < r1) rows_q_neon<DType::Q8>(m, acts, n, ys, r, r1);
+}
+
+// SMMLA for Q8 on a CPU with it, unless GEODE_I8MM_Q8=0 (set_q8_mmla for the benchmarks' A/B)
+std::atomic<int> g_q8_mmla{-1};
+bool q8_mmla_here() {
+#if defined(__linux__)
+    static const bool cpu = (getauxval(AT_HWCAP2) & (1UL << 13)) != 0;   // HWCAP2_I8MM
+    int v = g_q8_mmla.load(std::memory_order_relaxed);
+    if (v < 0) {
+        const char *e = std::getenv("GEODE_I8MM_Q8");
+        v = e && std::atoi(e) == 0 ? 0 : 1;
+        g_q8_mmla.store(v, std::memory_order_relaxed);
+    }
+    return cpu && v == 1;
+#else
+    return false;
+#endif
+}
+
 #endif
 
 }  // namespace
@@ -1072,6 +1177,22 @@ bool have_i8mm_kernels() {
 #endif
 }
 
+bool have_q8_mmla() {
+#if defined(GEODE_NEON_DOTPROD)
+    return q8_mmla_here();
+#else
+    return false;
+#endif
+}
+
+void set_q8_mmla(bool on) {
+#if defined(GEODE_NEON_DOTPROD)
+    g_q8_mmla.store(on ? 1 : 0, std::memory_order_relaxed);
+#else
+    (void)on;
+#endif
+}
+
 bool have_dotprod_kernels() {
 #if defined(GEODE_NEON_DOTPROD)
     return true;
@@ -1233,6 +1354,39 @@ void matvec_rows_q_multi(const QView &m, const QAct *const *acts, int n, float *
             for (int t = 0; t < n; t += kTileTokens)
                 rows_quad_mmla(m, pq.data() + t / 2, ps.data() + t / 2, std::min(kTileTokens, n - t), ys + t, a,
                                std::min(r1, a + block));
+        return;
+    }
+#endif
+#if defined(GEODE_NEON_DOTPROD)
+    // (from 4 tokens: at 2-3 the AR is still bound by memory, and two rows a thread read side by side measured 4-8%
+    // slower there on the 8 Elite; 1.12x at 5, 1.23x at 9, 1.39x at 17 tokens)
+    if (!m.quad && m.type == DType::Q8 && n >= 4 && m.cols % 64 == 0 && q8_mmla_here()) {
+        // SMMLA: the token pairs packed once, then the same row blocks and tiles of tokens as below
+        const int64_t nblk = m.cols / kBlock;
+        const int np = (n + 1) / 2;
+        thread_local std::vector<int8_t> qbuf;
+        thread_local std::vector<float> sbuf;
+        thread_local std::vector<const int8_t *> pq;
+        thread_local std::vector<const float *> ps;
+        const size_t qper = static_cast<size_t>(nblk) * 32, sper = static_cast<size_t>(nblk) * 4;
+        if (qbuf.size() < qper * static_cast<size_t>(np)) qbuf.resize(qper * static_cast<size_t>(np));
+        if (sbuf.size() < sper * static_cast<size_t>(np)) sbuf.resize(sper * static_cast<size_t>(np));
+        pq.resize(static_cast<size_t>(np));
+        ps.resize(static_cast<size_t>(np));
+        for (int P = 0; P < np; ++P) {
+            int8_t *q = qbuf.data() + qper * static_cast<size_t>(P);
+            float *sc = sbuf.data() + sper * static_cast<size_t>(P);
+            q8_pair(acts[2 * P], 2 * P + 1 < n ? acts[2 * P + 1] : nullptr, nblk, q, sc);
+            pq[static_cast<size_t>(P)] = q;
+            ps[static_cast<size_t>(P)] = sc;
+        }
+        const int64_t block = n > kTileTokens ? std::max<int64_t>(16, static_cast<int64_t>((96u << 10) / std::max<size_t>(1, m.row_bytes))) &
+                                                    ~int64_t{1}
+                                              : r1 - r0;
+        for (int64_t a = r0; a < r1; a += block)
+            for (int t = 0; t < n; t += kTileTokens)
+                rows_q8_mmla(m, acts + t, pq.data() + t / 2, ps.data() + t / 2, std::min(kTileTokens, n - t), ys + t, a,
+                             std::min(r1, a + block));
         return;
     }
 #endif

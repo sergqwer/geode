@@ -119,9 +119,22 @@ std::string units() {
             void *g = open(dir.c_str(), err, sizeof err);
             const int v = g && arch && skel_arch ? skel_arch(arch()) : 0;
             if (g) close(g);
+            // a v66 .. v72 DSP (no HMX): its HVX module takes a share of a prompt's products beside the CPU
+            // (hvx_llm.hpp) - "npu_hvx": the NPU + CPU mode only (no answers there, no GPU path beside it)
+            bool hvx = false;
+            const auto hopen = reinterpret_cast<Open>(dlsym(lib, "gnpu_hvx_open"));
+            const auto hclose = reinterpret_cast<void (*)(void *)>(dlsym(lib, "gnpu_hvx_close"));
+            if (!g && hopen && hclose && dlsym(lib, "gnpu_hvx_q4_gemm")) {
+                char e2[256] = {0};
+                if (void *h = hopen(dir.c_str(), e2, sizeof e2)) {
+                    hclose(h);
+                    hvx = true;
+                }
+            }
             // (the library stays loaded: FastRPC's sessions belong to the process)
-            j.boolean("npu", g != nullptr && v >= 73).num("hexagon", v);
-            if (!g) j.str("npu_reason", err);
+            j.boolean("npu", (g != nullptr && v >= 73) || hvx).num("hexagon", hvx && arch ? arch() : v);
+            if (hvx) j.boolean("npu_hvx", true);
+            else if (!g) j.str("npu_reason", err);
             else if (v < 73) j.str("npu_reason", "Hexagon v" + std::to_string(v) + ": v73 and newer");
         }
     }

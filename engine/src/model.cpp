@@ -304,6 +304,11 @@ bool Model::open(const std::string &dir, const ModelOptions &opt, std::string &e
     else {
         setup_npu();
         open_clock.mark("npu");
+        // no HMX module (a v66 .. v72 DSP): its HVX beside the CPU for a prompt's products (hvx_llm.hpp)
+        if (!npu_.g && opt.quad_layout && !std::getenv("GEODE_NO_QUAD")) {
+            setup_hvx();
+            open_clock.mark("hvx");
+        }
     }
     if (!want_gpu_prompt_ && !want_gpu_answer_) {
         if (mode_) gpu_status_ = std::string("off (the mode: ") + run_mode_name(mode_) + ")";
@@ -2252,7 +2257,8 @@ void Model::setup_npu() {
     const char *path = std::getenv("GEODE_NPU_LIB") ? std::getenv("GEODE_NPU_LIB") : "libgeode_npu.so";
     void *lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
     if (!lib) {
-        npu_.status = std::string("off (") + (dlerror() ? dlerror() : "no libgeode_npu.so") + ")";
+        const char *why = dlerror();   // (once: a second dlerror() is NULL)
+        npu_.status = std::string("off (") + (why ? why : "no libgeode_npu.so") + ")";
         return;
     }
     using Open = void *(*)(const char *, char *, int);
@@ -2850,6 +2856,92 @@ void Model::npu_failed(int e) {
     npu_.g = nullptr;
 }
 
+// A Hexagon v66 class DSP (hvx_llm.hpp): where the NPU's HMX module is out of reach (v66 .. v72), its HVX takes a
+// share of the rows of a prompt's 4-bit products. Before quad_dense: the matrices go into its memory in tile8.
+void Model::setup_hvx() {
+    std::string why;
+    hvx_ = HvxGemm::open(why);
+    if (!hvx_) {
+        hvx_status_ = "off (" + why + ")";
+        return;
+    }
+    const int placed = hvx_one_copy();
+    if (!placed) {
+        hvx_.reset();
+        hvx_status_ = "off (no rpcmem for the matrices)";
+        return;
+    }
+    hvx_status_ = "on";
+}
+
+// One copy: every q4i / q4 matrix a prompt multiplies, in the quad layout, in rpcmem the DSP reads (cached: the
+// CPU's kernels read it for the answer too), in buffers of up to 256 MB each kept mapped on the DSP - the pack's pages
+// given back as each buffer fills (npu_one_copy's way). A matrix that does not fit stays for quad_dense.
+int Model::hvx_one_copy() {
+#if defined(__ANDROID__)
+    std::vector<QView *> views;
+    for (GLayer &L : glayers_)
+        for (QView *m : {&L.q, &L.k, &L.v, &L.o, &L.gate, &L.up, &L.down, &L.ple_gate, &L.ple_proj}) views.push_back(m);
+    if (cfg_.gemma) views.push_back(&ple_model_);
+    for (Layer &L : layers_)
+        for (QView *m : {&L.qkv, &L.z, &L.out, &L.q, &L.k, &L.v, &L.o, &L.sh_gate, &L.sh_up, &L.sh_down})
+            views.push_back(m);
+    struct Mat {
+        const uint8_t *old;
+        DType type;
+        int64_t rows, cols;
+        size_t bytes;
+        uint8_t *at;
+    };
+    std::vector<Mat> mats;
+    for (QView *m : views) {
+        if (!m->data || (m->type != DType::Q4I && m->type != DType::Q4) || m->quad ||
+            !tile8_capable(m->type, m->rows, m->cols))
+            continue;
+        if (std::any_of(mats.begin(), mats.end(), [&](const Mat &x) { return x.old == m->data; })) continue;
+        mats.push_back({m->data, m->type, m->rows, m->cols, static_cast<size_t>(m->rows) * m->row_bytes, nullptr});
+    }
+    int placed = 0;
+    // the CPU's quad layout (its answer reads tile8 4-10% slower on the Redmi's A76; the DSP turns quad into tile8's
+    // order as it reads); GEODE_HVX_TILE8=1: tile8 (the DSP 15-20% faster)
+    const bool t8 = std::getenv("GEODE_HVX_TILE8") && std::atoi(std::getenv("GEODE_HVX_TILE8")) != 0;
+    constexpr size_t kPiece = 256u << 20;
+    for (size_t i = 0; i < mats.size();) {
+        size_t bytes = 0, j = i;
+        while (j < mats.size() && (j == i || bytes + mats[j].bytes <= kPiece)) bytes += mats[j++].bytes;
+        uint8_t *p = hvx_->weights(bytes);
+        if (!p) break;
+        for (size_t off = 0; i < j; off += mats[i++].bytes) {
+            Mat &x = mats[i];
+            x.at = p + off;   // (a tile is 18 x cols bytes: 128-byte aligned throughout)
+            const size_t rb = x.bytes / static_cast<size_t>(x.rows);
+            pool_->parallel_for(x.rows / 32, [&](int64_t a, int64_t b) {
+                if (t8) to_tile8(x.type, 32 * (b - a), x.cols, x.old + static_cast<size_t>(32 * a) * rb,
+                                 x.at + static_cast<size_t>(32 * a) * rb);
+                else to_quad(x.type, 32 * (b - a), x.cols, x.old + static_cast<size_t>(32 * a) * rb,
+                             x.at + static_cast<size_t>(32 * a) * rb);
+            }, 8);
+            for (QView *m : views)
+                if (m->data == x.old) {
+                    m->data = x.at;
+                    m->quad = true;
+                    m->tile8 = t8;
+                }
+            for (QView *m : views)
+                if (m->data == x.at) {
+                    hvx_->hold(*m);
+                    break;
+                }
+            release_pages(const_cast<uint8_t *>(x.old), x.bytes);
+            ++placed;
+        }
+    }
+    return placed;
+#else
+    return 0;
+#endif
+}
+
 bool Model::npu_products(const QView *const *ms, int count, int n, const float *const *xs, float *const *const *ys) {
     if (!npu_.g || npu_.products_off || n < kNpuMinTokens || count < 1 || count > 4) return false;
     // a matrix adopted in parts (Npu::Parts): a product a part, from that part's first input, the results added
@@ -2938,7 +3030,8 @@ void Model::matmul_many(const QView *const *ms, int count, int n, const float *c
     bool one = pre && count > 1 && count <= 4 && !exact_ && !check_ && !rounds;
     int64_t at[5] = {0};
     for (int j = 0; one && j < count; ++j) {
-        one = !npu_takes(*ms[j], n) && !gpu_takes(*ms[j], n) && gpu_rows(*ms[j], n) == 0 && ms[j]->cols == ms[0]->cols;
+        one = !npu_takes(*ms[j], n) && !gpu_takes(*ms[j], n) && gpu_rows(*ms[j], n) == 0 && hvx_rows(*ms[j], n) == 0 &&
+              ms[j]->cols == ms[0]->cols;
         at[j + 1] = at[j] + ms[j]->rows;
     }
     if (one) {
@@ -2950,11 +3043,27 @@ void Model::matmul_many(const QView *const *ms, int count, int n, const float *c
         }, 16, wide_ && at[count] >= kWideRows);
         return;
     }
-    for (int j = 0; j < count; ++j) matmul(*ms[j], n, xs, ys[j], pre);
+    if (hvx_) hvx_->forget_x();   // (a group's first prepares them; only its next ones reuse them)
+    for (int j = 0; j < count; ++j) {
+        hvx_same_x_ = j > 0 && ms[j]->cols == ms[0]->cols;   // (the same input: the DSP's copy of it stands)
+        matmul(*ms[j], n, xs, ys[j], pre);
+    }
+    hvx_same_x_ = false;
 }
 
 std::string Model::npu_status() const {
     std::string s = npu_.status;
+    // a v66 DSP's HVX in the HMX module's place (hvx_llm.hpp): "on: HVX (v66) ..." (the app's run-mode label reads
+    // "on" as the NPU taking part)
+    if (hvx_ && !npu_.g) s = std::string(hvx_->off() ? "failed: " : "on: ") + hvx_->status() + "; the HMX module " + npu_.status;
+    else if (hvx_status_ != "off") s += "; HVX " + hvx_status_;
+    if (hvx_check_n_) {
+        char b[160];
+        std::snprintf(b, sizeof b, "; checked against the CPU's int8: rel L2 mean %.2e, worst %.2e (%llu products)",
+                      hvx_check_sum_ / static_cast<double>(hvx_check_n_), hvx_check_worst_,
+                      static_cast<unsigned long long>(hvx_check_n_));
+        s += b;
+    }
     if (npu_.calls) {
         char b[200];
         std::snprintf(b, sizeof b, "; %llu products, %.2f s (DSP %.2f s, conversions %.2f s)",
@@ -3291,6 +3400,15 @@ void Model::matmul(const QView &m, int n, const float *const *xs, float *const *
         }, 8);
         for (int t = 0; t < n; ++t) acts[static_cast<size_t>(t)] = &qacts_[static_cast<size_t>(t)];
     }
+    // the v66 DSP's rows (hvx_llm.hpp): its inputs on the pool, [0, hr) on the DSP while the CPU's threads take
+    // [hr, rows), its results on the pool
+    const HvxGemm::Par hpar = [&](int64_t items, const std::function<void(int64_t, int64_t)> &fn) {
+        pool_->parallel_for(items, fn, 1);
+    };
+    int64_t hr = r0 == 0 ? hvx_rows(m, n) : 0;
+    if (hr > 0 && !hvx_->prepare(m, hr, n, acts.data(), hvx_same_x_, hpar)) hr = 0;
+    if (hr > 0) hvx_->start();
+    const double t_cpu = now_seconds();
     bool launched = !dec;
     std::string le;
     const std::function<void()> launch = [&] {
@@ -3298,9 +3416,36 @@ void Model::matmul(const QView &m, int n, const float *const *xs, float *const *
         launched = gpu_->start(m, r0, n, xs, le);
         prof_.g_start += now_seconds() - t0;
     };
-    pool_->parallel_for(m.rows - r0, [&](int64_t a, int64_t b) {
-        matvec_rows_q_multi(m, acts.data(), n, ys, r0 + a, r0 + b);
+    pool_->parallel_for(m.rows - r0 - hr, [&](int64_t a, int64_t b) {
+        matvec_rows_q_multi(m, acts.data(), n, ys, r0 + hr + a, r0 + hr + b);
     }, 16, wide_ && m.rows >= kWideRows, dec ? &launch : nullptr);
+    if (hr > 0) {
+        std::string e;
+        const HvxGemm::Finish fin = hvx_->finish(now_seconds() - t_cpu, e);
+        if (fin == HvxGemm::kDone) {
+            hvx_->results(ys, hpar);
+            static const bool hcheck = std::getenv("GEODE_HVX_CHECK") != nullptr;
+            if (hcheck) {   // the DSP's rows against the CPU's int8 product of the same rows (rel L2, the worst kept)
+                std::vector<float> ref(static_cast<size_t>(n) * static_cast<size_t>(hr));
+                std::vector<float *> rp(static_cast<size_t>(n));
+                for (int t = 0; t < n; ++t) rp[static_cast<size_t>(t)] = ref.data() + static_cast<size_t>(t) * static_cast<size_t>(hr);
+                pool_->parallel_for(hr, [&](int64_t a, int64_t b) { matvec_rows_q_multi(m, acts.data(), n, rp.data(), a, b); }, 16);
+                double d = 0.0, s = 0.0;
+                for (int t = 0; t < n; ++t)
+                    for (int64_t i = 0; i < hr; ++i) {
+                        const double x = ys[t][i], y = rp[static_cast<size_t>(t)][i];
+                        d += (x - y) * (x - y), s += y * y;
+                    }
+                const double rel = std::sqrt(d / std::max(s, 1e-30));
+                hvx_check_worst_ = std::max(hvx_check_worst_, rel);
+                hvx_check_sum_ += rel, ++hvx_check_n_;
+            }
+        } else {   // the CPU's then (failed: the DSP off from now on; near int32's limit: this product's)
+            if (fin == HvxGemm::kFailed) hvx_status_ = "failed: " + e;
+            pool_->parallel_for(hr, [&](int64_t a, int64_t b) { matvec_rows_q_multi(m, acts.data(), n, ys, a, b); }, 16,
+                                wide_);
+        }
+    }
     if (!launched) {   // the CPU's then
         gpu_failed_ = true;
         gpu_status_ = le;

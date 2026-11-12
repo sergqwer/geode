@@ -20,11 +20,12 @@ import java.time.Instant
 /**
  * The local server's API: OpenAI's chat completions (/v1/chat/completions, /v1/models) and Anthropic's messages
  * (/v1/messages, /v1/messages/count_tokens, /v1/models with an anthropic-version header) side by side, streamed or
- * whole, with tools, images (base64) and reasoning (OpenAI: reasoning_content; Anthropic: thinking blocks). [key]: the
- * API key requests need (Authorization: Bearer, or x-api-key), null when they need none.
+ * whole, with tools, images (base64) and reasoning (OpenAI: reasoning_content; Anthropic: thinking blocks). Songs too
+ * (/v1/music/...: MusicApi - the phone's song model, its library, the lyrics writer). [key]: the API key requests need
+ * (Authorization: Bearer, or x-api-key), null when they need none.
  */
 @Suppress("UNCHECKED_CAST")
-class Api(private val app: GeodeApp, private val engine: ApiEngine, private val key: () -> String?) {
+class Api(private val app: GeodeApp, private val engine: ApiEngine, private val music: MusicApi?, private val key: () -> String?) {
 
     suspend fun handle(req: HttpRequest, r: HttpResponder) {
         if (req.method == "OPTIONS") return r.send(204, "text/plain", ByteArray(0))
@@ -45,6 +46,7 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
                 path == "/chat/completions" && req.method == "POST" -> chatCompletions(req, r)
                 path == "/messages" && req.method == "POST" -> messages(req, r)
                 path == "/messages/count_tokens" && req.method == "POST" -> countTokens(req, r)
+                path == "/music" || path.startsWith("/music/") -> music(req, r, path.removePrefix("/music"))
                 else -> throw ApiError(404, "No such endpoint: ${req.method} ${req.path}")
             }
         } catch (e: ApiError) {
@@ -79,10 +81,6 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
         }
         linkedMapOf("error" to linkedMapOf("message" to e.message, "type" to type, "param" to null, "code" to null))
     }
-
-    private fun body(req: HttpRequest): Map<String, Any?> =
-        runCatching { Json.parse(String(req.body, Charsets.UTF_8)) as? Map<String, Any?> }.getOrNull()
-            ?: throw ApiError(400, "The body is not a JSON object.")
 
     // ---- models ----
 
@@ -222,7 +220,7 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
     }
 
     private suspend fun chatCompletions(req: HttpRequest, r: HttpResponder) {
-        val b = body(req)
+        val b = req.json()
         val model = engine.model()
         val s = app.settings.flow.first()
         val messages = openaiMessages(model, b.list("messages") ?: throw ApiError(400, "messages is required."))
@@ -260,7 +258,7 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
         }
 
         if (b.bool("stream") != true) {
-            val res = busy { engine.run(g, "call_") {} }
+            val res = LocalServer.busy { engine.run(g, "call_") {} }
             val message = linkedMapOf<String, Any?>("role" to "assistant",
                 "content" to res.content.takeIf { it.isNotEmpty() || res.toolCalls.isEmpty() })
             if (res.reasoning.isNotEmpty()) message["reasoning_content"] = res.reasoning
@@ -280,7 +278,7 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
             chunk(linkedMapOf("role" to "assistant", "content" to ""))
         }
         val res = try {
-            busy {
+            LocalServer.busy {
                 engine.run(g, "call_") { e ->
                     open()
                     when (e) {
@@ -403,12 +401,12 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
     }
 
     private suspend fun countTokens(req: HttpRequest, r: HttpResponder) {
-        val g = anthropicRequest(body(req))
+        val g = anthropicRequest(req.json())
         r.json(200, mapOf("input_tokens" to engine.count(g)))
     }
 
     private suspend fun messages(req: HttpRequest, r: HttpResponder) {
-        val b = body(req)
+        val b = req.json()
         val g = anthropicRequest(b)
         val model = engine.model()
         val id = engine.id("msg_")
@@ -422,7 +420,7 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
             "cache_creation_input_tokens" to 0, "cache_read_input_tokens" to cached, "output_tokens" to output)
 
         if (b.bool("stream") != true) {
-            val res = busy { engine.run(g, "toolu_") {} }
+            val res = LocalServer.busy { engine.run(g, "toolu_") {} }
             val content = ArrayList<Map<String, Any?>>()
             if (g.thinking && res.reasoning.isNotEmpty())
                 content += linkedMapOf("type" to "thinking", "thinking" to res.reasoning, "signature" to SIGNATURE)
@@ -457,7 +455,7 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
                 "usage" to usage(prompt, cached, 0))))
         }
         val res = try {
-            busy {
+            LocalServer.busy {
                 engine.run(g, "toolu_") { e ->
                     when (e) {
                         // before message_start a comment (the head goes now), after it Anthropic's ping
@@ -508,15 +506,9 @@ class Api(private val app: GeodeApp, private val engine: ApiEngine, private val 
         ev("message_stop", emptyMap())
     }
 
-    /** A generation, shown on the server's screen while it runs. */
-    private inline fun <T> busy(block: () -> T): T {
-        LocalServer.status.update { it.copy(busy = it.busy + 1) }
-        try {
-            return block()
-        } finally {
-            LocalServer.status.update { it.copy(busy = it.busy - 1) }
-        }
-    }
+    /** /v1/music: MusicApi's routes (the songs' own path as this API's clients reach them). */
+    private suspend fun music(req: HttpRequest, r: HttpResponder, rest: String) =
+        (music ?: throw ApiError(404, "No such endpoint: ${req.method} ${req.path}")).handle(req, r, rest, "/v1/music/songs")
 
     companion object {
         /** Thinking blocks need a signature; this server checks none. */

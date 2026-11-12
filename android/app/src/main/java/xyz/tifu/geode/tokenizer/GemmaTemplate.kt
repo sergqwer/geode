@@ -59,7 +59,7 @@ class GemmaTemplate(private val tok: Tokenizer) : ApiTemplate {
         require(held in 1 until messages.size)
         // the render from the held answer's end on: its calls' outputs, or its closing (the tools' declarations
         // are before it)
-        val b = build(messages, emptyList(), thinking, generation = true, mark = held - 1)
+        val b = build(messages, emptyList(), thinking, generation = true, mark = held - 1, tailOnly = true)
         val all = b.prompt()
         // (media: the clips count too, not just the images)
         return b.cut(b.markIds, all.size, b.markImages, all.media.size, all.reasoning)
@@ -91,8 +91,8 @@ class GemmaTemplate(private val tok: Tokenizer) : ApiTemplate {
      * else after its content.
      */
     private fun build(messages: List<TemplateMessage>, tools: List<Any?>, thinking: Boolean, generation: Boolean,
-                      mark: Int = -1): Builder {
-        val b = Builder()
+                      mark: Int = -1, tailOnly: Boolean = false): Builder {
+        val b = Builder(tailOnly)
         b.t("<bos>")
         var prevType: String? = null
         var prevNonToolRole: String? = null
@@ -540,7 +540,12 @@ class GemmaTemplate(private val tok: Tokenizer) : ApiTemplate {
 
     /** The ids as the template's string would be tokenized: the text in one go between the media, split at the
      *  added tokens. */
-    private inner class Builder {
+    /**
+     * [tailOnly]: only what comes after the mark is wanted (a continuation) - the text before it is not tokenized, the
+     * whole conversation again on every one of an agent's tool calls. The ids after the mark are the same: the text
+     * is tokenized in pieces split at the mark anyway, and nothing here reads the ids back.
+     */
+    private inner class Builder(private val tailOnly: Boolean = false) {
         private val ids = ArrayList<Int>()
         /** The media in the prompt's order. */
         private val images = ArrayList<TurnMedia>()
@@ -617,6 +622,10 @@ class GemmaTemplate(private val tok: Tokenizer) : ApiTemplate {
 
         private fun flush() {
             if (text.isEmpty()) return
+            if (tailOnly && markIds < 0) {
+                text.setLength(0)
+                return
+            }
             for (id in tok.encodeWithSpecials(text.toString(), mediaTokens)) ids += id
             text.setLength(0)
         }

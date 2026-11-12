@@ -117,6 +117,51 @@ textarea { flex: 1; resize: none; border: 0; outline: 0; background: none; paddi
 .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .shade { display: none; }
+[hidden] { display: none !important; }
+/* the Music page */
+.nav { margin: 0 12px 4px; }
+.nav.on { background: var(--user); border-color: var(--user); }
+.mus { flex: 1; overflow-y: auto; padding: 16px; display: none; }
+main.music .msgs, main.music .composer { display: none; }
+main.music .mus { display: block; }
+.mus .wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card h2 { margin: 0; font-size: 16px; }
+.fld { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+.mus input, .mus select, .mus textarea { font-size: 14.5px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.mus textarea { flex: none; resize: vertical; max-height: none; min-height: 0; outline: 0; }
+.mus input:focus, .mus select:focus, .mus textarea:focus { border-color: var(--accent); outline: 0; }
+.mus .lyr { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13.5px; min-height: 240px; }
+.tools, .row2 { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.btn { padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 13.5px; text-decoration: none; color: var(--text); }
+.btn:hover { border-color: var(--accent); }
+.btn.pri { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; padding: 10px 16px; }
+.btn:disabled { opacity: .45; cursor: default; }
+select.btn { padding: 7px 8px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.hint2 { font-size: 12.5px; color: var(--muted); margin: 0; }
+.ck { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; cursor: pointer; }
+.ck input { width: 16px; height: 16px; margin: 0; }
+.notes2 { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
+.bad2 { color: var(--err); font-size: 13.5px; margin: 0; }
+.bad2:empty { display: none; }
+.mus details > summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+.mus details[open] > summary { margin-bottom: 8px; }
+.mus details.wr { border: 1px dashed var(--line); border-radius: 12px; padding: 8px 10px; }
+.mus details.wr > div { display: flex; flex-direction: column; gap: 8px; }
+.wout { white-space: pre-wrap; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; background: var(--code); border-radius: 10px; padding: 8px 10px; max-height: 320px; overflow: auto; margin: 0; }
+.chipm { font-size: 13px; background: var(--user); border-radius: 10px; padding: 6px 6px 6px 10px; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.song { border-top: 1px solid var(--line); padding: 12px 0 4px; display: flex; flex-direction: column; gap: 6px; }
+.song:first-child { border-top: 0; padding-top: 2px; }
+.song .tt { font-weight: 600; overflow-wrap: anywhere; }
+.song .tt small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.song .sty { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.song .st { font-size: 13px; color: var(--muted); }
+.song .st.err { color: var(--err); }
+.song audio { width: 100%; height: 40px; }
+.bar { height: 6px; border-radius: 3px; background: var(--panel); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .5s; }
+@media (max-width: 1000px) { .mus .wrap { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; }
   aside { position: fixed; inset: 0 auto 0 0; width: 84%; max-width: 320px; z-index: 5; transform: translateX(-100%); transition: transform .2s; }
@@ -125,6 +170,9 @@ textarea { flex: 1; resize: none; border: 0; outline: 0; background: none; paddi
   header .menu { display: block; }
   header .model { display: none; }
   .m.user { max-width: 92%; }
+  .mus { padding: 12px; }
+  .grid2 { grid-template-columns: 1fr; }
+  .grid2 .sp { display: none; }
 }
 </style>
 </head>
@@ -133,6 +181,7 @@ textarea { flex: 1; resize: none; border: 0; outline: 0; background: none; paddi
   <aside id="side">
     <div class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="29" fill="#241b3a"/><path d="M32 12 L46 32 L32 52 L18 32 Z" fill="#b9a8ff"/></svg>Geode</div>
     <button class="new" id="new"></button>
+    <button class="new nav" id="musicBtn"></button>
     <div class="list" id="list"></div>
     <div class="foot"><span id="model"></span><button id="out"></button></div>
   </aside>
@@ -151,6 +200,52 @@ textarea { flex: 1; resize: none; border: 0; outline: 0; background: none; paddi
         </div>
       </div>
     </div>
+    <div class="mus" id="mus"><div class="wrap">
+      <div class="card">
+        <h2 id="mh"></h2>
+        <p class="bad2" id="mNoModel"></p>
+        <label class="fld"><span id="lTitle"></span><input id="mTitle" maxlength="100"></label>
+        <label class="fld"><span id="lStyle"></span><textarea id="mStyle" rows="2" maxlength="1000"></textarea></label>
+        <p class="hint2" id="hStyle"></p>
+        <div class="tools"><select class="btn" id="mPreset"></select><select class="btn" id="mGenre"></select><button class="btn" id="mMidi"></button><input type="file" id="mMidiFile" accept=".mid,.midi,.kar,audio/midi,audio/x-midi" hidden></div>
+        <div class="chipm" id="mMelody" hidden><span></span><button class="btn" id="mNoMelody"></button></div>
+        <ul class="notes2" id="mMidiNotes" hidden></ul>
+        <div class="fld"><span id="lLyrics"></span>
+          <div class="tools"><select class="btn" id="mTag"></select><button class="btn" id="mPause"></button><button class="btn" id="mStress"></button><button class="btn" id="mAi"></button></div>
+        </div>
+        <textarea class="lyr" id="mLyrics" rows="14" maxlength="10000"></textarea>
+        <p class="hint2" id="mLines"></p>
+        <details class="wr" id="mWriter"><summary id="lWriter"></summary><div>
+          <label class="fld"><span id="lIdea"></span><textarea id="mIdea" rows="2" maxlength="4000"></textarea></label>
+          <label class="fld"><span id="lExtra"></span><input id="mExtra" maxlength="4000"></label>
+          <div class="grid2"><label class="fld"><span id="lWLen"></span><select id="mWLen"></select></label><label class="fld"><span id="lLang"></span><select id="mLang"></select></label></div>
+          <div class="row2"><button class="btn pri" id="mWrite"></button></div>
+          <p class="bad2" id="mWErr"></p>
+          <pre class="wout" id="mWOut" hidden></pre>
+          <p class="hint2" id="mNotes"></p>
+          <div class="row2"><button class="btn" id="mUse" hidden></button></div>
+        </div></details>
+        <div class="grid2">
+          <label class="fld"><span id="lMode"></span><select id="mMode"></select></label>
+          <label class="fld"><span class="sp">&nbsp;</span><select id="mLen"></select></label>
+        </div>
+        <label class="ck" id="mInstL" hidden><input type="checkbox" id="mInst"><span id="lInst"></span></label>
+        <p class="hint2" id="hMode"></p>
+        <details id="mAdv"><summary id="lAdv"></summary>
+          <div class="grid2">
+            <label class="fld"><span id="lSeed"></span><input id="mSeed" inputmode="numeric" maxlength="10"></label>
+            <label class="fld"><span id="lPrec"></span><select id="mPrec"></select></label>
+            <label class="fld"><span class="sp">&nbsp;</span><select id="mSteps"></select></label>
+            <label class="fld"><span class="sp">&nbsp;</span><select id="mCfg"></select></label>
+            <label class="fld"><span id="lFmt"></span><select id="mFmt"></select></label>
+          </div>
+        </details>
+        <div class="row2"><select class="btn" id="mTakes"></select><label class="ck" id="mPlanL"><input type="checkbox" id="mPlan"><span id="lPlan"></span></label><button class="btn pri" id="mMake"></button></div>
+        <p class="bad2" id="mErr"></p>
+        <p class="hint2" id="mLicense"></p>
+      </div>
+      <div class="card"><h2 id="mLibH"></h2><div id="mList"></div><p class="hint2" id="mEmpty"></p></div>
+    </div></div>
   </main>
 </div>
 <div class="login" id="login">
@@ -177,7 +272,36 @@ const EN = {
   attach: 'Attach an image', waiting: 'Waiting for the model', reading: 'Reading %1$d tokens…', tps: '%1$.1f tokens/s',
   qr: 'Scan it with Geode on your phone: Local server → Scan a browser\'s QR code', or: 'or type the password',
   installing: 'Starting the agent…', files: 'Agent\'s files', attachAny: 'Attach',
-  audioBad: 'This sound file could not be read', videoBad: 'This video could not be read', preparing: 'Preparing the video…'
+  audioBad: 'This sound file could not be read', videoBad: 'This video could not be read', preparing: 'Preparing the video…',
+  music: 'Music', mCreate: 'Create', mLibrary: 'Library (%1$d)', mEmpty: 'No songs yet.',
+  mNoModel: 'The song model is not on this phone yet. Download it in the Music settings (about 5.5 GB).',
+  mTitle: 'Title', mStyle: 'Style', mPresets: 'Presets', mGenre: 'Add a genre', mLyrics: 'Lyrics',
+  mStyleHint: 'In English: the language first, then the genre, the voice, the instruments, the mood and the tempo. For example: English, indie pop, warm female voice, acoustic guitar, 96 BPM',
+  mLyricsHint: '[Verse]\nThe first line of the song\nThe second line\n\n[Chorus]\nThe chorus',
+  mSection: 'Section', mPause: 'Pause', mStress: 'Stress', mWriteAi: 'Write with AI',
+  mToolsHint: 'Section puts a tag such as [Chorus] on a line of its own. Pause puts an [Interlude]: the band plays and the voice rests. Stress turns the letter before the cursor into a capital (or back): a capital inside a word shows the model the stressed vowel, as in ФраголІно. No lyrics make an instrumental.',
+  mInstrumental: 'Instrumental', mLines: '%1$d sung lines', mMode: 'Mode', mModeFull: 'Score + chords', mModeMelody: 'Melody',
+  mModeOff: 'No score',
+  mModeFullDesc: 'The model writes a score with the melody and the chords first, then sings and plays it: the usual choice, the best songs.',
+  mModeMelodyDesc: 'The score has the melody only: the accompaniment is freer.',
+  mModeOffDesc: 'No score: the song starts sooner and has less structure.',
+  mLenAuto: 'Length: from the lyrics', mLenMax: 'Length: up to %1$s', mTakes: 'Takes: %1$d', mAdvanced: 'More settings',
+  mSeed: 'Seed', mSeedRandom: 'A new seed every time', mSteps: 'Sound steps: %1$d', mCfgAuto: 'Guidance: the mode\'s own (%1$.2f)',
+  mCfg: 'Guidance: %1$.2f', mPrecision: 'Sound precision', mPrecBest: 'Best', mPrecBalanced: 'Balanced', mPrecFast: 'Fast',
+  mFormat: 'File', mMake: 'Make the song', mWriter: 'Write the lyrics', mIdea: 'What is the song about?',
+  mIdeaHint: 'A summer night by the sea, two friends who will not meet again', mExtra: 'Your own instructions (optional)',
+  mWLength: 'Length', mLenShort: 'Short', mLenNormal: 'Normal', mLenLong: 'Long', mLenVeryLong: 'Very long', mLanguage: 'Sung in',
+  mLangAuto: 'The writer decides', mWrite: 'Write', mAgain: 'Write again', mWStop: 'Stop', mUse: 'Use these lyrics',
+  mWaiting: 'Waiting', mMaking: 'Being made', mFailed: 'Failed: %1$s', mCancelled: 'Cancelled',
+  mInterrupted: 'Stopped before it was done', mDone: '%1$s · seed %2$d · made in %3$s', mElapsed: '%1$s so far',
+  mCancel: 'Cancel', mDelete: 'Delete', mDeleteAsk: 'Delete %1$s? Its file goes as well.', mEdit: 'Edit',
+  mSameMelody: 'New take on the same melody', mOnMelody: 'On the melody of %1$s', mNewMelody: 'New melody', mDownload: 'Download',
+  mScoreMidi: 'Score (MIDI)', mScoresFirst: 'Scores first',
+  mScoresFirstDesc: 'Only the tunes are written, in a fraction of the time: listen to them, then sing the one you like.',
+  mInst: 'Instrumental (the adapter)', mInstDesc: 'The model writes its own score with a plan of sections and plays it, no voice. The lyrics: one tag a line - [intro], [verse], [chorus], [bridge], [outro] - or none.',
+  mMakeScores: 'Write the scores', mPlan: 'Score only · seed %1$d · written in %2$s', mSing: 'Sing this score',
+  mMidi: 'Tune from a MIDI file', mMidiFailed: 'This MIDI file cannot be sung: %1$s', mMidiBig: 'it is larger than %1$s.',
+  mLicense: 'The YuE2 model is licensed CC BY-NC 4.0: the songs are for non-commercial use.'
 };
 const L = Object.assign({}, EN, /*GEODE_STRINGS*/{});
 document.documentElement.lang = /*GEODE_LANG*/'en';
@@ -185,7 +309,15 @@ document.documentElement.dir = /*GEODE_DIR*/'ltr';
 /** A translation with its one value in place of its %1$d, %1$s or %1$.1f. */
 function fmt(t, v) { return t.replace(/%1\$\.1f/, Number(v).toFixed(1)).replace(/%1\$[ds]/, String(v)); }
 const $ = id => document.getElementById(id);
-const S = { me: null, chats: [], chat: null, busy: false, images: [], clips: [], films: [], preparing: 0 };
+const S = { me: null, chats: [], chat: null, busy: false, images: [], clips: [], films: [], preparing: 0, view: 'chat' };
+/** A translation with its values in place of its %1$s, %2$d, %1$.2f... (Android's positional format). */
+function fmtN(t, ...v) {
+  return t.replace(/%(\d)\$(?:\.(\d))?([dsf])/g, (m, i, p, k) => {
+    const x = v[i - 1];
+    if (x == null) return m;
+    return k === 'f' ? Number(x).toFixed(p ? +p : 6) : k === 'd' ? String(Math.round(Number(x))) : String(x);
+  }).replace(/%%/g, '%');
+}
 
 // ---- text ----
 const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -245,6 +377,29 @@ async function api(path, opts = {}) {
   return r;
 }
 async function errorOf(r) { try { return (await r.json()).error || r.status; } catch (e) { return r.status; } }
+/** A response's server-sent events, each to on(name, data) as it comes; ends with the stream (a broken connection
+ *  ends it too). */
+async function readEvents(r, on) {
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = '';
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let k;
+      while ((k = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, k); buf = buf.slice(k + 2);
+        let ev = 'message', data = '';
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event: ')) ev = line.slice(7);
+          else if (line.startsWith('data: ')) data += line.slice(6);
+        }
+        if (data) on(ev, JSON.parse(data));
+      }
+    }
+  } catch (e) { /* the connection broke, or it was stopped here */ }
+}
 
 function showLogin() {
   if ($('login').classList.contains('on')) return;
@@ -297,6 +452,7 @@ async function boot() {
     $('pick').title = S.me.audio || S.me.video ? L.attachAny : L.attach;
     await loadChats();
     if (S.chat && S.chat.id) await openChat(S.chat.id, true); else render();
+    if (S.view === 'music') openMusic();
   } catch (e) { /* the login shows */ }
 }
 
@@ -308,12 +464,12 @@ async function loadChats() {
   for (const c of S.chats) {
     const d = new Date(c.updated);
     const el = document.createElement('div');
-    el.className = 'item' + (S.chat && S.chat.id === c.id ? ' on' : '');
+    el.className = 'item' + (S.view === 'chat' && S.chat && S.chat.id === c.id ? ' on' : '');
     el.innerHTML = `<span class="t"></span><span class="d"></span><button class="x" title="${esc(L.del)}">&#10005;</button>`;
     el.querySelector('.t').textContent = c.title || L.untitled;
     el.querySelector('.d').textContent = d.toDateString() === today ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : d.toLocaleDateString([], { day: 'numeric', month: 'short' });
-    el.onclick = () => { closeSide(); openChat(c.id); };
+    el.onclick = () => { closeSide(); showMusic(false); openChat(c.id); };
     el.querySelector('.x').onclick = async ev => {
       ev.stopPropagation();
       if (!confirm(L.delAsk)) return;
@@ -377,40 +533,74 @@ function player(src) {
   return a;
 }
 function clock(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+// An answer drawn into el, kept up to date as it streams: the steps already drawn stay (a tool's line gets its mark),
+// the words and the thinking are set only when they changed, and a thinking the user opened or closed stays so.
 function fillBot(el, m) {
-  el.textContent = '';
+  let k = el._k;
+  if (!k) {
+    el.textContent = '';
+    k = el._k = { head: document.createElement('div'), steps: document.createElement('div'), think: null,
+      body: document.createElement('div'), foot: document.createElement('div'), drawn: [], text: null };
+    k.body.className = 'body';
+    for (const p of [k.head, k.steps, k.body, k.foot]) el.appendChild(p);
+  }
   // a summary, or an answer the agent condensed its context before (what came before it, it knows from its summary)
-  if (m.summary || m.compacted) { const l = document.createElement('div'); l.className = 'lbl'; l.textContent = L.summary; el.appendChild(l); }
+  const lbl = !!(m.summary || m.compacted);
+  if (lbl !== !!k.head.firstChild) {
+    k.head.textContent = '';
+    if (lbl) { const l = document.createElement('div'); l.className = 'lbl'; l.textContent = L.summary; k.head.appendChild(l); }
+  }
   // what the agent did on the way: its words between the tools, a line per tool (its main argument, how it ended)
-  for (const st of m.steps || []) {
-    if (st.words != null) { const w = document.createElement('div'); w.className = 'words'; w.innerHTML = md(st.words); el.appendChild(w); continue; }
-    const t = document.createElement('div'); t.className = 'tool' + (st.ok === false ? ' fail' : '');
-    const mark = document.createElement('span'); mark.className = 'mark'; mark.textContent = st.ok == null ? '… ' : st.ok ? '✓ ' : '✗ ';
-    const n = document.createElement('span'); n.className = 'tname'; n.textContent = st.tool;
-    t.appendChild(mark); t.appendChild(n);
-    if (st.args) { const c = document.createElement('code'); c.textContent = st.args; t.appendChild(document.createTextNode(' ')); t.appendChild(c); }
-    el.appendChild(t);
+  const steps = m.steps || [];
+  const sig = st => st.words != null ? 'w' + st.words : 't' + st.tool + '\u0000' + (st.args || '');
+  let same = 0;
+  while (same < steps.length && same < k.drawn.length && k.drawn[same].sig === sig(steps[same])) same++;
+  while (k.drawn.length > same) k.steps.removeChild(k.drawn.pop().el);
+  for (let i = 0; i < steps.length; i++) {
+    const st = steps[i];
+    if (i >= same) {
+      let e;
+      if (st.words != null) { e = document.createElement('div'); e.className = 'words'; e.innerHTML = md(st.words); }
+      else {
+        e = document.createElement('div');
+        const mark = document.createElement('span'); mark.className = 'mark';
+        const n = document.createElement('span'); n.className = 'tname'; n.textContent = st.tool;
+        e.appendChild(mark); e.appendChild(n);
+        if (st.args) { const c = document.createElement('code'); c.textContent = st.args; e.appendChild(document.createTextNode(' ')); e.appendChild(c); }
+      }
+      k.steps.appendChild(e);
+      k.drawn.push({ el: e, sig: sig(st), ok: undefined });
+    }
+    const d = k.drawn[i];
+    if (st.words == null && d.ok !== st.ok) {
+      d.ok = st.ok;
+      d.el.className = 'tool' + (st.ok === false ? ' fail' : '');
+      d.el.firstChild.textContent = st.ok == null ? '… ' : st.ok ? '✓ ' : '✗ ';
+    }
   }
   if (m.thinking) {
-    const d = document.createElement('details'); d.className = 'think'; d.open = !!m.live && !m.text;
-    d.innerHTML = '<summary></summary><div></div>';
-    d.querySelector('summary').textContent = L.thinking;
-    d.querySelector('div').textContent = m.thinking;
-    el.appendChild(d);
-  }
-  const body = document.createElement('div'); body.className = 'body';
-  body.innerHTML = md(m.text || '');
-  el.appendChild(body);
-  const toolRuns = (m.steps || []).some(st => st.tool && st.ok == null);
-  if (m.live && m.calling) {
-    // a long tool call being written (a file's whole text): nothing else shows until it ends
-    const s = document.createElement('div'); s.className = 'status dots'; s.textContent = m.calling; el.appendChild(s);
-  } else if (m.live && !m.text && !m.thinking && !toolRuns) {
-    const s = document.createElement('div'); s.className = 'status dots'; s.textContent = m.status || L.waiting; el.appendChild(s);
-  }
-  if (m.error) { const e = document.createElement('div'); e.className = 'err'; e.textContent = m.error; el.appendChild(e); }
-  if (m.files && m.files.length) { const f = document.createElement('div'); f.className = 'meta'; f.textContent = L.files + ': ' + m.files.join(', '); el.appendChild(f); }
-  if (m.tps) { const t = document.createElement('div'); t.className = 'meta'; t.textContent = fmt(L.tps, m.tps); el.appendChild(t); }
+    if (!k.think) {
+      const d = k.think = document.createElement('details'); d.className = 'think';
+      d.innerHTML = '<summary></summary><div></div>';
+      d.querySelector('summary').textContent = L.thinking;
+      d.querySelector('summary').addEventListener('click', () => { d._user = true; });
+      el.insertBefore(d, k.body);
+    }
+    // open while it is all there is, closed once the answer's words come - unless the user chose
+    if (!k.think._user) k.think.open = !!m.live && !m.text;
+    const t = k.think.lastChild;
+    if (t.textContent !== m.thinking) t.textContent = m.thinking;
+  } else if (k.think) { k.think.remove(); k.think = null; }
+  if (k.text !== (m.text || '')) { k.text = m.text || ''; k.body.innerHTML = md(k.text); }
+  k.foot.textContent = '';
+  const add = (cls, text) => { const e = document.createElement('div'); e.className = cls; e.textContent = text; k.foot.appendChild(e); };
+  const toolRuns = steps.some(st => st.tool && st.ok == null);
+  // a long tool call being written (a file's whole text): nothing else shows until it ends
+  if (m.live && m.calling) add('status dots', m.calling);
+  else if (m.live && !m.text && !m.thinking && !toolRuns) add('status dots', m.status || L.waiting);
+  if (m.error) add('err', m.error);
+  if (m.files && m.files.length) add('meta', L.files + ': ' + m.files.join(', '));
+  if (m.tps) add('meta', fmt(L.tps, m.tps));
 }
 function nearBottom() { const b = $('msgs'); return b.scrollHeight - b.scrollTop - b.clientHeight < 120; }
 function toBottom() { const b = $('msgs'); b.scrollTop = b.scrollHeight; }
@@ -423,6 +613,7 @@ function render(scroll) {
   for (const m of msgs) inner.appendChild(msgEl(m));
   if (scroll) toBottom();
   setBusy(S.busy);
+  if (S.view === 'music') $('title').textContent = L.music;
 }
 
 // ---- sending ----
@@ -456,9 +647,8 @@ async function send() {
     r = await api('/web/send', { method: 'POST', body: JSON.stringify({ chat: S.chat.id, text, images, audio, videos }) });
   } catch (e) { setBusy(false); return; }
   if (!r.ok) { a.live = false; a.error = await errorOf(r); fillBot(botEl, a); setBusy(false); return; }
-  const reader = r.body.getReader(), dec = new TextDecoder();
-  let buf = '';
-  const on = (ev, d) => {
+  let frame = 0, sticky = false;
+  await readEvents(r, (ev, d) => {
     const stick = nearBottom();
     if (ev === 'start') {
       S.chat.id = d.chat; S.chat.title = d.title; $('title').textContent = d.title;
@@ -483,26 +673,12 @@ async function send() {
     else if (ev === 'content') { a.text += d.text; a.calling = ''; }
     else if (ev === 'done') { Object.assign(a, d); a.live = false; a.calling = ''; }
     else if (ev === 'error') { a.error = d.message; a.live = false; a.calling = ''; }
-    fillBot(botEl, a);
-    if (stick) toBottom();
-  };
-  try {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let k;
-      while ((k = buf.indexOf('\n\n')) >= 0) {
-        const block = buf.slice(0, k); buf = buf.slice(k + 2);
-        let ev = 'message', data = '';
-        for (const line of block.split('\n')) {
-          if (line.startsWith('event: ')) ev = line.slice(7);
-          else if (line.startsWith('data: ')) data += line.slice(6);
-        }
-        if (data) on(ev, JSON.parse(data));
-      }
-    }
-  } catch (e) { /* the connection broke: the phone keeps the answer */ }
+    // (a burst of events, one redraw: at the next frame)
+    sticky = sticky || stick;
+    if (!frame) frame = requestAnimationFrame(() => { frame = 0; fillBot(botEl, a); if (sticky) toBottom(); sticky = false; });
+  });
+  if (frame) { cancelAnimationFrame(frame); frame = 0; fillBot(botEl, a); if (sticky) toBottom(); }
+  // (a broken connection: the phone keeps the answer)
   if (a.live) { a.live = false; fillBot(botEl, a); }
   setBusy(false);
   // the answer as the phone saved it (its clips from the phone now: this page's own copies let go)
@@ -658,9 +834,422 @@ async function addFilm(f) {
   finally { URL.revokeObjectURL(url); S.preparing--; drawAtt(); }
 }
 
+// ---- the Music page: songs made on the phone (its song model, one at a time), its library, the lyrics writer ----
+const M = { info: null, songs: [], timer: 0, melody: null, written: null, abort: null, ready: false };
+const MLENS = [0, 30, 60, 90, 120, 180, 240, 300, 360], MCFG = [0, 1.0, 1.1, 1.2, 1.3, 1.5];
+const DRAFT = 'geode.music.draft';
+function showMusic(on) {
+  S.view = on ? 'music' : 'chat';
+  document.querySelector('main').classList.toggle('music', on);
+  $('musicBtn').classList.toggle('on', on);
+  $('title').textContent = on ? L.music : ((S.chat && S.chat.title) || L.untitled);
+  if (!on) { clearTimeout(M.timer); M.timer = 0; }
+  loadChats().catch(() => {});
+}
+async function openMusic() {
+  showMusic(true);
+  try {
+    const r = await api('/web/music');
+    if (!r.ok) { $('mErr').textContent = await errorOf(r); return; }
+    M.info = await r.json();
+  } catch (e) { return; }
+  if (!M.ready) { fillForm(); M.ready = true; }
+  $('mNoModel').textContent = M.info.model ? '' : L.mNoModel;
+  $('mInstL').hidden = !M.info.instrumental;
+  if (!M.info.instrumental) $('mInst').checked = false;
+  canMake();
+  pollSongs();
+}
+const opt = (sel, value, label) => { const o = document.createElement('option'); o.value = value; o.textContent = label; sel.appendChild(o); return o; };
+function langName(tag, name) {
+  try { return new Intl.DisplayNames([document.documentElement.lang], { type: 'language' }).of(tag) || name; } catch (e) { return name; }
+}
+/** The form's choices from the phone's (its music settings as the defaults), and the draft this browser kept. */
+function fillForm() {
+  const I = M.info, d = I.defaults;
+  const mode = $('mMode'); mode.textContent = '';
+  for (const k of I.modes) opt(mode, k, { full: L.mModeFull, melody: L.mModeMelody, off: L.mModeOff }[k] || k);
+  mode.value = d.mode;
+  const len = $('mLen'); len.textContent = '';
+  for (const n of MLENS) if (n <= I.max_seconds) opt(len, n, n ? fmtN(L.mLenMax, clock(n)) : L.mLenAuto);
+  len.value = MLENS.includes(d.seconds) ? d.seconds : 0;
+  const steps = $('mSteps'); steps.textContent = '';
+  for (const n of I.steps) opt(steps, n, fmtN(L.mSteps, n));
+  steps.value = d.steps;
+  const prec = $('mPrec'); prec.textContent = '';
+  for (const k of I.precisions) opt(prec, k, { best: L.mPrecBest, balanced: L.mPrecBalanced, fast: L.mPrecFast }[k] || k);
+  prec.value = d.precision;
+  const fm = $('mFmt'); fm.textContent = '';
+  for (const k of I.formats) opt(fm, k, k.toUpperCase());
+  fm.value = d.format;
+  $('mSeed').value = d.seed == null ? '' : d.seed;
+  const takes = $('mTakes'); takes.textContent = '';
+  for (let n = 1; n <= I.max_takes; n++) opt(takes, n, fmtN(L.mTakes, n));
+  const pre = $('mPreset'); pre.textContent = '';
+  opt(pre, '', L.mPresets).disabled = true;
+  I.presets.forEach((p, i) => opt(pre, i, p.name + ' · ' + langName((I.languages.find(l => l.name === p.language) || {}).tag || '', p.language)));
+  pre.value = '';
+  const gen = $('mGenre'); gen.textContent = '';
+  opt(gen, '', L.mGenre).disabled = true;
+  for (const g of I.genres) opt(gen, g, g);
+  gen.value = '';
+  const tag = $('mTag'); tag.textContent = '';
+  opt(tag, '', L.mSection).disabled = true;
+  for (const t of I.tags) opt(tag, t, '[' + t + ']');
+  tag.value = '';
+  const wl = $('mWLen'); wl.textContent = '';
+  for (const l of I.lengths) opt(wl, l.key, { short: L.mLenShort, normal: L.mLenNormal, long: L.mLenLong, very_long: L.mLenVeryLong }[l.key] || l.key);
+  wl.value = I.writer.length;
+  const lang = $('mLang'); lang.textContent = '';
+  opt(lang, '', L.mLangAuto);
+  for (const l of I.languages) opt(lang, l.tag, langName(l.tag, l.name));
+  lang.value = (I.languages.find(l => l.name === I.writer.language) || { tag: '' }).tag;
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(DRAFT) || 'null'); } catch (e) { draft = null; }
+  if (draft) {
+    $('mTitle').value = draft.title || ''; $('mStyle').value = draft.style || ''; $('mLyrics').value = draft.lyrics || '';
+    if (draft.mode && I.modes.includes(draft.mode)) mode.value = draft.mode;
+    $('mIdea').value = draft.idea || '';
+    $('mInst').checked = !!draft.inst;
+  }
+  modeChanged(); lines();
+}
+function saveDraft() {
+  try {
+    localStorage.setItem(DRAFT, JSON.stringify({ title: $('mTitle').value, style: $('mStyle').value, lyrics: $('mLyrics').value,
+      mode: $('mMode').value, idea: $('mIdea').value, inst: $('mInst').checked }));
+  } catch (e) { /* no storage here: the form only */ }
+}
+/** "Scores first": offered only where the model writes a score (a mode with one, no song's melody borrowed). */
+function planShown() {
+  const can = $('mMode').value !== 'off' && !M.melody && !M.midi;
+  $('mPlanL').hidden = !can;
+  $('mMake').textContent = can && $('mPlan').checked ? L.mMakeScores : L.mMake;
+}
+function modeChanged() {
+  const m = $('mMode').value;
+  $('hMode').textContent = { full: L.mModeFullDesc, melody: L.mModeMelodyDesc, off: L.mModeOffDesc }[m] || '';
+  const cfg = $('mCfg'), was = cfg.value;
+  cfg.textContent = '';
+  for (const g of MCFG) opt(cfg, g, g ? fmtN(L.mCfg, g) : fmtN(L.mCfgAuto, m === 'off' ? 1.01 : 1.0));
+  const d = M.info && M.info.defaults.guidance;
+  cfg.value = was !== '' ? was : (MCFG.includes(d) && d !== (m === 'off' ? 1.01 : 1.0) ? d : 0);
+  if (m === 'off' && (M.melody || M.midi)) setMelody(null);
+  else if (M.midi) previewMidi();
+  saveDraft();
+  planShown();
+}
+const isTag = l => { const t = l.trim(); return t.length > 2 && t[0] === '[' && t[t.length - 1] === ']'; };
+function lines() {
+  const n = $('mLyrics').value.split('\n').filter(l => l.trim() && !isTag(l)).length;
+  $('mLines').textContent = n ? fmtN(L.mLines, n) : L.mInstrumental;
+  canMake();
+}
+function canMake() { $('mMake').disabled = !(M.info && M.info.model) || !($('mStyle').value.trim() || $('mLyrics').value.trim() || $('mInst').checked); }
+/** [text] put at the lyrics' cursor on a line of its own. */
+function putLine(text) {
+  const ta = $('mLyrics'), v = ta.value, i = ta.selectionStart, j = ta.selectionEnd;
+  const before = v.slice(0, i), after = v.slice(j);
+  const pre = before && !before.endsWith('\n') ? '\n' : '', post = after.startsWith('\n') ? '' : '\n';
+  ta.value = before + pre + text + post + after;
+  const at = (before + pre + text + post).length;
+  ta.focus(); ta.setSelectionRange(at, at);
+  lines(); saveDraft();
+}
+function setMelody(song) {
+  M.melody = song ? { id: song.id, title: song.title } : null;
+  M.midi = null; midiNotes([]); M.midiTicket = (M.midiTicket || 0) + 1;   // (a reading under way: its answer dropped)
+  $('mMelody').hidden = !song;
+  if (song) $('mMelody').querySelector('span').textContent = fmtN(L.mOnMelody, song.title);
+  planShown();
+}
+function midiNotes(list) {
+  const ul = $('mMidiNotes'); ul.textContent = '';
+  for (const n of list) { const li = document.createElement('li'); li.textContent = n.message; ul.appendChild(li); }
+  ul.hidden = !list.length;
+}
+/** A MIDI file's tune as the song's score: read by the phone (what it becomes, its notices), sent again with the
+ *  song; its karaoke words as the lyrics when there are none. */
+async function pickMidi(file) {
+  if (!file) return;
+  $('mErr').textContent = '';
+  // (larger than any song's tune: not read at all - the phone refuses it too)
+  if (file.size > MIDI_MAX) { $('mErr').textContent = fmtN(L.mMidiFailed, fmtN(L.mMidiBig, '4 MB')); return; }
+  let data;
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    data = btoa(bin);
+  } catch (e) { $('mErr').textContent = fmtN(L.mMidiFailed, e.message || e); return; }
+  if ($('mMode').value === 'off') { $('mMode').value = 'full'; modeChanged(); }
+  const ticket = M.midiTicket = (M.midiTicket || 0) + 1;
+  try {
+    const r = await api('/web/music/midi', { method: 'POST',
+      body: JSON.stringify({ midi: data, mode: $('mMode').value, lyrics: $('mLyrics').value }) });
+    // (another file picked meanwhile, a song's melody taken, the mode without a score: this answer is old)
+    if (ticket !== M.midiTicket || $('mMode').value === 'off') return;
+    if (!r.ok) { $('mErr').textContent = await errorOf(r); return; }
+    const j = await r.json();
+    if (ticket !== M.midiTicket) return;
+    setMelody(null);
+    M.midi = { name: file.name.replace(/\.[^.]*$/, '') || 'MIDI', data };
+    $('mMelody').hidden = false;
+    $('mMelody').querySelector('span').textContent = fmtN(L.mOnMelody, M.midi.name);
+    midiNotes(j.notices || []);
+    // (an instrumental's lyrics are its plan of sections: no sung words)
+    if (!$('mLyrics').value.trim() && j.lyrics && !$('mInst').checked) { $('mLyrics').value = j.lyrics; lines(); saveDraft(); }
+    planShown();
+  } catch (e) { /* signed out */ }
+}
+const MIDI_MAX = 4 << 20;
+/** The chosen MIDI file read again for the lyrics and the mode as they are now: the notices (how the lyrics are laid
+ *  along the tune, the chords) stay those of the song that will be made. */
+async function previewMidi() {
+  if (!M.midi || $('mMode').value === 'off') return;
+  const ticket = M.midiTicket = (M.midiTicket || 0) + 1;
+  try {
+    const r = await api('/web/music/midi', { method: 'POST',
+      body: JSON.stringify({ midi: M.midi.data, mode: $('mMode').value, lyrics: $('mLyrics').value }) });
+    if (ticket !== M.midiTicket || !M.midi) return;
+    if (!r.ok) { $('mErr').textContent = await errorOf(r); return; }
+    const j = await r.json();
+    if (ticket === M.midiTicket && M.midi) midiNotes(j.notices || []);
+  } catch (e) { /* signed out */ }
+}
+function edit(song, melody) {
+  $('mTitle').value = song.title; $('mStyle').value = song.style; $('mLyrics').value = song.lyrics;
+  if (song.mode && M.info.modes.includes(song.mode)) $('mMode').value = song.mode;
+  if (melody && $('mMode').value === 'off') $('mMode').value = 'full';
+  // (kept even where the adapter is gone, so the phone refuses the song instead of making it without the adapter)
+  $('mInst').checked = !!song.instrumental;
+  modeChanged();
+  setMelody(melody ? song : null);
+  lines(); saveDraft();
+  $('mTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+async function make() {
+  $('mErr').textContent = '';
+  const body = {
+    title: $('mTitle').value.trim(), style: $('mStyle').value.trim(), lyrics: $('mLyrics').value,
+    mode: $('mMode').value, seconds: +$('mLen').value, steps: +$('mSteps').value, guidance: +$('mCfg').value,
+    precision: $('mPrec').value, format: $('mFmt').value, takes: +$('mTakes').value
+  };
+  const seed = $('mSeed').value.trim();
+  if (seed) body.seed = +seed;
+  if (!$('mInstL').hidden || $('mInst').checked) body.instrumental = $('mInst').checked;
+  if (body.instrumental) body.mode = 'full';
+  if (M.melody) body.melody_of = M.melody.id;
+  else if (M.midi) body.midi = M.midi.data;
+  else if ($('mPlan').checked && body.mode !== 'off') body.score_only = true;
+  $('mMake').disabled = true;
+  try {
+    const r = await api('/web/music/songs', { method: 'POST', body: JSON.stringify(body) });
+    if (!r.ok) { $('mErr').textContent = await errorOf(r); return; }
+    setMelody(null);
+    await pollSongs();
+  } catch (e) { /* signed out */ } finally { canMake(); }
+}
+// ---- the library: polled while a song waits or is made; a card is drawn anew only when its status changes (a
+// playing song's player is never replaced) ----
+async function pollSongs() {
+  clearTimeout(M.timer); M.timer = 0;
+  if (S.view !== 'music') return;
+  try {
+    const r = await api('/web/music/songs');
+    if (!r.ok) return;
+    M.songs = (await r.json()).data;
+  } catch (e) { return; }
+  drawSongs();
+  if (S.view === 'music' && M.songs.some(s => s.status === 'queued' || s.status === 'in_progress'))
+    M.timer = setTimeout(pollSongs, document.hidden ? 10000 : 2000);
+}
+function statusText(s) {
+  switch (s.status) {
+    case 'completed': return s.score_only ? fmtN(L.mPlan, s.seed, clock(s.made_in)) : fmtN(L.mDone, clock(s.seconds), s.seed, clock(s.made_in));
+    case 'failed': return fmtN(L.mFailed, s.error || '?');
+    case 'cancelled': return L.mCancelled;
+    case 'interrupted': return L.mInterrupted;
+    case 'in_progress': {
+      const p = s.progress;
+      if (!p) return L.mMaking;
+      return p.label + ' · ' + fmtN(L.mElapsed, clock(p.elapsed));
+    }
+    default: return L.mWaiting;
+  }
+}
+function songEl(s) {
+  const el = document.createElement('div');
+  el.className = 'song'; el.dataset.id = s.id; el.dataset.key = s.status;
+  el.song = s;
+  const tt = document.createElement('div'); tt.className = 'tt';
+  const name = document.createElement('span'); name.className = 'nm'; tt.appendChild(name);
+  const when = document.createElement('small'); when.textContent = new Date(s.created * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+  tt.appendChild(when); el.appendChild(tt);
+  if (s.style) { const st = document.createElement('div'); st.className = 'sty'; st.textContent = s.style; el.appendChild(st); }
+  const line = document.createElement('div'); line.className = 'st' + (s.status === 'failed' ? ' err' : ''); el.appendChild(line);
+  if (s.status === 'in_progress') { const b = document.createElement('div'); b.className = 'bar'; b.innerHTML = '<i></i>'; el.appendChild(b); }
+  if (s.status === 'completed' && s.audio) {
+    const a = document.createElement('audio'); a.controls = true; a.preload = 'none'; a.src = s.audio; el.appendChild(a);
+  }
+  const row = document.createElement('div'); row.className = 'row2';
+  const button = (label, fn) => { const b = document.createElement('button'); b.className = 'btn'; b.textContent = label; b.onclick = fn; row.appendChild(b); return b; };
+  if (s.status === 'completed' && s.audio) {
+    const dl = document.createElement('a'); dl.className = 'btn'; dl.textContent = L.mDownload; dl.href = s.audio + '?download=1'; row.appendChild(dl);
+  }
+  if (s.status === 'completed' && s.score_only) {
+    const sing = button(L.mSing, async () => {
+      sing.disabled = true;
+      try {
+        const r = await api('/web/music/songs/' + s.id + '/sing', { method: 'POST' });
+        if (!r.ok) { alert(await errorOf(r)); return; }
+        await pollSongs();
+      } catch (e) { /* signed out */ } finally { sing.disabled = false; }
+    });
+    sing.classList.add('pri');
+  }
+  if (s.status === 'completed' && s.score) {
+    const mid = document.createElement('a'); mid.className = 'btn'; mid.textContent = L.mScoreMidi; mid.href = s.score; row.appendChild(mid);
+  }
+  if (s.status === 'queued' || s.status === 'in_progress') {
+    button(L.mCancel, async () => { await api('/web/music/songs/' + s.id + '/cancel', { method: 'POST' }); pollSongs(); });
+  } else {
+    button(L.mEdit, () => edit(el.song, false));
+    if (s.status === 'completed' && s.mode !== 'off') button(L.mSameMelody, () => edit(el.song, true));
+    button(L.mDelete, async () => {
+      if (!confirm(fmtN(L.mDeleteAsk, el.song.title))) return;
+      const r = await api('/web/music/songs/' + s.id, { method: 'DELETE' });
+      if (!r.ok) { alert(await errorOf(r)); return; }
+      if (M.melody && M.melody.id === s.id) setMelody(null);
+      pollSongs();
+    });
+  }
+  el.appendChild(row);
+  updateSong(el, s);
+  return el;
+}
+function updateSong(el, s) {
+  el.song = s;
+  el.querySelector('.nm').textContent = s.title;
+  el.querySelector('.st').textContent = statusText(s);
+  const bar = el.querySelector('.bar > i');
+  if (bar) bar.style.width = Math.round(100 * ((s.progress && s.progress.fraction) || 0)) + '%';
+}
+function drawSongs() {
+  const list = $('mList');
+  const ids = new Set(M.songs.map(s => s.id));
+  for (const el of [...list.children]) if (!ids.has(el.dataset.id)) el.remove();
+  let prev = null;
+  for (const s of M.songs) {
+    let el = [...list.children].find(x => x.dataset.id === s.id);
+    if (!el || el.dataset.key !== s.status) { const n = songEl(s); if (el) el.replaceWith(n); el = n; }
+    else updateSong(el, s);
+    const want = prev ? prev.nextSibling : list.firstChild;
+    if (want !== el) list.insertBefore(el, want);
+    prev = el;
+  }
+  $('mLibH').textContent = fmtN(L.mLibrary, M.songs.length);
+  $('mEmpty').textContent = M.songs.length ? '' : L.mEmpty;
+}
+// ---- the lyrics writer: the phone's chat model writes the style and the lyrics, streamed here ----
+async function write() {
+  if (M.abort) { M.abort.abort(); return; }
+  const idea = $('mIdea').value.trim();
+  if (!idea) { $('mIdea').focus(); return; }
+  $('mWErr').textContent = ''; $('mNotes').textContent = ''; $('mUse').hidden = true;
+  const out = $('mWOut'); out.hidden = false; out.textContent = '';
+  M.written = null;
+  M.abort = new AbortController();
+  $('mWrite').textContent = L.mWStop;
+  try {
+    const r = await api('/web/music/lyrics', { method: 'POST', signal: M.abort.signal,
+      body: JSON.stringify({ idea, extra: $('mExtra').value.trim(), length: $('mWLen').value,
+        language: $('mLang').value || 'auto', stream: true }) });
+    if (!r.ok) { $('mWErr').textContent = await errorOf(r); return; }
+    await readEvents(r, (ev, d) => {
+      if (ev === 'delta') { out.textContent += d.text; out.scrollTop = out.scrollHeight; }
+      else if (ev === 'restart') out.textContent = '';
+      else if (ev === 'done') {
+        M.written = d;
+        out.textContent = (d.style ? d.style + '\n\n' : '') + d.lyrics;
+        $('mNotes').textContent = (d.notes || []).map(n => n.message).join(' ');
+        $('mUse').hidden = !(d.style || d.lyrics);
+      } else if (ev === 'error') $('mWErr').textContent = d.message;
+    });
+  } catch (e) { /* stopped here before the answer began */ }
+  finally { M.abort = null; $('mWrite').textContent = M.written ? L.mAgain : L.mWrite; }
+}
+function useWritten() {
+  const w = M.written;
+  if (!w) return;
+  if (w.style) $('mStyle').value = w.style;
+  if (w.lyrics) $('mLyrics').value = w.lyrics;
+  setMelody(null);
+  lines(); saveDraft();
+  $('mStyle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+$('musicBtn').textContent = '\u266A ' + L.music;
+$('musicBtn').onclick = () => { closeSide(); openMusic(); };
+$('mh').textContent = L.mCreate;
+$('lTitle').textContent = L.mTitle; $('lStyle').textContent = L.mStyle; $('hStyle').textContent = L.mStyleHint;
+$('lLyrics').textContent = L.mLyrics; $('mLyrics').placeholder = L.mLyricsHint; $('mLyrics').title = L.mToolsHint;
+$('mPause').textContent = L.mPause; $('mStress').textContent = L.mStress; $('mAi').textContent = '\u2728 ' + L.mWriteAi;
+$('mPause').title = $('mStress').title = L.mToolsHint;
+$('lWriter').textContent = L.mWriter; $('lIdea').textContent = L.mIdea; $('mIdea').placeholder = L.mIdeaHint;
+$('lExtra').textContent = L.mExtra; $('lWLen').textContent = L.mWLength; $('lLang').textContent = L.mLanguage;
+$('mWrite').textContent = L.mWrite; $('mUse').textContent = L.mUse;
+$('lMode').textContent = L.mMode; $('lAdv').textContent = L.mAdvanced; $('lSeed').textContent = L.mSeed;
+$('mSeed').placeholder = L.mSeedRandom; $('lPrec').textContent = L.mPrecision; $('lFmt').textContent = L.mFormat;
+$('mMake').textContent = L.mMake; $('mLicense').textContent = L.mLicense; $('mNoMelody').textContent = L.mNewMelody;
+$('lPlan').textContent = L.mScoresFirst; $('mPlanL').title = L.mScoresFirstDesc;
+$('lInst').textContent = L.mInst; $('mInstL').title = L.mInstDesc;
+$('mInst').onchange = () => { canMake(); saveDraft(); };
+$('mMidi').textContent = L.mMidi;
+$('mMidi').onclick = () => $('mMidiFile').click();
+$('mMidiFile').onchange = () => { const f = $('mMidiFile').files[0]; $('mMidiFile').value = ''; pickMidi(f); };
+$('mPlan').onchange = planShown;
+$('mMode').onchange = modeChanged;
+$('mLyrics').addEventListener('input', () => {
+  lines(); saveDraft();
+  if (M.midi) { clearTimeout(M.midiTimer); M.midiTimer = setTimeout(previewMidi, 800); }
+});
+for (const id of ['mTitle', 'mStyle', 'mIdea']) $(id).addEventListener('input', () => { saveDraft(); canMake(); });
+$('mSeed').addEventListener('input', () => { $('mSeed').value = $('mSeed').value.replace(/[^0-9]/g, ''); });
+$('mTag').onchange = () => { const t = $('mTag').value; $('mTag').value = ''; if (t) putLine('[' + t + ']'); };
+$('mPause').onclick = () => putLine('[' + ((M.info && M.info.breaks[0]) || 'Interlude') + ']');
+$('mStress').onclick = () => {
+  const ta = $('mLyrics'), i = ta.selectionStart;
+  if (i < 1) return;
+  const c = ta.value[i - 1], u = c.toUpperCase(), lo = c.toLowerCase();
+  if (u === lo) return;
+  ta.value = ta.value.slice(0, i - 1) + (c === u ? lo : u) + ta.value.slice(i);
+  ta.focus(); ta.setSelectionRange(i, i); saveDraft();
+};
+$('mAi').onclick = () => { $('mWriter').open = true; $('mIdea').focus(); };
+$('mPreset').onchange = () => {
+  const p = M.info.presets[+$('mPreset').value]; $('mPreset').value = '';
+  if (!p) return;
+  // the language the style names first kept in front (the Music screen's applyPreset), else the writer's
+  const first = $('mStyle').value.split(',')[0].trim().toLowerCase();
+  const named = (M.info.languages.find(l => l.name.toLowerCase() === first) || {}).name || M.info.writer.language;
+  $('mStyle').value = named ? named + ', ' + p.style : p.style;
+  saveDraft(); canMake();
+};
+$('mGenre').onchange = () => {
+  const g = $('mGenre').value; $('mGenre').value = '';
+  if (!g) return;
+  const st = $('mStyle').value.trim().replace(/,$/, '');
+  $('mStyle').value = st ? st + ', ' + g : g;
+  saveDraft(); canMake();
+};
+$('mNoMelody').onclick = () => setMelody(null);
+$('mWrite').onclick = write;
+$('mUse').onclick = useWritten;
+$('mMake').onclick = make;
+
 // ---- the rest ----
 $('new').textContent = '+ ' + L.newChat;
-$('new').onclick = () => { if (S.busy) return; S.chat = null; closeSide(); render(); loadChats(); text.focus(); };
+$('new').onclick = () => { if (S.busy) return; S.chat = null; closeSide(); showMusic(false); render(); loadChats(); text.focus(); };
 $('out').textContent = L.signOut;
 $('pick').title = L.attach;
 text.placeholder = L.message;
@@ -673,7 +1262,10 @@ const closeSide = () => { $('side').classList.remove('open'); $('shade').classLi
 $('menu').onclick = () => { $('side').classList.add('open'); $('shade').classList.add('open'); };
 $('shade').onclick = closeSide;
 // back to the tab: what the app changed meanwhile
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.busy && !$('login').classList.contains('on')) boot(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || $('login').classList.contains('on')) return;
+  if (S.view === 'music') pollSongs(); else if (!S.busy) boot();
+});
 boot();
 </script>
 </body>

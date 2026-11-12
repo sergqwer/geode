@@ -47,6 +47,11 @@ def main(argv=None) -> None:
     incs = [SDK / "incs", SDK / "incs" / "stddef"]
     run([SDK / "ipc" / "fastrpc" / "qaic" / "WinNT" / "qaic.exe", "-mdll", "-o", gen,
          *[x for i in incs for x in ("-I", i)], HERE / "geode_npu.idl"])
+    # the v66 module's interface (npu/hvx66: its skel built by npu/hvx66/build.py) - the device report opens it
+    gen66 = OUT / "gen66"
+    gen66.mkdir(parents=True, exist_ok=True)
+    run([SDK / "ipc" / "fastrpc" / "qaic" / "WinNT" / "qaic.exe", "-mdll", "-o", gen66,
+         *[x for i in incs for x in ("-I", i)], HERE / "hvx66" / "geode_hvx.idl"])
 
     archs = ARCHS if a.arch == "all" else [a.arch]
     skels = []
@@ -68,14 +73,15 @@ def main(argv=None) -> None:
     skel = OUT / "libgeode_npu_skel.so"
     skel.write_bytes((OUT / "libgeode_npu_skel_v79.so" if "v79" in archs else skels[-1]).read_bytes())
 
-    host_inc = [x for i in [gen, *incs] for x in ("-I", i)]
+    host_inc = [x for i in [gen, gen66, *incs] for x in ("-I", i)]
     rpc = f"-L{SDK / 'ipc' / 'fastrpc' / 'remote' / 'ship' / 'android_aarch64'}"
     probe = OUT / "npu_probe"
     run([NDK_CC, "-O2", "-Wall", *host_inc, HERE / "host" / "npu_probe.c", HERE / "host" / "probe.c", HERE / "host" / "npu_api.c",
-         gen / "geode_npu_stub.c", rpc, "-lcdsprpc", "-lm", "-o", probe])
+         gen / "geode_npu_stub.c", gen66 / "geode_hvx_stub.c", rpc, "-lcdsprpc", "-lm", "-o", probe])
     hook = OUT / "libgeode_npu.so"
     run([NDK_CC, "-O2", "-Wall", "-fPIC", "-shared", *host_inc, HERE / "host" / "npu_app.c", HERE / "host" / "probe.c",
-         HERE / "host" / "npu_api.c", HERE / "host" / "report.c", gen / "geode_npu_stub.c", rpc, "-lcdsprpc", "-lm",
+         HERE / "host" / "npu_api.c", HERE / "host" / "report.c", gen / "geode_npu_stub.c", gen66 / "geode_hvx_stub.c",
+         rpc, "-lcdsprpc", "-lm",
          "-Wl,-soname,libgeode_npu.so", "-o", hook])
     print(", ".join(f"{f} ({f.stat().st_size} B)" for f in (*skels, probe, hook)))
     if a.app:

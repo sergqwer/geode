@@ -473,24 +473,5 @@ private fun GpuCheckBody(o: JSONObject) {
     }), bold = true)
     o.optString("reason").takeIf { it.isNotEmpty() && path != "gpu8" }?.let { Dim(it.take(300)) }
     o.optString("device").takeIf { it.isNotEmpty() }?.let { Dim(it) }
-    val cs = o.optJSONArray("checks") ?: JSONArray()
-    for (i in 0 until cs.length()) {
-        val c = cs.optJSONObject(i) ?: continue
-        val ok = c.optBoolean("ok")
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (ok) Icons.Outlined.Check else Icons.Outlined.Close, null,
-                tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-            Text(c.optString("name"), Modifier.weight(1f).padding(start = 6.dp), style = MaterialTheme.typography.bodyMedium)
-            val nums = listOfNotNull(
-                c.optDouble("gbs").takeIf { !it.isNaN() }?.let { "${f(it)} GB/s" },
-                c.optDouble("ms").takeIf { !it.isNaN() }?.let { "${f(it, 2)} ms" })
-            if (nums.isNotEmpty()) Line(nums.joinToString(" · "), mono = true)
-        }
-        if (c.has("err_gpu")) Dim(stringResource(R.string.bench_gpucheck_err, f(c.optDouble("err_gpu") * 100, 2),
-            f(c.optDouble("err_cpu_int8") * 100, 2)))
-        c.optString("error").takeIf { it.isNotEmpty() }?.let {
-            Text(it.take(600), color = MaterialTheme.colorScheme.error, fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall)
-        }
-    }
+    CheckList(o)
 }

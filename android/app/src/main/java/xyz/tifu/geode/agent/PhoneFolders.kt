@@ -1,5 +1,6 @@
 package xyz.tifu.geode.agent
 
+import xyz.tifu.geode.util.writeAtomic
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -17,11 +18,9 @@ import kotlinx.coroutines.withContext
 import xyz.tifu.geode.util.Json
 import xyz.tifu.geode.util.bool
 import xyz.tifu.geode.util.list
-import xyz.tifu.geode.util.num
 import xyz.tifu.geode.util.obj
 import xyz.tifu.geode.util.str
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 
 /**
@@ -297,16 +296,11 @@ class PhoneFolders(private val context: Context) {
     }
 
     private fun copyFile(from: Uri, to: File, time: Long) {
-        to.parentFile?.mkdirs()
-        val tmp = File(to.parentFile, ".${to.name}.geode-copy")
-        try {
-            resolver.openInputStream(from)?.use { i -> FileOutputStream(tmp).use { o -> i.copyTo(o, BUFFER) } }
-                ?: throw IOException("cannot read ${to.name}")
-            if (time > 0) tmp.setLastModified(time)
-            if (!tmp.renameTo(to)) throw IOException("cannot write ${to.name}")
-        } finally {
-            tmp.delete()
+        // (not synced file by file: a folder of them is copied, and copied again should the phone go down)
+        writeAtomic(to, sync = false) { o ->
+            resolver.openInputStream(from)?.use { i -> i.copyTo(o, BUFFER) } ?: throw IOException("cannot read ${to.name}")
         }
+        if (time > 0) to.setLastModified(time)
     }
 
     // ---- copy -> phone (read-and-write folders)
@@ -532,26 +526,21 @@ class PhoneFolders(private val context: Context) {
     }.getOrElse { Manifest(LinkedHashMap(), LinkedHashSet()) }
 
     private fun saveManifest(name: String, m: Manifest) {
-        root.mkdirs()
-        val tmp = File(root, ".$name.json.tmp")
-        tmp.writeText(Json.write(linkedMapOf(
-            "files" to m.files.mapValues { (_, k) -> listOf(k.doc, k.docTime, k.docSize, k.time, k.size) },
-            "dirs" to m.dirs.toList())))
-        tmp.renameTo(manifest(name))
+        runCatching {
+            writeAtomic(manifest(name), Json.write(linkedMapOf(
+                "files" to m.files.mapValues { (_, k) -> listOf(k.doc, k.docTime, k.docSize, k.time, k.size) },
+                "dirs" to m.dirs.toList())))
+        }
     }
 
     // ---- the list
 
     private fun store(list: List<PhoneFolder>) {
-        file.parentFile?.mkdirs()
-        val tmp = File(file.path + ".tmp")
-        FileOutputStream(tmp).use {
-            it.write(Json.write(list.map { f ->
+        runCatching {
+            writeAtomic(file, Json.write(list.map { f ->
                 linkedMapOf("name" to f.name, "uri" to f.uri, "label" to f.label, "write" to f.write, "canWrite" to f.canWrite)
-            }).toByteArray())
-            it.fd.sync()
+            }))
         }
-        tmp.renameTo(file)
         _folders.value = list
         version++
     }

@@ -775,12 +775,18 @@ static int attn_probe(remote_handle64 h, int n, int apos, int nh, int nkv, int h
         e = geode_npu_attn(h, (const unsigned char *)&d, sizeof d, (const unsigned char *)qb, (int)(qn * 4),
                            (unsigned char *)ob, (int)(qn * 4), &us);
         const double wall = attn_now() - t0;
-        if (!e) printf("  call %d: DSP %.2f ms, wall %.2f ms\n", r, us / 1e3, wall * 1e3);
+        if (!e) printf("  call %d: DSP %.2f ms, wall %.2f ms (us %lld)\n", r, us / 1e3, wall * 1e3, us), fflush(stdout);
         if (!e && (!best || us < best)) best = us;
     }
     if (e) {
         printf("attn: 0x%x\n", e);
         return 1;
+    }
+    if (getenv("ATTN_NOCHECK")) {   // (timing only: the double reference takes minutes for long caches)
+        const double macs = 2.0 * (double)n * nh * hd * ((double)apos + (n + 1) / 2.0);
+        printf("attn n %d apos %d flags 0x%x: DSP %.2f ms (%.1f G multiply-adds/s), unchecked\n", n, apos, flags,
+               best / 1e3, macs / ((double)best * 1e3));
+        return 0;
     }
     // the reference: every (token, head) in doubles
     const int group = nh / nkv;
@@ -800,7 +806,7 @@ static int attn_probe(remote_handle64 h, int n, int apos, int nh, int nkv, int h
                 const float ks = *kv_scale_at(chunks, p, 0, kh, n_attn, slot, kv_chunk, kv_row, kv_heads);
                 double s = 0;
                 for (int i = 0; i < hd; ++i) s += (double)qr[i] * k[i];
-                w[p] = s * ks;
+                w[p] = s * ks * ((flags & ATTN_LOG2) ? 0.69314718055994531 : 1.0);   // (log2 units: 2^x = e^(x ln 2))
                 mx = w[p] > mx ? w[p] : mx;
             }
             double den = 0;
@@ -855,6 +861,12 @@ int main(int argc, char **argv) {
         // (3072 -> 768); the embedder at 266 tokens (768 -> 2560); a shallow one (256 -> 512: padded)
         const int shapes[][3] = {{768, 768, 2394}, {3072, 768, 2394}, {768, 3072, 2394}, {2560, 768, 266}, {512, 256, 100}};
         int bad = 0;
+        if (argc > 5) {   // npu_probe f16 dir rows cols n [rows cols n ...]: these shapes instead (YuE2's NAR, ...)
+            for (int a = 3; a + 2 < argc; a += 3)
+                bad += npu_f16_check(dir, atoi(argv[a]), atoi(argv[a + 1]), atoi(argv[a + 2]), to_stdout, NULL) != 0;
+            printf("f16: %d bad\n", bad);
+            return bad;
+        }
         for (size_t i = 0; i < sizeof shapes / sizeof shapes[0]; ++i)
             bad += npu_f16_check(dir, shapes[i][0], shapes[i][1], shapes[i][2], to_stdout, NULL) != 0;
         printf("f16: %d bad\n", bad);
@@ -892,6 +904,63 @@ int main(int argc, char **argv) {
                                 argc > 4 ? atoi(argv[4]) : 256);
         geode_npu_close(h);
         return r;
+    }
+    if (argc > 1 && !strcmp(argv[1], "remap")) {   // npu_probe remap [setMB] [chunkMB] [reps]: two sets of buffers
+        // taking turns in the DSP's address space (unmap one, map the other, the DSP reads every chunk): what a
+        // velocity in two halves of the layers would pay for its mappings, and that an unmapped set frees the window
+        const int set_mb = argc > 2 ? atoi(argv[2]) : 2048, chunk_mb = argc > 3 ? atoi(argv[3]) : 104;
+        const int reps = argc > 4 ? atoi(argv[4]) : 3;
+        const uint64_t chunk = (uint64_t)chunk_mb << 20;
+        const int per = set_mb / chunk_mb;
+        if (per < 1 || per > 64) {
+            printf("remap: 1..64 chunks a set\n");
+            return 1;
+        }
+        uint8_t *bufs[2][64];
+        int fds[2][64];
+        for (int s = 0; s < 2; ++s)
+            for (int i = 0; i < per; ++i) {
+                bufs[s][i] = (uint8_t *)rpcmem_alloc(RPCMEM_HEAP_ID_SYSTEM, RPCMEM_FLAG_UNCACHED, (int)chunk);
+                if (!bufs[s][i]) {
+                    printf("rpcmem_alloc failed (set %d chunk %d)\n", s, i);
+                    return 1;
+                }
+                memset(bufs[s][i], 1 + s, chunk);
+                fds[s][i] = rpcmem_to_fd(bufs[s][i]);
+            }
+        int cur = -1;
+        for (int r = 0; r <= 2 * reps; ++r) {
+            const int s = r & 1;
+            double t0 = moe_now_us() * 1e-3;
+            if (cur >= 0)
+                for (int i = 0; i < per; ++i) fastrpc_munmap(CDSP_DOMAIN_ID, fds[cur][i], bufs[cur][i], chunk);
+            double t1 = moe_now_us() * 1e-3;
+            for (int i = 0; i < per; ++i)
+                if (fastrpc_mmap(CDSP_DOMAIN_ID, fds[s][i], bufs[s][i], 0, chunk, FASTRPC_MAP_FD)) {
+                    printf("fastrpc_mmap failed: set %d chunk %d (%d MB mapped)\n", s, i, i * chunk_mb);
+                    return 1;
+                }
+            cur = s;
+            double t2 = moe_now_us() * 1e-3;
+            for (int i = 0; i < per; ++i) {
+                long long us = 0;
+                const int e = geode_npu_bw(h, fds[s][i], chunk - (1u << 20), 1u << 20, 1, 0, &us);
+                if (e) {
+                    printf("the DSP's read failed: set %d chunk %d: 0x%x\n", s, i, e);
+                    return 1;
+                }
+            }
+            double t3 = moe_now_us() * 1e-3;
+            printf("set %d (%d x %d MB): unmap %.1f ms, map %.1f ms, first reads %.1f ms\n", s, per, chunk_mb, t1 - t0,
+                   t2 - t1, t3 - t2);
+        }
+        for (int s = 0; s < 2; ++s)
+            for (int i = 0; i < per; ++i) {
+                if (s == cur) fastrpc_munmap(CDSP_DOMAIN_ID, fds[s][i], bufs[s][i], chunk);
+                rpcmem_free(bufs[s][i]);
+            }
+        geode_npu_close(h);
+        return 0;
     }
     if (argc > 1 && argv[1][0] == 'w') {   // npu_probe window [GB]: how much cached rpcmem the DSP maps and reads
         const int cap = argc > 2 ? atoi(argv[2]) : 4;

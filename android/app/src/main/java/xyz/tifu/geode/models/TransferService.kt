@@ -19,15 +19,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.io.InputStream
 import java.security.MessageDigest
 import xyz.tifu.geode.GeodeApp
 import xyz.tifu.geode.MainActivity
@@ -50,6 +46,8 @@ class TransferService : Service() {
     private var lastNotify = 0L
     /** The model the running transfer writes, once known. */
     @Volatile private var currentId = ""
+    /** The running transfer is the song model's (MusicModels' store), not a chat model's. */
+    @Volatile private var music = false
     /** The folder the running import reads (its persisted permission), or null. */
     @Volatile private var importUri: String? = null
 
@@ -69,6 +67,8 @@ class TransferService : Service() {
             ACTION_START -> {
                 if (job?.isActive == true) return START_NOT_STICKY
                 val source = sourceOf(intent) ?: return START_NOT_STICKY
+                music = source is TransferSource.Hf && source.music
+                store = if (music) xyz.tifu.geode.music.MusicModels.store(this) else ModelStore(this)
                 val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
                 startForeground(NOTIFICATION_ID, notification(TransferState("", title, TransferPhase.PREPARE)),
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
@@ -102,7 +102,7 @@ class TransferService : Service() {
                 is TransferSource.Folder -> import(source, title)
             }
             val app = application as GeodeApp
-            if (app.settings.flow.first().selectedModel.isEmpty()) app.settings.setSelectedModel(id)
+            if (!music && app.settings.flow.first().selectedModel.isEmpty()) app.settings.setSelectedModel(id)
             publish(TransferState(id, title, TransferPhase.DONE), force = true)
         } catch (e: CancellationException) {
             val timedOut = e.message == "timeout"
@@ -157,7 +157,8 @@ class TransferService : Service() {
             if (f.path == PackManifest.FILE) {
                 val m = PackManifest.parse(dest.readText())
                     ?: throw IOException(getString(R.string.models_not_geode))
-                if (!m.runnable) throw IOException(getString(R.string.models_not_geode))
+                if (if (src.music) m.arch != xyz.tifu.geode.music.MusicModels.ARCH else !m.runnable)
+                    throw IOException(getString(R.string.models_not_geode))
             }
             File(part, VERIFIED).appendText(f.path + "\n")
         }
@@ -165,62 +166,9 @@ class TransferService : Service() {
     }
 
     private suspend fun downloadFile(src: TransferSource.Hf, token: String, f: HfFile, dest: File, p: Progress) {
-        dest.parentFile?.mkdirs()
         val url = HfApi.resolveUrl(src.repo, src.revision, if (src.packPath.isEmpty()) f.path else "${src.packPath}/${f.path}")
-        var attempt = 0
-        var badHash = 0
-        while (true) {
-            currentCoroutineContext().ensureActive()
-            val base = p.done
-            try {
-                if (dest.length() > f.size) dest.delete()
-                val digest = newDigest(f)
-                // resuming: the bytes already on disk go into the hash first
-                var offset = dest.length()
-                if (offset > 0) {
-                    p.phase(TransferPhase.VERIFY)
-                    dest.inputStream().use { hashInto(digest, it, offset) { n -> p.add(n) } }
-                    p.phase(TransferPhase.DOWNLOAD)
-                }
-                if (offset < f.size) {
-                    val (conn, ranged) = HfApi.download(url, token, offset)
-                    try {
-                        if (!ranged && offset > 0) {
-                            // the server sent the whole file: start over
-                            p.add(-offset)
-                            offset = 0
-                            digest.reset()
-                            if (f.sha256.isEmpty()) digest.update("blob ${f.size}\u0000".toByteArray())
-                        }
-                        FileOutputStream(dest, offset > 0).use { out ->
-                            conn.inputStream.use { input -> copy(input, out, digest, f.size - offset, p) }
-                        }
-                    } finally {
-                        conn.disconnect()
-                    }
-                }
-                if (dest.length() != f.size) throw IOException("${f.path}: incomplete")
-                p.phase(TransferPhase.DOWNLOAD)
-                val got = digest.digest().toHex()
-                val want = f.sha256.ifEmpty { f.gitOid }
-                if (want.isNotEmpty() && !got.equals(want, ignoreCase = true)) {
-                    dest.delete()
-                    p.add(-(p.done - base))
-                    if (++badHash >= 2) throw IOException(getString(R.string.models_bad_hash, f.path))
-                    continue
-                }
-                return
-            } catch (e: HfException) {
-                // access denied or not found will not change by retrying
-                if (e.httpCode in 400..499 && e.httpCode != 408 && e.httpCode != 429 && e.httpCode != 416) throw e
-                if (e.httpCode == 416) dest.delete()
-                if (++attempt >= MAX_ATTEMPTS) throw e
-            } catch (e: IOException) {
-                if (++attempt >= MAX_ATTEMPTS) throw e
-            }
-            p.add(-(p.done - base))
-            delay(minOf(30_000L, 2_000L shl attempt.coerceAtMost(4)))
-        }
+        HfApi.fetchVerified(url, token, dest, f.size, f.sha256, f.gitOid, { getString(R.string.models_bad_hash, f.path) },
+            p::add, { v -> p.phase(if (v) TransferPhase.VERIFY else TransferPhase.DOWNLOAD) })
     }
 
     // ---- a folder on the phone ----
@@ -268,7 +216,7 @@ class TransferService : Service() {
             val digest = MessageDigest.getInstance("SHA-256")
             val base = progress.done
             contentResolver.openInputStream(doc.uri)!!.use { input ->
-                FileOutputStream(dest).use { out -> copy(input, out, digest, f.size, progress) }
+                FileOutputStream(dest).use { out -> copyHashed(input, out, digest, f.size, progress::add) }
             }
             // a source that ended early (a file without a hash in geode.json would pass, and a move delete it)
             if (dest.length() != f.size) {
@@ -314,38 +262,6 @@ class TransferService : Service() {
                 (if (grant.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0))
     }
 
-    private suspend fun copy(input: InputStream, out: FileOutputStream, digest: MessageDigest, limit: Long,
-                             p: Progress) {
-        val buf = ByteArray(1 shl 20)
-        var left = limit
-        while (left > 0) {
-            currentCoroutineContext().ensureActive()
-            val n = input.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
-            if (n < 0) break
-            out.write(buf, 0, n)
-            digest.update(buf, 0, n)
-            left -= n
-            p.add(n.toLong())
-        }
-    }
-
-    private fun hashInto(digest: MessageDigest, input: InputStream, limit: Long, onBytes: (Long) -> Unit) {
-        val buf = ByteArray(1 shl 20)
-        var left = limit
-        while (left > 0) {
-            val n = input.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
-            if (n < 0) break
-            digest.update(buf, 0, n)
-            left -= n
-            onBytes(n.toLong())
-        }
-    }
-
-    /** SHA-256 for LFS files; git's blob hash (SHA-1 of "blob <size>\0" + content) for files kept in git. */
-    private fun newDigest(f: HfFile): MessageDigest =
-        if (f.sha256.isNotEmpty()) MessageDigest.getInstance("SHA-256")
-        else MessageDigest.getInstance("SHA-1").apply { update("blob ${f.size}\u0000".toByteArray()) }
-
     private fun verifiedSet(part: File): Set<String> =
         File(part, VERIFIED).takeIf { it.isFile }?.readLines()?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
 
@@ -374,7 +290,7 @@ class TransferService : Service() {
     }
 
     private fun publish(s: TransferState, force: Boolean = false) {
-        Transfers.set(s)
+        Transfers.set(s.copy(music = music))
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastNotify < 500) return
         lastNotify = now
@@ -436,8 +352,8 @@ class TransferService : Service() {
         private const val EXTRA_URI = "uri"
         private const val EXTRA_MOVE = "move"
         private const val EXTRA_TITLE = "title"
+        private const val EXTRA_MUSIC = "music"
         private const val NOTIFICATION_ID = 1
-        private const val MAX_ATTEMPTS = 8
         private const val SPACE_MARGIN = 512L shl 20
         private const val VERIFIED = ".verified"
 
@@ -446,6 +362,7 @@ class TransferService : Service() {
             when (source) {
                 is TransferSource.Hf -> i.putExtra(EXTRA_KIND, "hf").putExtra(EXTRA_REPO, source.repo)
                     .putExtra(EXTRA_REVISION, source.revision).putExtra(EXTRA_PACK, source.packPath)
+                    .putExtra(EXTRA_MUSIC, source.music)
                 is TransferSource.Folder -> i.putExtra(EXTRA_KIND, "folder").putExtra(EXTRA_URI, source.uri)
                     .putExtra(EXTRA_MOVE, source.move)
             }
@@ -459,7 +376,8 @@ class TransferService : Service() {
         private fun sourceOf(i: Intent): TransferSource? {
             return when (i.getStringExtra(EXTRA_KIND)) {
                 "hf" -> TransferSource.Hf(i.getStringExtra(EXTRA_REPO) ?: return null,
-                    i.getStringExtra(EXTRA_REVISION) ?: "main", i.getStringExtra(EXTRA_PACK).orEmpty())
+                    i.getStringExtra(EXTRA_REVISION) ?: "main", i.getStringExtra(EXTRA_PACK).orEmpty(),
+                    i.getBooleanExtra(EXTRA_MUSIC, false))
                 "folder" -> TransferSource.Folder(i.getStringExtra(EXTRA_URI) ?: return null,
                     i.getBooleanExtra(EXTRA_MOVE, false))
                 else -> null
@@ -467,5 +385,3 @@ class TransferService : Service() {
         }
     }
 }
-
-private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }

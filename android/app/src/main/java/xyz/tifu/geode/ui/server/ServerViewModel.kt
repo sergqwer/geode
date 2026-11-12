@@ -39,7 +39,7 @@ class ServerViewModel(private val app: GeodeApp) : ViewModel() {
 
     /** The id the server gives the selected model (its directory's name); null when none is selected. */
     val modelId: StateFlow<String?> = app.settings.flow
-        .map { s -> s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find)?.id }
+        .map { s -> store.selected(s)?.id }
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 

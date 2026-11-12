@@ -15,6 +15,11 @@
 // 32-column block - copied into the slots as they are, nothing expanded (the vision encoder's q8 layers, converted by
 // the host a layer at a time: npu_api.c gnpu_pack_f16 / GNPU_SHIFT_F16)
 #define HMX_F16 0x400
+// a gemm's out_shift with this bit: the weights are int8 codes in HMX's weight order (a byte each, wgt_index's
+// element order), then an fp16 scale per column and 32 inputs ([k / 32][32]): k x 34 bytes a 32-column block, expanded
+// to fp16 by the workers straight from DDR (YuE2's NAR "8-bit sound": engine yue2_q8nar.cpp)
+#define HMX_Q8 0x800
+#define HMX8_BYTES(k) ((uint32_t)(k) * 34u)
 
 // A q4i tile8 matrix (engine kernels.hpp to_tile8; levels code - 8, signed E4M3 scales, one a 16 inputs): row tile b
 // (32 rows) at w + b tile, its codes first (per 64-input chunk 8 vectors of 128 bytes, lane = row) then its scales (per

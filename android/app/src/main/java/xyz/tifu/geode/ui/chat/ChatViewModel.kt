@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 import xyz.tifu.geode.GeodeApp
 import xyz.tifu.geode.R
 import xyz.tifu.geode.data.ChatInfo
+import xyz.tifu.geode.data.ChatClaims
 import xyz.tifu.geode.data.ChatStats
 import xyz.tifu.geode.data.ChatStore
 import xyz.tifu.geode.data.Compactions
@@ -283,7 +284,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
             // (a service changed on the Models screen - its model, what it takes - counts as the settings do)
             kotlinx.coroutines.flow.combine(app.settings.flow, app.providers.list) { s, _ -> s }.collect { s ->
                 val m = withContext(Dispatchers.IO) {
-                    s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find)?.copy(off = s.featuresOff)
+                    store.selected(s)
                 }
                 val remote = s.selectedRemote.takeIf { it.isNotEmpty() }?.let { app.providers.find(it) }
                 val changed = m?.dir?.path != _state.value.model?.dir?.path || remote != _state.value.remote
@@ -341,9 +342,10 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
             app.agent.warming.collect { on -> if (!on) warmAgent() }
         }
         viewModelScope.launch {
-            // the web chat's turn on the chat open here: the phone waits for it (and shows its answer, saved, after)
-            kotlinx.coroutines.flow.combine(app.agent.turn, _state.map { it.chatId to it.generating }) { t, (c, g) ->
-                t != null && t == c && !g
+            // the web chat's turn on the chat open here: the phone waits for it (and shows its answer, saved, after) -
+            // from when the web took its question (ChatClaims), not only once the agent runs it
+            kotlinx.coroutines.flow.combine(app.agent.turn, ChatClaims.held, _state.map { it.chatId to it.generating }) { t, h, (c, g) ->
+                c != null && !g && (t == c || h[c]?.side == ChatClaims.Side.WEB)
             }.distinctUntilChanged().collect { e -> _state.update { it.copy(answeringElsewhere = e) } }
         }
         if (xyz.tifu.geode.BuildConfig.DEBUG) {
@@ -363,7 +365,7 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         viewModelScope.launch {
             val s = app.settings.flow.first()
             val m = withContext(Dispatchers.IO) {
-                s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find)?.copy(off = s.featuresOff)
+                store.selected(s)
             }
             _state.update { it.copy(model = m, modelChecked = true) }
         }
@@ -696,6 +698,8 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         val watched = if (st.watches) st.videos else emptyList()
         if ((question.isEmpty() && attached.isEmpty() && heard.isEmpty() && watched.isEmpty()) || st.generating ||
             !st.ready || st.answeringElsewhere || st.recording != null || st.preparingVideo) return
+        // the chat is the phone's until the answer is saved (a new one's: once persist() names it - nobody else has it)
+        val held = st.chatId?.let { ChatClaims.claim(it, ChatClaims.Side.PHONE) ?: return }
         val before = st.messages
         val user = ChatMessage(nextId++, user = true, text = question, images = attached, audio = heard, videos = watched)
         val answer = ChatMessage(nextId++, user = false, text = "", streaming = true)
@@ -704,8 +708,14 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
                 clips = emptyList(), videos = emptyList())
         }
         persist()
+        val claim = held ?: _state.value.chatId?.let { ChatClaims.claim(it, ChatClaims.Side.PHONE) }
         val turn = ++answering
-        answerJob = viewModelScope.launch { agentAnswer(before, user, answer.id, turn) }
+        answerJob = viewModelScope.launch { agentAnswer(before, user, answer.id, turn) }.also { j ->
+            // given back once its answer is saved - or when it was stopped before it began (a newer question's stays):
+            // queued behind its saves (persist() and changeSaved() only queue them), so the web chat, which may take
+            // the chat then, loads what the phone wrote
+            j.invokeOnCompletion { app.appScope.launch(SAVES) { ChatClaims.release(claim) } }
+        }
     }
 
     /**
@@ -779,17 +789,11 @@ class ChatViewModel(private val app: GeodeApp) : ViewModel() {
         try {
             // the session the web chat may have begun meanwhile (it saves it with the chat)
             if (agentSession == null) agentSession = withContext(Dispatchers.IO) { chatStore.load(chatId)?.agentSession }
-            val task = (if (agentSession == null) AgentTurns.earlier(before) else "") + user.text
-            val files = withContext(Dispatchers.IO) { user.images.map { images.file(it) }.filter { it.isFile } }
-            val sounds = withContext(Dispatchers.IO) { user.audio.map { clips.file(it) }.filter { it.isFile } }
-            val films = withContext(Dispatchers.IO) {
-                user.videos.map { v ->
-                    xyz.tifu.geode.agent.VideoInput(v.frames.map { images.file(it) }.zip(v.seconds),
-                        v.audio?.let { clips.file(it) }?.takeIf { it.isFile }, v.ms)
-                }.filter { v -> v.frames.isNotEmpty() && v.frames.all { it.first.isFile } }
+            val input = withContext(Dispatchers.IO) {
+                AgentTurns.input(user, before.takeIf { agentSession == null }, images, clips)
             }
             // (a stopped answer's last updates, while the harness ends its turn, change nothing)
-            val stop = app.agent.prompt(chatId, agentSession, task, files, sounds, films) { e ->
+            val stop = app.agent.prompt(chatId, agentSession, input) { e ->
                 when {
                     turn == answering -> onAgent(id, e)
                     // a stopped turn's session still belongs to its chat - the one open here, or its saved file

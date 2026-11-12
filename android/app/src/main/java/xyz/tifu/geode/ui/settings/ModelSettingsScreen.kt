@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,9 +18,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -34,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
@@ -139,14 +135,8 @@ fun ModelSettingsScreen(vm: SettingsViewModel, openDrawer: () -> Unit) {
 
             // ---- generation ----
             Section(stringResource(R.string.settings_section_generation))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.settings_thinking), style = MaterialTheme.typography.bodyLarge)
-                    Text(stringResource(R.string.settings_thinking_desc), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = s.thinking, onCheckedChange = vm::setThinking)
-            }
+            SwitchRow(stringResource(R.string.settings_thinking), stringResource(R.string.settings_thinking_desc), s.thinking,
+                vm::setThinking, modifier = Modifier)
             // the selected model's family's sampling (Qwen3.6's when none is selected), of the mode the switch is in:
             // Qwen3.6 and Qwen3.5-2B recommend different values for each (and from each other), Gemma 4 the same
             val family = ModelFamily.of(model)
@@ -300,13 +290,7 @@ fun ModelSettingsScreen(vm: SettingsViewModel, openDrawer: () -> Unit) {
             // (only the units this phone has; a choice it lost shows as the mode the engine falls back to)
             val chosen = RunModes.nearest(s.runMode, units)
             RunModes.available(units).forEach { m ->
-                Row(Modifier.fillMaxWidth().selectable(selected = chosen == m, role = Role.RadioButton,
-                    onClick = { vm.setRunMode(m) }).padding(vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = chosen == m, onClick = null)
-                    Text(runModeLabel(m), style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(start = 12.dp))
-                }
+                RadioOption(runModeLabel(m), chosen == m, MaterialTheme.typography.bodyMedium) { vm.setRunMode(m) }
             }
             Text(stringResource(R.string.settings_runs_on_desc), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -1,7 +1,9 @@
 package xyz.tifu.geode.agent
 
+import xyz.tifu.geode.media.AudioStore
 import xyz.tifu.geode.ui.chat.AgentStep
 import xyz.tifu.geode.ui.chat.ChatMessage
+import xyz.tifu.geode.vision.ImageStore
 import xyz.tifu.geode.util.Json
 import java.io.File
 
@@ -28,6 +30,9 @@ fun ChatMessage.withAgent(e: AgentEvent): ChatMessage = when (e) {
 /** The answer as it ended: its words trimmed, a tool still running failed, [files] (what it made) under it. */
 fun ChatMessage.finished(files: List<String>): ChatMessage = copy(streaming = false, files = files, text = text.trim(),
     steps = steps.map { s -> if (s.ok == null && s.tool.isNotEmpty()) s.copy(ok = false) else s })
+
+/** What the agent is given for a message: its words, its images, clips and videos as files. */
+class AgentInput(val task: String, val images: List<File>, val audio: List<File>, val videos: List<VideoInput>)
 
 object AgentTurns {
     /** The files under an agent's answer, at most. */
@@ -59,6 +64,21 @@ object AgentTurns {
         if (text.length > EARLIER_MAX) text = "…" + text.takeLast(EARLIER_MAX)
         return "Earlier in this conversation (for context; it went on without tools):\n\n$text\n\n---\n\n"
     }
+
+    /**
+     * What the agent is given for [user]'s message: its words - after [earlier] ones ([earlier], when its session has
+     * not seen them) - and the images, clips and videos it holds that are still there. Reads the files: off the main
+     * thread.
+     */
+    fun input(user: ChatMessage, earlier: List<ChatMessage>?, images: ImageStore, clips: AudioStore): AgentInput =
+        AgentInput(
+            (earlier?.let { earlier(it) } ?: "") + user.text,
+            user.images.map { images.file(it) }.filter { it.isFile },
+            user.audio.map { clips.file(it) }.filter { it.isFile },
+            user.videos.map { v ->
+                VideoInput(v.frames.map { images.file(it) }.zip(v.seconds), v.audio?.let { clips.file(it) }?.takeIf { it.isFile }, v.ms)
+            }.filter { v -> v.frames.isNotEmpty() && v.frames.all { it.first.isFile } },
+        )
 
     /** The workspace's files changed since [since] (the newest first; its dot-folders left out). */
     fun changedSince(dir: File, since: Long): List<String> {

@@ -1,5 +1,8 @@
 package xyz.tifu.geode.ui.server
 
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import xyz.tifu.geode.ui.settings.SwitchRow
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -119,7 +122,9 @@ fun ServerScreen(vm: ServerViewModel, openDrawer: () -> Unit) {
                 }
             }
 
-            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            // (the whole row toggles it, as SwitchRow's)
+            Row(Modifier.padding(top = 4.dp).toggleable(s.serverOn, role = Role.Switch) { vm.setOn(it) },
+                verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.server_api), style = MaterialTheme.typography.titleMedium)
                     val state = when {
@@ -133,18 +138,12 @@ fun ServerScreen(vm: ServerViewModel, openDrawer: () -> Unit) {
                         color = if (s.serverOn && status.running) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = s.serverOn, onCheckedChange = { vm.setOn(it) })
+                Switch(checked = s.serverOn, onCheckedChange = null)
             }
             Text(stringResource(R.string.server_api_desc), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
-            Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.server_web), style = MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.server_web_desc), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = s.webOn, onCheckedChange = { vm.setWebOn(it) })
-            }
+            SwitchRow(stringResource(R.string.server_web), stringResource(R.string.server_web_desc), s.webOn,
+                { vm.setWebOn(it) }, modifier = Modifier.padding(top = 12.dp), titleStyle = MaterialTheme.typography.titleMedium)
 
             // ---- the API ----
             if (s.serverOn) {
@@ -186,14 +185,8 @@ fun ServerScreen(vm: ServerViewModel, openDrawer: () -> Unit) {
 
             // ---- access ----
             Section(stringResource(R.string.server_section_access))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.server_key_on), style = MaterialTheme.typography.bodyLarge)
-                    Text(stringResource(R.string.server_key_on_desc), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = s.serverKeyOn, onCheckedChange = { vm.setKeyOn(it) })
-            }
+            SwitchRow(stringResource(R.string.server_key_on), stringResource(R.string.server_key_on_desc), s.serverKeyOn,
+                { vm.setKeyOn(it) }, modifier = Modifier)
             if (s.serverKeyOn && s.serverKey.isNotEmpty()) {
                 Address(stringResource(R.string.server_key), s.serverKey, copy)
                 TextButton(onClick = { vm.renewKey() }) { Text(stringResource(R.string.server_key_new)) }

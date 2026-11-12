@@ -1,5 +1,7 @@
 package xyz.tifu.geode.ui.models
 
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -180,9 +182,9 @@ fun ServiceDialog(initial: Provider?, hasKey: Boolean, listModels: suspend (Prov
                     Text(stringResource(R.string.service_list_failed, it), color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.toggleable(vision, role = Role.Switch) { vision = it }, verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.service_vision), Modifier.weight(1f))
-                    Switch(vision, { vision = it })
+                    Switch(vision, null)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(context, { context = it.filter(Char::isDigit) }, singleLine = true,

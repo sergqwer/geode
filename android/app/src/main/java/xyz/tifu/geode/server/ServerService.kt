@@ -40,6 +40,16 @@ data class ServerStatus(
 
 object LocalServer {
     val status = MutableStateFlow(ServerStatus())
+
+    /** [block], a generation the server's screen shows while it runs. */
+    inline fun <T> busy(block: () -> T): T {
+        status.update { it.copy(busy = it.busy + 1) }
+        try {
+            return block()
+        } finally {
+            status.update { it.copy(busy = it.busy - 1) }
+        }
+    }
 }
 
 /**
@@ -57,6 +67,7 @@ class ServerService : Service() {
     private lateinit var engine: ApiEngine
     private lateinit var api: Api
     private lateinit var web: WebChat
+    private lateinit var music: MusicApi
     @Volatile
     private var key: String? = null
     /** The settings as they are now (which of the two is on). */
@@ -70,8 +81,9 @@ class ServerService : Service() {
     override fun onCreate() {
         super.onCreate()
         engine = app.apiEngine
-        api = Api(app, engine) { key }
-        web = WebChat(app, engine) { current.webPassword.takeIf { it.isNotEmpty() } }
+        music = MusicApi(app)
+        api = Api(app, engine, music) { key }
+        web = WebChat(app, engine, music) { current.webPassword.takeIf { it.isNotEmpty() } }
         // the key and the password as the screen changes them: the next request needs the new one (a new password
         // signs every browser out); both off, the server goes
         scope.launch {
@@ -153,6 +165,7 @@ class ServerService : Service() {
     override fun onDestroy() {
         http?.stop()
         http = null
+        music.close()
         LocalServer.status.update { it.copy(running = false, busy = 0) }
         runCatching { if (wake?.isHeld == true) wake?.release() }
         runCatching { if (wifi?.isHeld == true) wifi?.release() }

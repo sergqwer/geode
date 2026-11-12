@@ -339,6 +339,8 @@ bool Model::open_gemma(const ModelOptions &opt, std::string &err) {
         // one copy of the matrices for both (npu_one_copy) where the CPU's kernels will read the quad layout below
         npu_.want_t8 = opt.quad_layout && !std::getenv("GEODE_NO_QUAD");
         setup_npu();
+        // no HMX module (a v66 .. v72 DSP): its HVX beside the CPU for a prompt's products (hvx_llm.hpp)
+        if (!npu_.g && npu_.want_t8) setup_hvx();
     }
     // a prompt's chunk: larger with the NPU, whose call expands every weight block once whatever the tokens
     gemma_chunk_ = npu_.g ? kGemmaNpuChunk : kGemmaChunk;

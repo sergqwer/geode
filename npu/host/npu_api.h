@@ -65,6 +65,12 @@ int gnpu_gemm_multi(gnpu *g, int count, const int *ids, int n, const float *cons
 // (AEE_EUNSUPPORTED: older than v79) or -1 otherwise, ys then as they were or partly written.
 int gnpu_mlp(gnpu *g, int gate, int up, int n_down, const int *downs, int act, int n, const float *const *xs,
              float *const *ys);
+// The same on fp16 weights the host made in HMX's blocks (gnpu_pack_f16's layout; YuE2's NAR: nar_f16.bin), all
+// three in the gnpu_shared_alloc buffer fd: gate and up (ff x hidden) at g_off / u_off, down (hidden x ff) at d_off,
+// each with its shift (2^shift: the scale its values carry). One DSP call: act(gate) * up stays in a buffer of the
+// DSP's own (gnpu keeps it), only down's results come back. act as gnpu_mlp's. 0 when done.
+int gnpu_mlp_f16(gnpu *g, int fd, uint64_t g_off, uint64_t u_off, uint64_t d_off, int64_t hidden, int64_t ff,
+                 int g_shift, int u_shift, int d_shift, int act, int n, const float *const *xs, float *const *ys);
 // The conversions' threads: par(ctx, items, fn, arg) runs fn(arg, i0, i1) over [0, items) on the caller's threads
 // and returns when all are done (the engine's pool). NULL: the calling thread alone.
 typedef void (*gnpu_par_fn)(void *ctx, int items, void (*fn)(void *arg, int i0, int i1), void *arg);
@@ -78,7 +84,16 @@ double gnpu_dsp_seconds(const gnpu *g);
 // ---- the decoder (npu/dsp/dec.c, npu/dec_cfg.h): a dense Qwen3.5's whole decode step on the DSP
 // Memory both the CPU and the DSP use, mapped into the DSP once (cached: the CPU computes on it too; the DSP sees its
 // writes through IO coherence). NULL when there is none; *fd its handle for the calls below. Freed by gnpu_close.
+// cached: GNPU_SHARED_* bits (1, the old `cached`, as before); with GNPU_SHARED_UNMAPPED the buffer is not mapped
+// into the DSP until gnpu_shared_map maps it.
+#define GNPU_SHARED_CACHED 1
+#define GNPU_SHARED_UNMAPPED 2
 void *gnpu_shared_alloc(gnpu *g, size_t bytes, int cached, int *fd);
+// a gnpu_shared_alloc buffer into the DSP's address space (on) or out of it (0: its window given back for others; the
+// memory and its contents kept) - never while an open driver or a call holds it. 0 when done (or already so)
+int gnpu_shared_map(gnpu *g, void *p, int on);
+// gives a gnpu_shared_alloc buffer back (unmapped from the DSP, freed); 0 when it was one
+int gnpu_shared_free(gnpu *g, void *p);
 // the scratch S needs after the states for cfg (a dec_cfg_t), or -1
 long long gnpu_dec_size(gnpu *g, const void *cfg, int cfg_len);
 // the decoder over cfg and the buffers W, P, S (gnpu_shared_alloc's fds), on `threads` DSP threads
@@ -116,12 +131,50 @@ int gnpu_gdec_kv(gnpu *g, int chunk, int fd);
 // in IO. 0 when done; *dsp_s the DSP's time
 int gnpu_gdec_prefill(gnpu *g, int n, int apos, int flags, double *dsp_s);
 void gnpu_gdec_close(gnpu *g);
+
+// ---- YuE2's NAR on the DSP (npu/nar_cfg.h): a velocity's every layer in one call
+// nar_open: the chunk's shape and buffers (cfg a nar_cfg_t; P and IO gnpu_shared_alloc's, as the cfg's layers' weights
+// and banks), replacing an open one; nar_run: IO's x rows through the layers (flags NAR_DEBUG_*), *dsp_s the DSP's
+// time. 0 when done; AEE_EUNSUPPORTED older than v79.
+int gnpu_nar_open(gnpu *g, const void *cfg, int cfg_len, int p_fd, int io_fd);
+int gnpu_nar_run(gnpu *g, int flags, double *dsp_s);
+void gnpu_nar_close(gnpu *g);
 // an adopted matrix's hmx4 copy: its rpcmem fd and scale shift (dec_mat_t's hmx_fd / hmx_shift); 0 when known
 int gnpu_mat_hmx(const gnpu *g, int id, int *fd, int *shift, long long *kp);
 // the MTP layer for n positions from pos (e: the next tokens' embeddings, h: the hidden rows): the last one's draft
 // and its probability
 int gnpu_dec_draft(gnpu *g, const float *e, const float *h, int n, int hidden, int pos, const int *p3, int *draft,
                    float *prob, double *dsp_s);
+
+// ---- Hexagon v66 .. v72 (no HMX: Snapdragon 7xx / 6xx): the v66 module (npu/hvx66, integer HVX only) - the "Fast"
+// sound's 8-bit products. Opened in an unsigned PD with libgeode_hvx_skel_v66.so from skel_dir; NULL with the reason
+// in err when out of reach (another DSP, no unsigned PD, the module refused).
+typedef struct gnpu_hvx gnpu_hvx;
+gnpu_hvx *gnpu_hvx_open(const char *skel_dir, char *err, int err_len);
+void gnpu_hvx_close(gnpu_hvx *h);
+// rpcmem (FastRPC passes it without copies): cached 0 - uncached (written once by the CPU, read by the DSP: no
+// flush per call), 1 - cached (FastRPC flushes / invalidates it around each call). NULL when there is none.
+void *gnpu_hvx_alloc(size_t bytes, int cached);
+void gnpu_hvx_free(void *p);
+// geode_hvx_q8_gemm (npu/hvx66/geode_hvx.idl): y [n8][rows] int32 = per group of 32 inputs the exact int8 sum,
+// scaled by the rows' (wq) and the tokens' (aq) Q15 ratios. Every buffer gnpu_hvx_alloc's; w 128-byte aligned
+// (w_len: its whole extent). 0 when done, *usec the DSP's time.
+int gnpu_hvx_q8_gemm(gnpu_hvx *h, const uint8_t *w, size_t w_len, int rows, int k, int n8, const int8_t *x,
+                     const int32_t *corr, const int32_t *aq, const int32_t *wq, int32_t *y, int threads,
+                     long long *usec);
+// geode_hvx_q4_gemm (geode_hvx.idl): an LLM prompt's 4-bit product (q4i / q4 in tile8 or quad) on the first `rows` rows of the
+// matrix at w (its first tile, 128-byte aligned, w_len bytes of it passed); x, xs pass by pass of kchunk inputs, y
+// tile by tile (the idl has the layouts). Every buffer gnpu_hvx_alloc's. 0 when done, *usec the DSP's time.
+// quad 1: w in the quad layout (k and kchunk multiples of 512). *amax: the largest |sum| reached (from 2^30 on: may
+// have saturated - compute the rows on the CPU).
+int gnpu_hvx_q4_gemm(gnpu_hvx *h, const uint8_t *w, size_t w_len, int rows, int k, int n8, const int8_t *x,
+                     const int32_t *xs, const int32_t *wq, int32_t *y, int threads, int kchunk, int quad, int *amax,
+                     long long *usec);
+// an rpcmem buffer (gnpu_hvx_alloc's, whole) kept mapped on the DSP between calls (remote_register_buf_attr's
+// FASTRPC_ATTR_KEEP_MAP: without it FastRPC maps a buffer for every call that passes a pointer into it - 5-10 ms a
+// call for a 256 MB one on the Redmi); on 0 deregisters it (before it is freed). 0 when done, -1 where the driver
+// has no remote_register_buf_attr.
+int gnpu_hvx_keep(void *p, size_t bytes, int on);
 
 #ifdef __cplusplus
 }

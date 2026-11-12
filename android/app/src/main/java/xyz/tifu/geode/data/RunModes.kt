@@ -27,22 +27,29 @@ object RunModes {
     fun usesNpu(mode: Int) = mode == NPU || mode == NPU_GPU || mode == NPU_CPU
     fun usesGpu(mode: Int) = mode == GPU || mode == NPU_GPU || mode == CPU_GPU
 
-    /** The units the engine found on the phone (geode_bench "units"). */
-    data class Units(val gpu: Boolean, val npu: Boolean)
+    /** The units the engine found on the phone (geode_bench "units"). hvx: the NPU is a DSP without HMX (Hexagon v66 ..
+     *  v72, the Snapdragon 7xx / 6xx) - its HVX takes a share of a prompt's products beside the CPU, nothing more: of
+     *  the NPU's modes NPU + CPU only. */
+    data class Units(val gpu: Boolean, val npu: Boolean, val hvx: Boolean = false)
 
     /** The probe's JSON read; null when there is none yet (every mode offered meanwhile). */
     fun parseUnits(json: String): Units? = if (json.isEmpty()) null else runCatching {
         val o = JSONObject(json)
-        Units(gpu = o.optBoolean("gpu", true), npu = o.optBoolean("npu", true))
+        Units(gpu = o.optBoolean("gpu", true), npu = o.optBoolean("npu", true), hvx = o.optBoolean("npu_hvx", false))
     }.getOrNull()
 
     /** The modes the phone's units can run. */
     fun available(units: Units?): List<Int> =
-        ALL.filter { units == null || ((!usesNpu(it) || units.npu) && (!usesGpu(it) || units.gpu)) }
+        ALL.filter {
+            units == null || ((!usesNpu(it) || units.npu) && (!usesGpu(it) || units.gpu) &&
+                (!units.hvx || !usesNpu(it) || it == NPU_CPU))
+        }
 
     /** The nearest mode the phone can run: a missing unit's part to the one left (as the engine falls back). */
     fun nearest(mode: Int, units: Units?): Int {
         if (units == null) return mode
+        // (the HVX: the NPU's modes all become NPU + CPU)
+        if (units.hvx && units.npu && usesNpu(mode)) return NPU_CPU
         val npu = usesNpu(mode) && units.npu
         val gpu = usesGpu(mode) && units.gpu
         return when {

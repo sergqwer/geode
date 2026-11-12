@@ -15,7 +15,6 @@ import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsSupertonicModelConfig
 import java.io.File
-import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -23,13 +22,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import xyz.tifu.geode.models.HfApi
+import xyz.tifu.geode.models.fetchVerified
+import xyz.tifu.geode.models.hashInto
+import xyz.tifu.geode.models.toHex
 
 /**
  * Geode's own voice: Supertonic 3 (int8 ONNX through sherpa-onnx), 31 languages read on the phone's cores. Its files
@@ -135,36 +135,17 @@ class NeuralVoice(context: Context) {
 
     private suspend fun fetch(f: VoiceFile, target: File, before: Long) {
         val part = File(dir, f.name + ".part")
-        var have = part.length().takeIf { it in 1 until f.size } ?: 0L
-        if (part.length() >= f.size) part.delete()
-        val (conn, ranged) = HfApi.download(HfApi.resolveUrl(REPO, REVISION, f.name), "", have)
-        try {
-            if (!ranged) have = 0
-            conn.inputStream.use { input ->
-                FileOutputStream(part, have > 0).use { out ->
-                    val buf = ByteArray(1 shl 16)
-                    var shown = 0L
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val n = input.read(buf)
-                        if (n < 0) break
-                        out.write(buf, 0, n)
-                        have += n
-                        // the progress every half megabyte (not every read)
-                        if (have - shown >= (1 shl 19)) {
-                            shown = have
-                            _download.value = _download.value.copy(done = before + have)
-                        }
-                    }
+        var have = 0L
+        var shown = 0L
+        HfApi.fetchVerified(HfApi.resolveUrl(REPO, REVISION, f.name), "", part, f.size, f.sha256,
+            badHash = { "${f.name}: the file differs from the one expected" }, progress = { n ->
+                have += n
+                // the progress every half megabyte (not every read), and at once when an attempt's bytes go back
+                if (have - shown >= (1 shl 19) || have < shown) {
+                    shown = have
+                    _download.value = _download.value.copy(done = before + have)
                 }
-            }
-        } finally {
-            conn.disconnect()
-        }
-        if (part.length() != f.size || sha256(part) != f.sha256) {
-            part.delete()
-            throw java.io.IOException("${f.name}: the file differs from the one expected")
-        }
+            })
         target.delete()
         if (!part.renameTo(target)) throw java.io.IOException("${f.name}: could not be put in place")
     }
@@ -484,18 +465,8 @@ class NeuralVoice(context: Context) {
         idleSince = 0L
     }
 
-    private fun sha256(f: File): String {
-        val d = MessageDigest.getInstance("SHA-256")
-        f.inputStream().use { s ->
-            val buf = ByteArray(1 shl 16)
-            while (true) {
-                val n = s.read(buf)
-                if (n < 0) break
-                d.update(buf, 0, n)
-            }
-        }
-        return d.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(f: File): String =
+        MessageDigest.getInstance("SHA-256").also { d -> f.inputStream().use { hashInto(d, it, f.length()) {} } }.digest().toHex()
 
     companion object {
         private const val TAG = "GeodeVoice"

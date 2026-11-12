@@ -1,12 +1,12 @@
 package xyz.tifu.geode.cache
 
+import xyz.tifu.geode.util.writeAtomic
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import xyz.tifu.geode.engine.EngineClient
 import xyz.tifu.geode.util.Json
 import java.io.File
-import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -113,12 +113,7 @@ class StateCache(context: Context) {
     }
 
     private fun writeMeta(key: String, meta: Map<String, Any?>) {
-        val tmp = File(dir, "$key.json.tmp")
-        FileOutputStream(tmp).use {
-            it.write(Json.write(meta).toByteArray())
-            it.fd.sync()
-        }
-        tmp.renameTo(metaFile(key))
+        runCatching { writeAtomic(metaFile(key), Json.write(meta)) }
     }
 
     companion object {

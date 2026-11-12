@@ -71,6 +71,12 @@ class GeodeApp : Application() {
         return p to key
     }
 
+    /** The music's settings (the song model's inference, the mastering, the lyrics writer). */
+    val music: xyz.tifu.geode.music.MusicSettings by lazy { xyz.tifu.geode.music.MusicSettings(this) }
+
+    /** The songs' service seen from here: what it makes now, its progress. */
+    val musicClient: xyz.tifu.geode.music.MusicClient by lazy { xyz.tifu.geode.music.MusicClient(this) }
+
     /** The web search (geode-search, run for each search). */
     val webSearch: xyz.tifu.geode.search.WebSearch by lazy { xyz.tifu.geode.search.WebSearch(this) }
 
@@ -132,6 +138,11 @@ class GeodeApp : Application() {
             NotificationChannel(CHANNEL_SERVER, getString(R.string.notif_channel_server),
                 NotificationManager.IMPORTANCE_LOW)
         )
+        // the songs (MusicService, in its own process: the channel is made here, before it posts)
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_MUSIC, getString(R.string.notif_channel_music),
+                NotificationManager.IMPORTANCE_LOW)
+        )
     }
 
     private var tokenizerDir: String? = null
@@ -163,6 +174,7 @@ class GeodeApp : Application() {
         const val CHANNEL_TRANSFERS = "transfers"
         const val CHANNEL_ANSWERS = "answers"
         const val CHANNEL_SERVER = "server"
+        const val CHANNEL_MUSIC = "music"
         /** The agent's RAM beside the model's: its Linux, the harness (Node.js, its heap capped), its commands. */
         /** What the model gives back while the agent's Linux runs a command or an MCP server (proot, bash, python). */
         const val AGENT_RESERVE = 256L shl 20

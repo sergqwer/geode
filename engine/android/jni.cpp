@@ -26,6 +26,37 @@ int on_token(void *user, int32_t token) {
 
 jstring utf(JNIEnv *env, const char *s) { return env->NewStringUTF(s ? s : ""); }
 
+// A failure's message into errOut[0] (when the caller gave the slot).
+void put_err(JNIEnv *env, jobjectArray errOut, const char *msg) {
+    if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, msg));
+}
+
+using AddRgb = int (*)(geode_model *, const uint8_t *, int32_t, int32_t, const char *, int32_t *, char *, size_t);
+
+// An image or a video's frame for the next prompt ([add]: geode_add_image / geode_add_video_frame): rgb is h rows of
+// w pixels, 3 bytes each; cache: its feature file (null: none). Its tokens, or -(a GEODE_* code) with the message in
+// errOut[0] ([what] names the input when its size is wrong).
+jint add_rgb(JNIEnv *env, jlong handle, jbyteArray rgb, jint w, jint h, jstring cache, jobjectArray errOut, AddRgb add,
+             const char *what) {
+    if (!rgb || static_cast<int64_t>(env->GetArrayLength(rgb)) != static_cast<int64_t>(w) * h * 3) {
+        put_err(env, errOut, (std::string("bad ") + what + " size").c_str());
+        return -GEODE_E_ARG;
+    }
+    jbyte *p = env->GetByteArrayElements(rgb, nullptr);
+    const char *c = cache ? env->GetStringUTFChars(cache, nullptr) : nullptr;
+    char err[512] = {0};
+    int32_t tokens = 0;
+    const int rc = add(reinterpret_cast<geode_model *>(handle), reinterpret_cast<const uint8_t *>(p), w, h, c, &tokens,
+                       err, sizeof err);
+    if (c) env->ReleaseStringUTFChars(cache, c);
+    env->ReleaseByteArrayElements(rgb, p, JNI_ABORT);
+    if (rc != GEODE_OK) {
+        put_err(env, errOut, err);
+        return -rc;
+    }
+    return tokens;
+}
+
 }  // namespace
 
 extern "C" {
@@ -68,7 +99,7 @@ JNIEXPORT jlong JNICALL Java_xyz_tifu_geode_engine_GeodeNative_open(JNIEnv *env,
     const int rc = geode_open(&cfg, &model, err, sizeof err);
     env->ReleaseStringUTFChars(dir, d);
     if (rc != GEODE_OK) {
-        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
+        put_err(env, errOut, err);
         return 0;
     }
     return reinterpret_cast<jlong>(model);
@@ -95,8 +126,7 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_generate(
     Callback cb{env, listener, env->GetMethodID(env->GetObjectClass(listener), "onToken", "(I)Z")};
     char err[512] = {0};
     const int rc = geode_generate(model, p.data(), static_cast<int32_t>(p.size()), &s, on_token, &cb, err, sizeof err);
-    if (rc != GEODE_OK && errOut && env->GetArrayLength(errOut) > 0)
-        env->SetObjectArrayElement(errOut, 0, utf(env, err));
+    if (rc != GEODE_OK) put_err(env, errOut, err);
     return rc;
 }
 
@@ -105,24 +135,7 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_generate(
 JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_addImage(JNIEnv *env, jobject, jlong handle,
                                                                        jbyteArray rgb, jint w, jint h, jstring cache,
                                                                        jobjectArray errOut) {
-    const jsize n = env->GetArrayLength(rgb);
-    if (static_cast<int64_t>(n) != static_cast<int64_t>(w) * h * 3) {
-        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, "bad image size"));
-        return -GEODE_E_ARG;
-    }
-    jbyte *p = env->GetByteArrayElements(rgb, nullptr);
-    const char *c = cache ? env->GetStringUTFChars(cache, nullptr) : nullptr;
-    char err[512] = {0};
-    int32_t tokens = 0;
-    const int rc = geode_add_image(reinterpret_cast<geode_model *>(handle), reinterpret_cast<const uint8_t *>(p), w, h,
-                                   c, &tokens, err, sizeof err);
-    if (c) env->ReleaseStringUTFChars(cache, c);
-    env->ReleaseByteArrayElements(rgb, p, JNI_ABORT);
-    if (rc != GEODE_OK) {
-        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
-        return -rc;
-    }
-    return tokens;
+    return add_rgb(env, handle, rgb, w, h, cache, errOut, geode_add_image, "image");
 }
 
 // A video's frame for the next prompt (geode_add_video_frame), as addImage. Returns its <|video|> tokens, or -(a
@@ -130,24 +143,7 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_addImage(JNIEnv *e
 JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_addVideoFrame(JNIEnv *env, jobject, jlong handle,
                                                                             jbyteArray rgb, jint w, jint h,
                                                                             jstring cache, jobjectArray errOut) {
-    const jsize n = env->GetArrayLength(rgb);
-    if (static_cast<int64_t>(n) != static_cast<int64_t>(w) * h * 3) {
-        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, "bad frame size"));
-        return -GEODE_E_ARG;
-    }
-    jbyte *p = env->GetByteArrayElements(rgb, nullptr);
-    const char *c = cache ? env->GetStringUTFChars(cache, nullptr) : nullptr;
-    char err[512] = {0};
-    int32_t tokens = 0;
-    const int rc = geode_add_video_frame(reinterpret_cast<geode_model *>(handle), reinterpret_cast<const uint8_t *>(p),
-                                         w, h, c, &tokens, err, sizeof err);
-    if (c) env->ReleaseStringUTFChars(cache, c);
-    env->ReleaseByteArrayElements(rgb, p, JNI_ABORT);
-    if (rc != GEODE_OK) {
-        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
-        return -rc;
-    }
-    return tokens;
+    return add_rgb(env, handle, rgb, w, h, cache, errOut, geode_add_video_frame, "frame");
 }
 
 // A sound clip for the next prompt (geode_add_audio): 16 kHz mono floats in [-1, 1]. Returns its <|audio|> tokens,
@@ -156,7 +152,7 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_addAudio(JNIEnv *e
                                                                        jfloatArray pcm, jobjectArray errOut) {
     const jsize n = pcm ? env->GetArrayLength(pcm) : 0;
     if (n <= 0) {
-        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, "an empty clip"));
+        put_err(env, errOut, "an empty clip");
         return -GEODE_E_ARG;
     }
     jfloat *p = env->GetFloatArrayElements(pcm, nullptr);
@@ -165,7 +161,7 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_addAudio(JNIEnv *e
     const int rc = geode_add_audio(reinterpret_cast<geode_model *>(handle), p, n, &tokens, err, sizeof err);
     env->ReleaseFloatArrayElements(pcm, p, JNI_ABORT);
     if (rc != GEODE_OK) {
-        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
+        put_err(env, errOut, err);
         return -rc;
     }
     return tokens;
@@ -201,7 +197,7 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_prefill(JNIEnv *en
     char err[512] = {0};
     const int rc = geode_prefill(reinterpret_cast<geode_model *>(handle), p.data(), static_cast<int32_t>(p.size()), err,
                                  sizeof err);
-    if (rc != GEODE_OK && errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
+    if (rc != GEODE_OK) put_err(env, errOut, err);
     return rc;
 }
 
@@ -215,7 +211,7 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_stateSave(JNIEnv *
     const int rc = geode_state_save(reinterpret_cast<geode_model *>(handle), p, append ? 1 : 0, &pos, err, sizeof err);
     env->ReleaseStringUTFChars(path, p);
     if (rc != GEODE_OK) {
-        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
+        put_err(env, errOut, err);
         return -rc;
     }
     return pos;
@@ -229,7 +225,7 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_stateLoad(JNIEnv *
     const int rc = geode_state_load(reinterpret_cast<geode_model *>(handle), p, &pos, err, sizeof err);
     env->ReleaseStringUTFChars(path, p);
     if (rc != GEODE_OK) {
-        if (errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
+        put_err(env, errOut, err);
         return -rc;
     }
     return pos;
@@ -243,7 +239,7 @@ JNIEXPORT jlong JNICALL Java_xyz_tifu_geode_engine_GeodeNative_reserveMemory(JNI
     uint64_t held = 0;
     const int rc = geode_reserve_memory(reinterpret_cast<geode_model *>(handle), static_cast<uint64_t>(bytes < 0 ? 0 : bytes),
                                         &held, err, sizeof err);
-    if (err[0] && errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
+    if (err[0]) put_err(env, errOut, err);
     return rc != GEODE_OK ? -static_cast<jlong>(rc) : static_cast<jlong>(held);
 }
 
@@ -252,7 +248,7 @@ JNIEXPORT jint JNICALL Java_xyz_tifu_geode_engine_GeodeNative_setExperts(JNIEnv 
                                                                          jobjectArray errOut) {
     char err[512] = {0};
     const int rc = geode_set_experts(reinterpret_cast<geode_model *>(handle), k, err, sizeof err);
-    if (rc != GEODE_OK && errOut && env->GetArrayLength(errOut) > 0) env->SetObjectArrayElement(errOut, 0, utf(env, err));
+    if (rc != GEODE_OK) put_err(env, errOut, err);
     return rc;
 }
 

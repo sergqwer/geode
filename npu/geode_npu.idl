@@ -99,4 +99,19 @@ interface geode_npu : remote_handle64 {
    long mat_t8(in long fd, in unsigned long long off, in long kfull, in long n, in long col0, in long k, in float up,
                rout long id);
    long mat_t8_clear();
+   // A whole MLP on fp16 weights in HMX's blocks (HMX_F16: the host made them), gate, up and down at g_off, u_off,
+   // d_off of the buffer w_fd: o = down(act(A x G^T) * (A x U^T)), A and o as gemm's (k = the model's width, both
+   // ways), the middle (m x f fp16) in the scratch buffer s_fd (s_len bytes, mapped once) on the DSP only. The shifts
+   // each matrix's out_shift; act as gemm_glu's. v79 and newer; older: AEE_EUNSUPPORTED. usec: the DSP's time
+   long mlp_f16(in sequence<octet> a, in long w_fd, in unsigned long long g_off, in unsigned long long u_off,
+                in unsigned long long d_off, in long s_fd, in unsigned long long s_len, rout sequence<octet> o,
+                in long m, in long k, in long f, in long g_shift, in long u_shift, in long d_shift, in long act,
+                rout long long usec);
+   // YuE2's NAR on the DSP (npu/nar_cfg.h, npu/dsp/gemma.c): nar_open takes the shape, the chunk (the prefix's A
+   // positions, the n rows), the layers' weight and bank buffers, the norms' buffer P and the IO buffer (all
+   // gnpu_shared_alloc's fds, mapped once) and starts a pool of HVX threads that stays; nar_run: one velocity - IO's
+   // x rows through every layer, left in IO (flags NAR_DEBUG_*). v79 and newer. usec: the DSP's time
+   long nar_open(in sequence<octet> cfg, in long p_fd, in long io_fd);
+   long nar_run(in long flags, rout long long usec);
+   long nar_close();
 };

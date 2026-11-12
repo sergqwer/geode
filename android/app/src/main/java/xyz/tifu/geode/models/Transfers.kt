@@ -8,13 +8,15 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /** Where a model comes from; saved in a partial transfer so it can resume. */
 sealed interface TransferSource {
-    data class Hf(val repo: String, val revision: String, val packPath: String) : TransferSource
+    /** [music]: the song model (MusicModels' store, its own arch), not a chat model. */
+    data class Hf(val repo: String, val revision: String, val packPath: String, val music: Boolean = false) : TransferSource
     /** A folder picked with the system picker; move = delete each original once its copy is checked. */
     data class Folder(val uri: String, val move: Boolean) : TransferSource
 
     fun write(f: File) {
         val o = when (this) {
             is Hf -> JSONObject().put("kind", "hf").put("repo", repo).put("revision", revision).put("pack", packPath)
+                .put("music", music)
             is Folder -> JSONObject().put("kind", "folder").put("uri", uri).put("move", move)
         }
         f.writeText(o.toString())
@@ -24,7 +26,7 @@ sealed interface TransferSource {
         fun read(f: File): TransferSource? = runCatching {
             val o = JSONObject(f.readText())
             when (o.getString("kind")) {
-                "hf" -> Hf(o.getString("repo"), o.getString("revision"), o.getString("pack"))
+                "hf" -> Hf(o.getString("repo"), o.getString("revision"), o.getString("pack"), o.optBoolean("music"))
                 "folder" -> Folder(o.getString("uri"), o.getBoolean("move"))
                 else -> null
             }
@@ -42,6 +44,8 @@ data class TransferState(
     val total: Long = 0,
     val bytesPerSecond: Long = 0,
     val error: String? = null,
+    /** The song model's download (the Music settings show it), not a chat model's. */
+    val music: Boolean = false,
 ) {
     val active: Boolean get() = phase != TransferPhase.DONE && phase != TransferPhase.FAILED &&
         phase != TransferPhase.CANCELLED

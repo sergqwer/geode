@@ -1,5 +1,6 @@
 package xyz.tifu.geode.ui.chat
 
+import xyz.tifu.geode.ui.settings.RadioOption
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -17,7 +18,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -83,7 +83,6 @@ import androidx.compose.material3.Button
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.TextButton
@@ -854,15 +853,7 @@ private fun ReportDialog(onDismiss: () -> Unit, onSend: (reason: String, note: S
                 Text(stringResource(R.string.report_intro), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 for (r in Reports.REASONS) {
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .selectable(selected = reason == r, onClick = { reason = r }, role = Role.RadioButton)
-                            .padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = reason == r, onClick = null)
-                        Text(stringResource(labels.getValue(r)), Modifier.padding(start = 8.dp))
-                    }
+                    RadioOption(stringResource(labels.getValue(r)), reason == r) { reason = r }
                 }
                 OutlinedTextField(
                     value = note,

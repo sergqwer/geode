@@ -36,6 +36,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch { app.lock.config.collect { hideFromRecents(it.on) } }
         signIn(intent)
         deviceCheck(intent)
+        openMusic(intent)
         setContent {
             val settings by app.settings.flow.collectAsStateWithLifecycle(AppSettings())
             GeodeTheme(themeMode = settings.theme, dynamicColor = settings.dynamicColor) {
@@ -80,6 +81,19 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         signIn(intent)
         deviceCheck(intent)
+        openMusic(intent)
+    }
+
+    /** A song's notification tapped: GeodeRoot opens the Music screen. */
+    private fun openMusic(intent: Intent?) {
+        if (intent?.action == ACTION_OPEN_MUSIC) xyz.tifu.geode.music.MusicClient.openRequested.value = true
+        // its Share: the Music screen, which shares the song; the notification goes (an action does not close it)
+        if (intent?.action == ACTION_SHARE_SONG) {
+            val id = intent.getStringExtra(EXTRA_SONG) ?: return
+            androidx.core.app.NotificationManagerCompat.from(this).cancel(xyz.tifu.geode.music.MusicService.END_NOTIFICATION_ID)
+            xyz.tifu.geode.music.MusicClient.shareRequested.value = id
+            xyz.tifu.geode.music.MusicClient.openRequested.value = true
+        }
     }
 
     /** The device check adb asked for (DeviceReport.ACTION_CHECK): GeodeRoot opens the Benchmark and runs it */
@@ -91,5 +105,13 @@ class MainActivity : AppCompatActivity() {
     private fun signIn(intent: Intent?) {
         val d = intent?.data ?: return
         if (d.scheme == "geode" && d.host == "login") QrLogins.incoming.value = d.toString()
+    }
+
+    companion object {
+        /** The songs' notifications open the app on the Music screen with it. */
+        const val ACTION_OPEN_MUSIC = "xyz.tifu.geode.OPEN_MUSIC"
+        /** A song-ready notification's Share ([EXTRA_SONG]: the song's id). */
+        const val ACTION_SHARE_SONG = "xyz.tifu.geode.SHARE_SONG"
+        const val EXTRA_SONG = "song"
     }
 }

@@ -2,7 +2,7 @@ package xyz.tifu.geode.media
 
 import android.content.Context
 import java.io.File
-import java.io.FileOutputStream
+import xyz.tifu.geode.util.writeAtomic
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
@@ -12,15 +12,11 @@ import java.util.UUID
  * [MAX_SAMPLES] (files/chats/audio/<id>.f32). They stay on the device, with their chat: written by the UI process,
  * read by the :engine one (geode_add_audio).
  */
-class AudioStore(context: Context) {
-    private val dir = File(context.filesDir, "chats/audio").apply { mkdirs() }
-
-    fun file(name: String) = File(dir, name)
-
+class AudioStore(context: Context) : MediaFolder(File(context.filesDir, "chats/audio"), "f32") {
     /** Samples (16 kHz mono) into the store, the first [MAX_SAMPLES] of them; its name. */
     fun save(pcm: FloatArray): String {
         val name = UUID.randomUUID().toString() + ".f32"
-        write(pcm, name)
+        writeAtomic(file(name), sync = false) { it.write(encode(pcm)) }
         return name
     }
 
@@ -29,17 +25,16 @@ class AudioStore(context: Context) {
      * clips again with every request); its name. Older than a day: gone at the server's start ([dropServerClips]).
      */
     fun saveServer(pcm: FloatArray): String {
-        val name = serverName(pcm)
-        if (file(name).isFile) file(name).setLastModified(System.currentTimeMillis()) else write(pcm, name)
-        return name
+        val bytes = encode(pcm)   // (once: its name is these bytes' hash, and they are what is written)
+        return serverCopy(contentName(bytes, "f32")) { name -> writeAtomic(file(name), sync = false) { it.write(bytes) } }
     }
 
-    /** The name [saveServer] gives these samples: their content's (the first 30 s). */
-    private fun serverName(pcm: FloatArray): String {
-        val d = java.security.MessageDigest.getInstance("SHA-256")
-        val b = ByteBuffer.allocate(4 * minOf(pcm.size, MAX_SAMPLES)).order(ByteOrder.LITTLE_ENDIAN)
-        for (i in 0 until minOf(pcm.size, MAX_SAMPLES)) b.putFloat(pcm[i])
-        return SERVER_PREFIX + d.digest(b.array()).take(16).joinToString("") { "%02x".format(it) } + ".f32"
+    /** The first [MAX_SAMPLES] samples as the file holds them: float32, little-endian. */
+    private fun encode(pcm: FloatArray): ByteArray {
+        val n = minOf(pcm.size, MAX_SAMPLES)
+        val b = ByteBuffer.allocate(4 * n).order(ByteOrder.LITTLE_ENDIAN)
+        for (i in 0 until n) b.putFloat(pcm[i])
+        return b.array()
     }
 
     /**
@@ -48,47 +43,13 @@ class AudioStore(context: Context) {
      * the copy's name.
      */
     fun deleteServerCopies(names: Collection<String>) {
-        for (n in names) runCatching { file(serverName(Wav.decode(Wav.encode(read(file(n)))))).delete() }
+        for (n in names) runCatching { file(contentName(encode(Wav.decode(Wav.encode(read(file(n))))), "f32")).delete() }
     }
 
-    /** The clips no chat holds ([held]), older than [ageMs]; the server's have their own rule ([dropServerClips]). */
-    fun dropUnheld(held: Set<String>, ageMs: Long) {
-        val old = System.currentTimeMillis() - ageMs
-        (dir.listFiles() ?: emptyArray())
-            .filter { it.isFile && !it.name.startsWith(SERVER_PREFIX) && it.name !in held && it.lastModified() < old }
-            .forEach { it.delete() }
-    }
-
-    private fun write(pcm: FloatArray, name: String) {
-        val n = minOf(pcm.size, MAX_SAMPLES)
-        val b = ByteBuffer.allocate(4 * n).order(ByteOrder.LITTLE_ENDIAN)
-        for (i in 0 until n) b.putFloat(pcm[i])
-        val tmp = File(dir, "$name.tmp")
-        FileOutputStream(tmp).use { it.write(b.array()) }
-        tmp.renameTo(file(name))
-    }
 
     /** The clip's samples; 0 when it is gone. */
     fun samples(name: String): Int = (file(name).length() / 4).toInt()
 
-    /** The local server's clips not used for a day. */
-    fun dropServerClips() {
-        val old = System.currentTimeMillis() - 24 * 3600_000L
-        (dir.listFiles() ?: emptyArray()).filter { it.name.startsWith(SERVER_PREFIX) && it.lastModified() < old }
-            .forEach { it.delete() }
-    }
-
-    fun delete(names: Collection<String>) {
-        for (n in names) file(n).delete()
-    }
-
-    /** A copy of a clip under a new name (a forked chat's own); null when it is gone. */
-    fun copy(name: String): String? {
-        val src = file(name).takeIf { it.isFile } ?: return null
-        val copy = UUID.randomUUID().toString() + ".f32"
-        src.copyTo(file(copy))
-        return copy
-    }
 
     /** A clip's length in seconds. */
     fun seconds(name: String): Float = samples(name).toFloat() / RATE
@@ -99,7 +60,6 @@ class AudioStore(context: Context) {
         const val MAX_SAMPLES = 30 * RATE
         private const val FRAME = 320
         private const val HOP = 160
-        private const val SERVER_PREFIX = "srv_"
 
         /**
          * The <|audio|> tokens a clip of [n] samples takes (geode_audio_tokens, the engine's Audio::tokens): its

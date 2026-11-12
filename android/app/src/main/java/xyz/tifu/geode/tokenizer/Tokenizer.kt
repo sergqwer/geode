@@ -14,7 +14,7 @@ import java.util.regex.Pattern
  * - SentencePiece-style (Gemma 4): spaces as "\u2581", no pre-split, BPE over the text's characters (those without a
  *   token of their own as their UTF-8 bytes' <0xXX> tokens), merged lowest rank first with a heap (the whole text is
  *   one piece).
- * Special tokens are never parsed out of text by [encode]; the chat template inserts them by id ([ChatFormat]).
+ * Special tokens are never parsed out of text by [encode]; the chat template inserts them by id ([ChatTemplate]).
  */
 class Tokenizer private constructor(
     private val vocabBytes: ByteArray,

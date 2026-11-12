@@ -1,0 +1,51 @@
+// npu/hvx66/geode_hvx.idl - Geode's cDSP module for Hexagon v66 class DSPs (Snapdragon 7xx / 6xx: HVX with integer
+// vectors only - no HMX, no HVX floats), unsigned PD, as FastRPC sees it. Built by npu/hvx66/build.py (zig's LLVM:
+// the SDK's hexagon-clang 21 no longer targets v66).
+#include "AEEStdDef.idl"
+#include "remote.idl"
+
+interface geode_hvx : remote_handle64 {
+   // y = x + 1 (FastRPC's round trip); hvx: qurt_hvx_lock's answer (0: an HVX context of 128 bytes); dot: 32 lanes
+   // of vrmpy(splat(x & 127), bytes 1 2 3 4) summed - 320 (x & 127) when HVX computes
+   long ping(in long x, rout long y, rout long hvx, rout long dot);
+   // HVX's int8 speed: `threads` HVX threads (each its own 128-byte context), `iters` passes each. mode 0: vrmpy on
+   // registers (the compute peak); 1: 8 MB of weights streamed from DDR, each vector against 4 tokens (a product's
+   // inner loop). units: qurt_hvx_get_units(); power: the clock vote's answer (0: voted); usec: the DSP's time;
+   // macs: the multiply-adds done (0: an HVX context was not had)
+   long bench(in long threads, in long mode, in long iters, rout long units, rout long power, rout long long usec,
+              rout long long macs);
+   // The 8-bit product (the "Fast" sound's, cpu_gemm_hmx8's integer sums): rows x k of a c8/h8 matrix (hmx8 blocks:
+   // per 32 rows k * 32 code bytes at HMX's fp16 element index, then the fp16 scales - not read here) in w (an
+   // rpcmem buffer; uncached spares FastRPC's flush of it per call and measured as fast on the DSP; v66 DSPs refuse
+   // fastrpc_mmap - 0x14);
+   // n8 tokens (a multiple of 8): x [n8][k] int8;
+   // per token and group of 32 inputs corr = 128 sum(x) and aq = the token's scale ratio (Q15 << 16), [n8][k/32]
+   // int32 each; wq: per 32-row block and group the rows' scale ratios (Q15 << 16), [rows/32][k/32][32] int32.
+   // y [n8][rows] int32 = sum over groups of ((d << 2) * wq >> 15) * aq >> 15 (vmpyo's rounding), d the group's
+   // exact integer sum: the CPU multiplies by the rows' and tokens' largest scales / 4. threads: HVX threads (2 on a
+   // v66). usec: the DSP's time.
+   long q8_gemm(in sequence<octet> w, in long rows, in long k, in long n8, in sequence<octet> x, in sequence<octet> corr, in sequence<octet> aq,
+                in sequence<octet> wq, rout sequence<octet> y, in long threads, rout long long usec);
+   // The 4-bit product (an LLM prompt's: Gemma 4's q4i, level c - 8; Qwen's q4, level 2c - 15) on the first `rows`
+   // rows of a tile8 matrix (engine/src/kernels.hpp: tiles of 32 rows, 18 k bytes each, 128-byte aligned; in a tile
+   // code word j of 64-value chunk c is the vector (c * 8 + j): 32 rows in its lanes, byte b the values 8j + 2b (low
+   // nibble) and 8j + 2b + 1 (high); the scales after the codes, not read here). w: its first tile.
+   // The inputs in passes of kchunk (a multiple of 64; 0: 2048 - the tokens' slice a pass keeps in L2), pass by pass:
+   // x: per pass [n8][kn] int8 (kn the pass's inputs, kchunk but the last), each token's values, every group of 8 in
+   // the order 0 2 4 6 1 3 5 7 (a word's low nibbles' partners, then its high ones'); xs: per pass [n8][kn/32][2] words
+   // per pair of 16-value blocks (b0, b1): the halfwords -off * sum(x) of each block (off 16 for q4i, 15 for q4; b0
+   // low), then the halfwords of the blocks' scale ratios (Q13 - the token's largest scale 8192 - or fewer bits, the
+   // host's choice; b0 low).
+   // wq [rows/32][k/32][32] words: per tile, pair and row the halfwords of the two blocks' scale ratios (Q15, the row's
+   // largest |scale| 32767; b0 low).
+   // y [rows/32][n8][32] int32 (tile by tile) = sum over pairs of vdmpy(vmpy(d2.h, wq.h):<<1:rnd:sat, aq.h):sat, d2
+   // per block the exact sum(2 level x) (q4i) or sum(level x) (q4) mod 2^16 (it fits): the CPU multiplies by the
+   // rows' and tokens' largest scales / 2^13 (and / 2 for q4i). threads: HVX threads (2 on a v66).
+   // quad 1: w in the quad layout instead (the CPU's: groups of 4 rows, each word j of chunk c of row r at
+   // ((j * nch + c) * 4 + r) * 4, the groups 9 k / 4 bytes on - k and kchunk multiples of 512), each tile's pass of
+   // codes turned into tile8's order on the DSP (once for all the tokens). amax: the largest |sum| any pass or total
+   // reached - from 2^30 on a sum may have saturated (int32, :sat) and the host computes the rows itself.
+   long q4_gemm(in sequence<octet> w, in long rows, in long k, in long n8, in sequence<octet> x, in sequence<octet> xs,
+                in sequence<octet> wq, rout sequence<octet> y, in long threads, in long kchunk, in long quad,
+                rout long amax, rout long long usec);
+};

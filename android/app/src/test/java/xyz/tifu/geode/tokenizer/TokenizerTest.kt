@@ -61,37 +61,25 @@ class TokenizerTest {
 
     @Test
     fun chatTemplateLikeHuggingFace() {
-        val fmt = ChatFormat(tok)
+        // the app's Qwen template (ChatTemplate, the one every request is rendered with) against apply_chat_template
+        val tpl = ChatTemplate(tok)
         val chats = cases.getJSONArray("chats")
         for (i in 0 until chats.length()) {
             val c = chats.getJSONObject(i)
             val msgs = c.getJSONArray("messages")
             val turns = (0 until msgs.length()).map {
                 val m = msgs.getJSONObject(it)
-                ChatTurn(m.getString("role"), m.getString("content"))
+                TemplateMessage(m.getString("role"), listOf(Part.Text(m.getString("content"))))
             }
-            assertArrayEquals("chat $i", ints(c.getJSONArray("ids")), fmt.conversation(turns, c.getBoolean("thinking")).ids)
+            assertArrayEquals("chat $i", ints(c.getJSONArray("ids")), tpl.render(turns, emptyList(), c.getBoolean("thinking")).ids)
         }
-    }
-
-    @Test
-    fun nextTurnContinuesTheConversation() {
-        // conversation(first exchange) + the answer + nextTurn == conversation(all of it), when reasoning is off
-        // the earlier answer's empty <think></think> stays in the engine (the template would drop it), so compare
-        // only the tail: what nextTurn sends must be the end of the full render
-        val fmt = ChatFormat(tok)
-        val full = fmt.conversation(listOf(ChatTurn("user", "a"), ChatTurn("assistant", "b"), ChatTurn("user", "c")),
-            thinking = false).ids
-        val next = fmt.nextTurn(ChatTurn("user", "c"), thinking = false).ids
-        assertArrayEquals(next, full.copyOfRange(full.size - next.size, full.size))
     }
 
     @Test
     fun anImageQuestionLikeHuggingFace() {
         // Hugging Face's ids of the template rendered for [image, text] (thinking off), the image 32 x 32: one token
-        val fmt = ChatFormat(tok)
-        val p = fmt.conversation(listOf(ChatTurn("user", "What is in this image? Describe it briefly.",
-            listOf(TurnImage("x.jpg", 32, 32)))), thinking = false)
+        val p = ChatTemplate(tok).render(listOf(TemplateMessage("user", listOf(Part.Image(TurnImage("x.jpg", 32, 32), "x"),
+            Part.Text("What is in this image? Describe it briefly.")))), emptyList(), thinking = false)
         assertArrayEquals(intArrayOf(248045, 846, 198, 248053, 248056, 248054, 3710, 369, 303, 411, 2099, 30, 58737,
             424, 25899, 13, 248046, 198, 248045, 74455, 198, 248068, 271, 248069, 271), p.ids)
         assertEquals(listOf(TurnImage("x.jpg", 32, 32)), p.images)

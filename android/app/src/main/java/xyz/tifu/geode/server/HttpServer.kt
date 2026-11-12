@@ -38,6 +38,11 @@ class HttpRequest(
     val remote: String = "",
 ) {
     fun header(name: String): String? = headers[name.lowercase()]
+
+    /** The body as a JSON object (ApiError 400 when it is not one). */
+    @Suppress("UNCHECKED_CAST")
+    fun json(): Map<String, Any?> = runCatching { Json.parse(String(body, Charsets.UTF_8)) as? Map<String, Any?> }.getOrNull()
+        ?: throw ApiError(400, "The body is not a JSON object.")
 }
 
 /** The answer to a request, whole or as server-sent events; the connection closes after it. */
@@ -59,6 +64,51 @@ class HttpResponder(private val out: OutputStream) {
         send(status, "application/json", Json.write(v).toByteArray(), headers)
 
     fun text(status: Int, s: String, type: String = "text/plain; charset=utf-8") = send(status, type, s.toByteArray())
+
+    /**
+     * [f] as the body, read as it goes out: whole, or the one range a "Range: bytes=a-b" header asks for (206 - a
+     * player seeks with it; 416 for a range past the end). [download]: the file name a browser saves it under.
+     */
+    fun file(f: java.io.File, contentType: String, range: String?, download: String? = null) {
+        val len = f.length()
+        var start = 0L
+        var end = len - 1
+        val m = range?.trim()?.let { RANGE.matchEntire(it) }?.takeIf { it.groupValues[1].isNotEmpty() || it.groupValues[2].isNotEmpty() }
+        if (m != null) {
+            val a = m.groupValues[1].toLongOrNull()
+            val b = m.groupValues[2].toLongOrNull()
+            // (a bound given but past a Long's range: nothing this file has)
+            val broken = (m.groupValues[1].isNotEmpty() && a == null) || (m.groupValues[2].isNotEmpty() && b == null)
+            if (a == null) start = (len - (b ?: 0L)).coerceAtLeast(0L)   // (the last b bytes)
+            else {
+                start = a
+                if (b != null) end = minOf(b, len - 1)
+            }
+            if (broken || start >= len || start > end) {
+                head(416, contentType, mapOf("Content-Range" to "bytes */$len", "Content-Length" to "0"))
+                out.flush()
+                return
+            }
+        }
+        val headers = linkedMapOf("Accept-Ranges" to "bytes", "Content-Length" to (end - start + 1).coerceAtLeast(0L).toString(),
+            "Cache-Control" to "private, max-age=3600")
+        if (m != null) headers["Content-Range"] = "bytes $start-$end/$len"
+        if (download != null) headers["Content-Disposition"] = "attachment; filename*=UTF-8''" +
+            java.net.URLEncoder.encode(download, "UTF-8").replace("+", "%20")
+        head(if (m != null) 206 else 200, contentType, headers)
+        java.io.RandomAccessFile(f, "r").use { raf ->
+            raf.seek(start)
+            val buf = ByteArray(64 * 1024)
+            var left = end - start + 1
+            while (left > 0) {
+                val n = raf.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                if (n < 0) break
+                out.write(buf, 0, n)
+                left -= n
+            }
+        }
+        out.flush()
+    }
 
     /** Server-sent events: the head now, then [event] and [comment] as they come, each sent at once. */
     fun events() = head(200, "text/event-stream; charset=utf-8", mapOf("Cache-Control" to "no-cache",
@@ -92,6 +142,7 @@ class HttpResponder(private val out: OutputStream) {
     private fun reason(status: Int) = when (status) {
         200 -> "OK"
         204 -> "No Content"
+        206 -> "Partial Content"
         400 -> "Bad Request"
         401 -> "Unauthorized"
         404 -> "Not Found"
@@ -99,6 +150,7 @@ class HttpResponder(private val out: OutputStream) {
         409 -> "Conflict"
         429 -> "Too Many Requests"
         413 -> "Payload Too Large"
+        416 -> "Range Not Satisfiable"
         500 -> "Internal Server Error"
         503 -> "Service Unavailable"
         else -> "Status"
@@ -109,8 +161,9 @@ class HttpResponder(private val out: OutputStream) {
         private val CORS = mapOf(
             "Access-Control-Allow-Origin" to "*",
             "Access-Control-Allow-Headers" to "*",
-            "Access-Control-Allow-Methods" to "GET, POST, OPTIONS",
+            "Access-Control-Allow-Methods" to "GET, POST, DELETE, OPTIONS",
         )
+        private val RANGE = Regex("^bytes=([0-9]*)-([0-9]*)$")
     }
 }
 

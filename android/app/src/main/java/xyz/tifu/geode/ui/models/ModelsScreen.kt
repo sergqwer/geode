@@ -1,5 +1,6 @@
 package xyz.tifu.geode.ui.models
 
+import xyz.tifu.geode.ui.settings.SwitchRow
 import androidx.compose.material.icons.outlined.Menu
 import android.Manifest
 import android.content.pm.PackageManager
@@ -57,7 +58,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -308,23 +308,9 @@ private const val NEED_SOUND = 4
 /** The search over the models (their names and descriptions), and what they must take in. */
 @Composable
 private fun SearchBar(query: String, onQuery: (String) -> Unit, want: Int, onToggle: (Int) -> Unit) {
-    val keyboard = LocalSoftwareKeyboardController.current
     Column(Modifier.padding(horizontal = 16.dp)) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQuery,
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            placeholder = { Text(stringResource(R.string.models_search)) },
-            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) {
-                    Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.models_cancel))
-                }
-            },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-        )
+        xyz.tifu.geode.ui.settings.SearchField(query, onQuery, stringResource(R.string.models_search),
+            stringResource(R.string.models_cancel))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for ((bit, icon, label) in listOf(
@@ -611,14 +597,8 @@ private fun ImportCard(busy: Boolean, move: Boolean, onMove: (Boolean) -> Unit, 
             }
             Text(stringResource(R.string.models_import_desc), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.models_move), style = MaterialTheme.typography.bodyMedium)
-                    Text(stringResource(R.string.models_move_desc), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = move, onCheckedChange = onMove)
-            }
+            SwitchRow(stringResource(R.string.models_move), stringResource(R.string.models_move_desc), move, onMove,
+                titleStyle = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onPick, enabled = !busy) { Text(stringResource(R.string.models_import)) }
         }

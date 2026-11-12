@@ -1,5 +1,6 @@
 package xyz.tifu.geode.ui.settings
 
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import android.app.ActivityManager
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
@@ -48,17 +49,15 @@ class SettingsViewModel(private val app: GeodeApp) : ViewModel() {
         AppSettings())
 
     /** The selected model's shape (its dense weights stay in memory, its experts go through the cache), or null. */
-    val shape: StateFlow<ModelShape?> = app.settings.flow.map { it.selectedModel }.distinctUntilChanged().map { id ->
-        withContext(Dispatchers.IO) { id.takeIf { it.isNotEmpty() }?.let(store::find)?.let { ModelShape.read(it.dir) } }
+    val shape: StateFlow<ModelShape?> = app.settings.flow.distinctUntilChangedBy { it.selectedModel }.map { s ->
+        withContext(Dispatchers.IO) { store.selected(s)?.let { ModelShape.read(it.dir) } }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** The selected model as installed (its name, what its pack can, what of that the user left on), or null: none
      *  picked or gone. */
     val model: StateFlow<xyz.tifu.geode.models.InstalledModel?> = app.settings.flow
-        .map { it.selectedModel to it.featuresOff }
-        .distinctUntilChanged().map { (id, off) ->
-            withContext(Dispatchers.IO) { id.takeIf { it.isNotEmpty() }?.let(store::find)?.copy(off = off) }
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+        .distinctUntilChangedBy { it.selectedModel to it.featuresOff }
+        .map { s -> withContext(Dispatchers.IO) { store.selected(s) } }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** The GPU path as the engine last reported it (null before a model opened). */
     val gpuStatus: StateFlow<String?> = app.engine.gpuStatus

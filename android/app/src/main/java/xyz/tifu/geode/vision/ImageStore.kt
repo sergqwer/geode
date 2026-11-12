@@ -7,8 +7,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.net.Uri
+import xyz.tifu.geode.media.MediaFolder
+import xyz.tifu.geode.util.writeAtomic
 import java.io.File
-import java.io.FileOutputStream
+import xyz.tifu.geode.tokenizer.TurnImage
 import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -22,12 +24,9 @@ import kotlin.math.sqrt
  * gets it at the size the model reads it at ([fit]: Qwen's smart_resize; [fitGemma]: Gemma 4's) as raw RGB in the
  * cache (cache/vision/), written by the UI process and read by the :engine one.
  */
-class ImageStore(context: Context) {
+class ImageStore(context: Context) : MediaFolder(File(context.filesDir, "chats/img"), "jpg") {
     private val resolver = context.contentResolver
-    private val dir = File(context.filesDir, "chats/img").apply { mkdirs() }
     private val cache = File(context.cacheDir, "vision").apply { mkdirs() }
-
-    fun file(name: String) = File(dir, name)
 
     /** A picked image (a content Uri) into the store; its name. */
     fun import(uri: Uri): String {
@@ -39,14 +38,10 @@ class ImageStore(context: Context) {
     /**
      * An image a local server's request sent (PNG, JPEG, WebP... bytes) into the store, named by its content: a client
      * sends a conversation's images again with every request, and the same image keeps its file (and its features,
-     * encoded once). Its name. The server's images older than a day go at its start ([dropServerImages]).
+     * encoded once). Its name. The server's images older than a day go at its start ([dropServerCopies]).
      */
-    fun importBytes(bytes: ByteArray): String {
-        val name = serverName(bytes)
-        if (file(name).isFile) file(name).setLastModified(System.currentTimeMillis())
-        else store(ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes)), name)
-        return name
-    }
+    fun importBytes(bytes: ByteArray): String =
+        serverCopy(contentName(bytes, "jpg")) { store(ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes)), it) }
 
     /** An image the web chat sent for a chat's question: kept with the chat (as a picked one is), its name. */
     fun importChatBytes(bytes: ByteArray): String {
@@ -55,11 +50,6 @@ class ImageStore(context: Context) {
         return name
     }
 
-    /** The name [importBytes] gives these image bytes: their content's. */
-    private fun serverName(bytes: ByteArray): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
-        return SERVER_PREFIX + digest.take(16).joinToString("") { "%02x".format(it) } + ".jpg"
-    }
 
     /**
      * The local server's copies of these chat images - the agent sends a chat image's bytes, which the server stores
@@ -67,26 +57,7 @@ class ImageStore(context: Context) {
      * stores it again.
      */
     fun deleteServerCopies(names: Collection<String>) {
-        for (n in names) runCatching { file(serverName(file(n).readBytes())).delete() }
-    }
-
-    /**
-     * The chat images no chat holds ([held]: every saved chat's) - picked and never sent, a video's frames whose
-     * reading was cut off - older than [ageMs] (one being attached now is newer). The server's copies have their own
-     * rule ([dropServerImages]).
-     */
-    fun dropUnheld(held: Set<String>, ageMs: Long) {
-        val old = System.currentTimeMillis() - ageMs
-        (dir.listFiles() ?: emptyArray())
-            .filter { it.isFile && !it.name.startsWith(SERVER_PREFIX) && it.name !in held && it.lastModified() < old }
-            .forEach { it.delete() }
-    }
-
-    /** The local server's images not used for a day. */
-    fun dropServerImages() {
-        val old = System.currentTimeMillis() - 24 * 3600_000L
-        (dir.listFiles() ?: emptyArray()).filter { it.name.startsWith(SERVER_PREFIX) && it.lastModified() < old }
-            .forEach { it.delete() }
+        for (n in names) runCatching { file(contentName(file(n).readBytes(), "jpg")).delete() }
     }
 
     private fun store(source: ImageDecoder.Source, name: String) {
@@ -102,9 +73,7 @@ class ImageStore(context: Context) {
             drawColor(Color.WHITE)
             drawBitmap(bmp, 0f, 0f, null)
         }
-        val tmp = File(dir, "$name.tmp")
-        FileOutputStream(tmp).use { out.compress(Bitmap.CompressFormat.JPEG, 92, it) }
-        tmp.renameTo(File(dir, name))
+        writeAtomic(file(name), sync = false) { out.compress(Bitmap.CompressFormat.JPEG, 92, it) }
     }
 
     /** The stored image's width and height (its pixels not decoded); null when it is gone. */
@@ -122,8 +91,14 @@ class ImageStore(context: Context) {
         }
     }.getOrNull()
 
-    /** The image at [w] x [h] (a [fit]) as raw RGB for the engine (made once, kept in the cache); the file. */
-    fun prepare(name: String, w: Int, h: Int): File {
+    /**
+     * A prompt's images and a video's frames, each at its size (a [fit]), as raw RGB for the engine (made once, kept in
+     * the cache): their files, in order. The cache is trimmed once after them.
+     */
+    fun prepare(images: List<TurnImage>): List<File> = images.map { rgb(it.name, it.width, it.height) }.also { trim() }
+
+    /** The image at [w] x [h] as raw RGB: the cache's file, else made now. */
+    private fun rgb(name: String, w: Int, h: Int): File {
         val f = File(cache, "${name.substringBeforeLast('.')}_${w}x$h.rgb")
         if (f.length() == w.toLong() * h * 3) return f.also { it.setLastModified(System.currentTimeMillis()) }
         val bmp = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file(name))) { d, _, _ ->
@@ -139,9 +114,11 @@ class ImageStore(context: Context) {
             rgb[3 * i + 1] = (c shr 8).toByte()
             rgb[3 * i + 2] = c.toByte()
         }
-        val tmp = File(cache, f.name + ".tmp")
-        FileOutputStream(tmp).use { it.write(rgb) }
-        tmp.renameTo(f)
+        writeAtomic(f, sync = false) { it.write(rgb) }
+        return f
+    }
+
+    private fun trim() {
         // the cache keeps the newest (and the engine's feature files beside them: <name>_<w>x<h>.feat) within a
         // budget of bytes - a video's 32 frames as well as a few large photos - never the last minute's, which a
         // prompt being prepared may still need
@@ -153,19 +130,6 @@ class ImageStore(context: Context) {
                 kept += f.length()
                 if (kept > CACHE_BYTES && f.lastModified() < recent) f.delete()
             }
-        return f
-    }
-
-    /** A stored image copied under a new name (a forked chat's own); the new name, or null when it is gone. */
-    fun copy(name: String): String? {
-        val src = file(name).takeIf { it.isFile } ?: return null
-        val n = UUID.randomUUID().toString() + "." + name.substringAfterLast('.', "jpg")
-        src.copyTo(file(n))
-        return n
-    }
-
-    fun delete(names: Collection<String>) {
-        for (n in names) file(n).delete()
     }
 
     companion object {
@@ -173,7 +137,6 @@ class ImageStore(context: Context) {
         const val STORE_SIDE = 2048
         /** The engine's inputs and features kept in the cache, at most (bytes). */
         private const val CACHE_BYTES = 128L shl 20
-        private const val SERVER_PREFIX = "srv_"
         /** A model token covers 2 x 2 patches of 16 pixels (Qwen3.6's vision encoder). */
         const val FACTOR = 32
         const val MIN_PIXELS = 65536L

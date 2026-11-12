@@ -23,7 +23,7 @@
 #include "dspqueue.h"
 #include "wsrc.h"
 
-#define VTCM_WANT (6u << 20)
+#define VTCM_WANT (8u << 20)   // v79's whole VTCM; less where it is not free (6 MB, then halves)
 
 typedef struct {
     unsigned ctx;
@@ -107,7 +107,7 @@ static int acquire(npu_t *s) {
         if (s->api == 1 && (e = HAP_compute_res_attr_set_hmx_param(&a, 1))) return e;
         s->ctx = HAP_compute_res_acquire(&a, 100000);
         if (s->ctx || want <= (1u << 20)) break;
-        want >>= 1;
+        want = want == (8u << 20) ? (6u << 20) : want >> 1;
     }
     if (!s->ctx) return AEE_ERESOURCENOTFOUND;
     s->vtcm = (uint8_t *)HAP_compute_res_attr_get_vtcm_ptr(&a);
@@ -259,6 +259,37 @@ static void dequant_block(uint8_t *dst, const uint8_t *src, int k, int q4i) {
     }
 }
 
+// An HMX_Q8 block (wsrc.h) into HMX's fp16 block: per 32 inputs (16 result vectors) 8 code vectors, each byte the
+// level of the element its place in the fp16 block has, times its column's scale for those 32 inputs (the scales a
+// vector two groups: [s0 s0 s1 s1 ..] by dequant_block's shuffle). k % 64 == 0. From the worker's VTCM stage: straight
+// from DDR (L2-fetched ahead) the expansion waits on its loads - RedMagic, svitlo_short: a velocity 1.54 s that way,
+// 1.47 with the loads grouped as below, 1.42 staged (fp16 blocks 1.46). (Q6_Whf_vcvt_Vb + an IEEE vmpy, fewer
+// instructions, is no faster; its pair is not vunpack's order.)
+static void dequant_q8_block(uint8_t *restrict dst, const uint8_t *restrict src, int k) {
+    const HVX_Vector *restrict cv = (const HVX_Vector *)src;
+    const HVX_Vector *restrict sv = (const HVX_Vector *)(src + (uint32_t)k * 32u);
+    HVX_Vector *restrict out = (HVX_Vector *)dst;
+    // a group's 8 code vectors loaded before any of them is used: their loads (L2 or VTCM) under way together
+    for (int g2 = 0; g2 < k / 64; ++g2) {
+        const HVX_VectorPair sp = Q6_W_vshuff_VVR(sv[g2], sv[g2], -2);
+        for (int gg = 0; gg < 2; ++gg) {
+            const HVX_Vector sc = gg ? Q6_V_hi_W(sp) : Q6_V_lo_W(sp);
+            const HVX_Vector *restrict c = cv + (size_t)(2 * g2 + gg) * 8u;
+            HVX_Vector x0 = c[0], x1 = c[1], x2 = c[2], x3 = c[3], x4 = c[4], x5 = c[5], x6 = c[6], x7 = c[7];
+#define Q8_PAIR(x, i)                                                                                           \
+    do {                                                                                                        \
+        const HVX_VectorPair hw = Q6_Wh_vunpack_Vb(x);                                                          \
+        out[2 * (i)] = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(Q6_Vhf_equals_Vh(Q6_V_lo_W(hw)), sc));          \
+        out[2 * (i) + 1] = Q6_Vhf_equals_Vqf16(Q6_Vqf16_vmpy_VhfVhf(Q6_Vhf_equals_Vh(Q6_V_hi_W(hw)), sc));      \
+    } while (0)
+            Q8_PAIR(x0, 0); Q8_PAIR(x1, 1); Q8_PAIR(x2, 2); Q8_PAIR(x3, 3);
+            Q8_PAIR(x4, 4); Q8_PAIR(x5, 5); Q8_PAIR(x6, 6); Q8_PAIR(x7, 7);
+#undef Q8_PAIR
+            out += 16;
+        }
+    }
+}
+
 // the same, one value at a time (the check's reference): column o, input c
 static inline float hmx4_value(const uint8_t *src, int k, int o, int c) {
     const uint8_t b = src[(uint32_t)(c >> 1) * 32u + (uint32_t)o];
@@ -360,7 +391,15 @@ static void wsrc_pad(uint8_t *const *slots, int n_slots, const t8_t *t, int k) {
 // ---- the q4 pipeline: worker threads expand blocks into a ring of VTCM slots, the caller multiplies them -------
 #define PIPE_RING 4
 #define PIPE_WORKERS 3
+#define PIPE_WORKERS_F16 3   // fp16 blocks: copies only, DDR-bound (5 measured slower: 0.53 -> 0.63 s of MLP a velocity)
+#define PIPE_WORKERS_MAX 5
 #define PIPE_STACK 16384
+
+// the products' insides, for the NAR's profile (qtimer ticks, summed): [0] the activations copied into VTCM, [1] the
+// multiplier waiting for a weight block, [2] HMX's tiles, [3] the result croutons copied out (gemm_src's), [4] the GLU's
+// multiplier waiting for a block. g_gemm_x: experiments (timing only, the results wrong): 1 the croutons not copied out
+uint64_t g_gemm_tq[5];
+int g_gemm_x;
 
 typedef struct {
     uint8_t *slots[PIPE_RING], *stage[PIPE_WORKERS];
@@ -376,7 +415,20 @@ typedef struct {
     int q4i;                         // the codes are q4i's (dequant_block)
     const t8_t *t8;                  // the weights a tile8 matrix (wddr unused), not hmx4 blocks
     int f16;                         // the weights fp16 blocks (HMX_F16): copied into the slot, no staging
+    int q8;                          // the weights HMX_Q8 blocks: expanded into the slot from DDR, no staging
+    const uint8_t *a_src;            // gemm: the pass's activation tiles, copied into a_dst by every thread at once
+    uint8_t *a_dst;
+    uint32_t a_bytes;
+    volatile int a_left;             // the threads whose part of them is still on its way
 } pipe_t;
+
+// part i of n of `bytes` (a multiple of 128) from DDR into VTCM: the pass's activations by the workers and the
+// multiplier together (one thread's copy 12-34 GB/s - npu_probe bw - several the DDR's)
+static void a_part(const uint8_t *src, uint8_t *dst, uint32_t bytes, int i, int n) {
+    const uint32_t lines = bytes / 128u, per = (lines + (uint32_t)n - 1u) / (uint32_t)n;
+    const uint32_t l0 = (uint32_t)i * per < lines ? (uint32_t)i * per : lines, l1 = l0 + per < lines ? l0 + per : lines;
+    if (l0 < l1) hvx_copy_pf(dst + (size_t)l0 * 128u, src + (size_t)l0 * 128u, (l1 - l0) * 128u);
+}
 
 typedef struct {
     pipe_t *p;
@@ -390,8 +442,16 @@ static void pipe_worker(void *arg) {
         __atomic_store_n(&p->failed, 1, __ATOMIC_RELEASE);
         qurt_thread_exit(0);
     }
+    // its first block into the ring, then its part of the pass's activations (the multiplier waits for all of them:
+    // the ring full by then), then the rest of its blocks
+    int a_mine = p->a_bytes != 0;
     if (a->w < p->total) wsrc_ahead(p->wddr, p->t8, a->w % p->n_blk, p->q_blk);
     for (int b = a->w; b < p->total; b += p->nw) {
+        if (a_mine && b > a->w) {
+            a_part(p->a_src, p->a_dst, p->a_bytes, a->w, p->nw + 1);
+            __atomic_add_fetch(&p->a_left, -1, __ATOMIC_ACQ_REL);
+            a_mine = 0;
+        }
         // slot b % RING last held block b - RING: free once the multiplier is past it
         while (__atomic_load_n(&p->consumed, __ATOMIC_ACQUIRE) < b - PIPE_RING) {
         }
@@ -399,11 +459,18 @@ static void pipe_worker(void *arg) {
             wsrc_ahead(p->wddr, p->t8, (b + p->nw) % p->n_blk, p->q_blk);
         if (p->f16) {   // the block as HMX takes it already
             hvx_copy(p->slots[b % PIPE_RING], p->wddr + (size_t)(b % p->n_blk) * p->q_blk, p->q_blk);
+        } else if (p->q8) {   // (staged in VTCM first: see dequant_q8_block)
+            hvx_copy(p->stage[a->w], p->wddr + (size_t)(b % p->n_blk) * p->q_blk, p->q_blk);
+            dequant_q8_block(p->slots[b % PIPE_RING], p->stage[a->w], p->k);
         } else {
             wsrc_copy(p->stage[a->w], p->wddr, p->t8, b % p->n_blk, p->q_blk);
             wsrc_expand(p->slots[b % PIPE_RING], p->stage[a->w], p->t8, p->k, p->q4i);
         }
         __atomic_store_n(&p->ready[b % PIPE_RING], b, __ATOMIC_RELEASE);
+    }
+    if (a_mine) {   // (one block or none: its part after them)
+        a_part(p->a_src, p->a_dst, p->a_bytes, a->w, p->nw + 1);
+        __atomic_add_fetch(&p->a_left, -1, __ATOMIC_ACQ_REL);
     }
     qurt_hvx_unlock();
     qurt_thread_exit(0);
@@ -412,11 +479,13 @@ static void pipe_worker(void *arg) {
 // The workers' stacks, made once and kept: a product allocating and freeing them each time (a prompt makes ~170 a
 // call) let the heap hand its free sections back and fetch them again - which made the products up to 3x slower,
 // depending on how everything else happened to lie in the heap
-static void *g_pipe_stacks[PIPE_WORKERS];
+static void *g_pipe_stacks[PIPE_WORKERS_MAX];
 
 static int pipe_run(pipe_t *p, const uint8_t *A, uint8_t *O, int m, int croutons) {
-    pipe_arg_t args[PIPE_WORKERS];
-    qurt_thread_t tid[PIPE_WORKERS];
+    pipe_arg_t args[PIPE_WORKERS_MAX];
+    qurt_thread_t tid[PIPE_WORKERS_MAX];
+    if (p->nw < 1 || p->nw > PIPE_WORKERS_MAX) return AEE_EBADPARM;
+    p->a_left = p->a_bytes ? p->nw + 1 : 0;
     int prio = qurt_thread_get_priority(qurt_thread_get_id());   // the RPC thread's; a created one must be below 255
     if (prio <= 0 || prio >= 255) prio = 127;
     void *const *stacks = g_pipe_stacks;
@@ -444,19 +513,37 @@ static int pipe_run(pipe_t *p, const uint8_t *A, uint8_t *O, int m, int croutons
         return AEE_ENOTALLOWED;
     }
     const int kk = croutons * 32;
+    if (p->a_bytes) {   // this thread's part of the activations, then the others'
+        const uint64_t qa = HAP_perf_get_qtimer_count();
+        a_part(p->a_src, p->a_dst, p->a_bytes, p->nw, p->nw + 1);
+        __atomic_add_fetch(&p->a_left, -1, __ATOMIC_ACQ_REL);
+        while (__atomic_load_n(&p->a_left, __ATOMIC_ACQUIRE) > 0)
+            if (__atomic_load_n(&p->failed, __ATOMIC_ACQUIRE)) break;
+        g_gemm_tq[0] += HAP_perf_get_qtimer_count() - qa;
+    }
     for (int b = 0; b < p->total; ++b) {
+        const uint64_t q0 = HAP_perf_get_qtimer_count();
         while (__atomic_load_n(&p->ready[b % PIPE_RING], __ATOMIC_ACQUIRE) != b) {
             if (__atomic_load_n(&p->failed, __ATOMIC_ACQUIRE)) break;
         }
         if (p->failed) break;
+        uint64_t q1 = HAP_perf_get_qtimer_count(), qt = 0, qo = 0;
+        if (p->oddr) g_gemm_tq[1] += q1 - q0;
         const uint8_t *wb = p->slots[b % PIPE_RING];
         if (!p->no_hmx)
             for (int t = 0; t < m / 32; ++t) {
                 tile(A + (size_t)t * 32u * (size_t)kk * 2u, wb, O + (size_t)t * 2048u, croutons);
-                if (p->oddr)   // the crouton out to its place in the result
-                    hvx_copy(p->oddr + ((size_t)(p->tile0 + t) * (size_t)p->n_blk + (size_t)(b % p->n_blk)) * 2048u,
-                             O + (size_t)t * 2048u, 2048u);
+                if (p->oddr) {   // the crouton out to its place in the result
+                    const uint64_t q2 = HAP_perf_get_qtimer_count();
+                    qt += q2 - q1;
+                    if (!(g_gemm_x & 1))
+                        hvx_copy(p->oddr + ((size_t)(p->tile0 + t) * (size_t)p->n_blk + (size_t)(b % p->n_blk)) * 2048u,
+                                 O + (size_t)t * 2048u, 2048u);
+                    q1 = HAP_perf_get_qtimer_count();
+                    qo += q1 - q2;
+                }
             }
+        g_gemm_tq[2] += qt, g_gemm_tq[3] += qo;
         __atomic_store_n(&p->consumed, b - 1, __ATOMIC_RELEASE);   // one behind: HMX may still read this slot
     }
     __atomic_store_n(&p->consumed, p->total, __ATOMIC_RELEASE);
@@ -626,9 +713,10 @@ int geode_npu_gemm_ptr(remote_handle64 h, const uint8_t *a, const uint8_t *w, ui
 int geode_npu_gemm_src(remote_handle64 h, const uint8_t *a, const uint8_t *w, const t8_t *t8, uint8_t *o, int m, int k,
                        int n, int out_shift) {
     npu_t *s = (npu_t *)(uintptr_t)h;
-    const int q4i = (out_shift & HMX4_Q4I) != 0, f16 = (out_shift & HMX_F16) != 0;
-    out_shift &= ~(HMX4_Q4I | HMX4_T8 | HMX_F16);
+    const int q4i = (out_shift & HMX4_Q4I) != 0, f16 = (out_shift & HMX_F16) != 0, q8 = (out_shift & HMX_Q8) != 0;
+    out_shift &= ~(HMX4_Q4I | HMX4_T8 | HMX_F16 | HMX_Q8);
     if (t8) w = t8->w;
+    if (q8 && (t8 || q4i || f16 || k < 512 || k % 64)) return AEE_EBADPARM;
     if (m <= 0 || k <= 0 || n <= 0 || (m & 31) || (k & 31) || (n & 31) || out_shift < 0 || out_shift > 24 ||
         ((uintptr_t)a & 127) || ((uintptr_t)o & 127) || ((uintptr_t)w & 127) ||
         (t8 && (!q4i || (int)t8->n != n || (int)t8->k > k || (k > 512 && (int)t8->k != k))) ||
@@ -639,9 +727,10 @@ int geode_npu_gemm_src(remote_handle64 h, const uint8_t *a, const uint8_t *w, co
     int e = acquire(s);
     if (e) return e;
     const int croutons = k / 32, n_blk = n / 32;
-    const uint32_t blk_bytes = (uint32_t)k * 64u, q_blk = f16 ? blk_bytes : HMX4_BYTES(k), tile_bytes = (uint32_t)k * 64u;
-    // VTCM: bias | ring of expanded blocks | the workers' staging (none for fp16 blocks) | per pass: output croutons +
-    // activation tiles
+    const uint32_t blk_bytes = (uint32_t)k * 64u, q_blk = f16 ? blk_bytes : q8 ? HMX8_BYTES(k) : HMX4_BYTES(k),
+                   tile_bytes = (uint32_t)k * 64u;
+    // VTCM: bias | ring of expanded blocks | the workers' staging (none for fp16 / q8 blocks) | per pass: output
+    // croutons + activation tiles
     const uint32_t stage_bytes = f16 ? 0u : q_blk * PIPE_WORKERS;
     const uint32_t fixed = 2048u + blk_bytes * PIPE_RING + stage_bytes;
     if (fixed + 2048u + tile_bytes > s->vtcm_size) return AEE_ENOMEMORY;
@@ -659,26 +748,30 @@ int geode_npu_gemm_src(remote_handle64 h, const uint8_t *a, const uint8_t *w, co
     Q6_bias_mxmem2_A(bias);
     for (int t0_tile = 0; t0_tile < m / 32 && !e; t0_tile += pass_tiles) {
         const int tiles = m / 32 - t0_tile < pass_tiles ? m / 32 - t0_tile : pass_tiles;
-        hvx_copy_pf(A, a + (size_t)t0_tile * tile_bytes, (uint32_t)tiles * tile_bytes);
         pipe_t p;
         memset(&p, 0, sizeof p);
+        p.a_src = a + (size_t)t0_tile * tile_bytes;
+        p.a_dst = A;
+        p.a_bytes = (uint32_t)tiles * tile_bytes;
         p.wddr = w;
         p.q_blk = q_blk;
         p.k = k;
         p.total = n_blk;
         p.n_blk = n_blk;
-        p.nw = PIPE_WORKERS;
+        p.nw = f16 ? PIPE_WORKERS_F16 : PIPE_WORKERS;
         p.oddr = o;
         p.tile0 = t0_tile;
         p.n_tiles_all = m / 32;
         p.q4i = q4i;
         p.t8 = t8;
         p.f16 = f16;
+        p.q8 = q8;
         for (int i = 0; i < PIPE_RING; ++i) {
             p.slots[i] = W + (size_t)i * blk_bytes;
             p.ready[i] = -1;
         }
-        for (int i = 0; i < PIPE_WORKERS; ++i) p.stage[i] = f16 ? NULL : W + (size_t)PIPE_RING * blk_bytes + (size_t)i * q_blk;
+        for (int i = 0; i < PIPE_WORKERS; ++i)
+            p.stage[i] = f16 ? NULL : W + (size_t)PIPE_RING * blk_bytes + (size_t)i * q_blk;
         p.consumed = -1;
         if (t0_tile == 0) wsrc_pad(p.slots, PIPE_RING, t8, k);
         e = pipe_run(&p, A, O, tiles * 32, croutons);
@@ -2173,6 +2266,8 @@ typedef struct {
     const t8_t *t8[2];     // or their tile8 matrices
     uint32_t q_blk;
     int k, total, nw, q4i;
+    int f16;               // both matrices fp16 blocks (HMX_F16): copied into the slots, no staging
+    int q8;                // both HMX_Q8 blocks: expanded into the slots from DDR, no staging
     volatile int ready[PIPE_RING];
     volatile int consumed;
     volatile int failed;
@@ -2182,6 +2277,10 @@ typedef struct {
     volatile int posted;               // the last block both of whose products are in
     volatile int done[GLU_HELPERS];    // each helper's last block done
     volatile int inline_act;           // no helpers: this thread applies it
+    const uint8_t *a_src;              // the pass's activation tiles, copied into a_dst by the workers and this thread
+    uint8_t *a_dst;
+    uint32_t a_bytes;
+    volatile int a_left;
 } glu_t;
 
 typedef struct {
@@ -2196,17 +2295,34 @@ static void glu_worker(void *arg) {
         __atomic_store_n(&p->failed, 1, __ATOMIC_RELEASE);
         qurt_thread_exit(0);
     }
+    int a_mine = p->a_bytes != 0;   // (pipe_worker's order: its first block, its part of the activations, the rest)
     if (a->w < p->total) wsrc_ahead(p->w[a->w & 1], p->t8[a->w & 1], a->w >> 1, p->q_blk);
     for (int g = a->w; g < p->total; g += p->nw) {
+        if (a_mine && g > a->w) {
+            a_part(p->a_src, p->a_dst, p->a_bytes, a->w, p->nw + 1);
+            __atomic_add_fetch(&p->a_left, -1, __ATOMIC_ACQ_REL);
+            a_mine = 0;
+        }
         while (__atomic_load_n(&p->consumed, __ATOMIC_ACQUIRE) < g - PIPE_RING) {
         }
         if (g + p->nw < p->total) {   // this worker's next block on its way into L2 meanwhile
             const int x = g + p->nw;
             wsrc_ahead(p->w[x & 1], p->t8[x & 1], x >> 1, p->q_blk);
         }
-        wsrc_copy(p->stage[a->w], p->w[g & 1], p->t8[g & 1], g >> 1, p->q_blk);
-        wsrc_expand(p->slots[g % PIPE_RING], p->stage[a->w], p->t8[g & 1], p->k, p->q4i);
+        if (p->f16) {   // the block as HMX takes it already
+            hvx_copy(p->slots[g % PIPE_RING], p->w[g & 1] + (size_t)(g >> 1) * p->q_blk, p->q_blk);
+        } else if (p->q8) {   // (staged in VTCM first: see dequant_q8_block)
+            hvx_copy(p->stage[a->w], p->w[g & 1] + (size_t)(g >> 1) * p->q_blk, p->q_blk);
+            dequant_q8_block(p->slots[g % PIPE_RING], p->stage[a->w], p->k);
+        } else {
+            wsrc_copy(p->stage[a->w], p->w[g & 1], p->t8[g & 1], g >> 1, p->q_blk);
+            wsrc_expand(p->slots[g % PIPE_RING], p->stage[a->w], p->t8[g & 1], p->k, p->q4i);
+        }
         __atomic_store_n(&p->ready[g % PIPE_RING], g, __ATOMIC_RELEASE);
+    }
+    if (a_mine) {
+        a_part(p->a_src, p->a_dst, p->a_bytes, a->w, p->nw + 1);
+        __atomic_add_fetch(&p->a_left, -1, __ATOMIC_ACQ_REL);
     }
     qurt_hvx_unlock();
     qurt_thread_exit(0);
@@ -2336,28 +2452,34 @@ out:
 static void *g_glu_stacks[GLU_HELPERS];
 
 static int glu_ptr(npu_t *s, const uint8_t *a, const uint8_t *gw, const uint8_t *uw, const t8_t *gt8, const t8_t *ut8,
-                   uint8_t *o, int m, int k, int n, int g_shift, int u_shift, int q4i, int part_blk, int act) {
+                   uint8_t *o, int m, int k, int n, int g_shift, int u_shift, int q4i, int part_blk, int act, int f16,
+                   int q8) {
     for (int i = 0; i < 2; ++i) {   // a tile8 matrix: q4i, this shape (its depth k, or shallower when padded to 512)
         const t8_t *t = i ? ut8 : gt8;
         if (t && (!q4i || (int)t->n != n || (int)t->k > k || (k > 512 && (int)t->k != k))) return AEE_EBADPARM;
     }
+    // fp16 blocks: neither tile8 nor q4i, and v79's HMX takes no depth under 512 (the host pads)
+    if (f16 && (gt8 || ut8 || q4i || k < 512)) return AEE_EBADPARM;
+    if (q8 && (gt8 || ut8 || q4i || f16 || k < 512 || k % 64)) return AEE_EBADPARM;
     if (gt8) gw = gt8->w;
     if (ut8) uw = ut8->w;
     if (((uintptr_t)gw & 127) || ((uintptr_t)uw & 127)) return AEE_EBADPARM;
     int e = acquire(s);
     if (e) return e;
     const int croutons = k / 32, n_blk = n / 32, pt_all = m / 32;
-    const uint32_t blk_bytes = (uint32_t)k * 64u, q_blk = HMX4_BYTES(k), tile_bytes = (uint32_t)k * 64u;
+    const uint32_t blk_bytes = (uint32_t)k * 64u, q_blk = f16 ? blk_bytes : q8 ? HMX8_BYTES(k) : HMX4_BYTES(k),
+                   tile_bytes = (uint32_t)k * 64u;
     glu_k kk;
     glu_k_init(&kk);
-    // VTCM: the two matrices' biases | ring | the workers' staging | per pass: GLU_BUFS blocks' gate and up croutons,
-    // the activation tiles
-    const uint32_t fixed = 4096u + blk_bytes * PIPE_RING + q_blk * PIPE_WORKERS, per_tile = tile_bytes + 4096u * GLU_BUFS;
+    // VTCM: the two matrices' biases | ring | the workers' staging (none for fp16 blocks) | per pass: GLU_BUFS blocks'
+    // gate and up croutons, the activation tiles
+    const uint32_t stage_bytes = f16 ? 0u : q_blk * PIPE_WORKERS;
+    const uint32_t fixed = 4096u + blk_bytes * PIPE_RING + stage_bytes, per_tile = tile_bytes + 4096u * GLU_BUFS;
     if (fixed + per_tile > s->vtcm_size) return AEE_ENOMEMORY;
     int pass_tiles = (int)((s->vtcm_size - fixed) / per_tile);
     if (pass_tiles > pt_all) pass_tiles = pt_all;
     uint8_t *bias_g = s->vtcm, *bias_u = bias_g + 2048, *W = bias_u + 2048;
-    uint8_t *GU = W + (size_t)blk_bytes * PIPE_RING + (size_t)q_blk * PIPE_WORKERS;
+    uint8_t *GU = W + (size_t)blk_bytes * PIPE_RING + (size_t)stage_bytes;
     uint8_t *A = GU + (size_t)pass_tiles * 4096u * GLU_BUFS;
     memset(bias_g, 0, 4096);
     for (int ch = 0; ch < 32; ++ch) {   // output bias 0, scale 2^-shift (gemm's: normal down to 2^-14, then subnormal)
@@ -2368,9 +2490,12 @@ static int glu_ptr(npu_t *s, const uint8_t *a, const uint8_t *gw, const uint8_t 
     if (prio <= 0 || prio >= 255) prio = 127;
     for (int t0 = 0; t0 < pt_all && !e; t0 += pass_tiles) {
         const int tiles = pt_all - t0 < pass_tiles ? pt_all - t0 : pass_tiles;
-        hvx_copy_pf(A, a + (size_t)t0 * tile_bytes, (uint32_t)tiles * tile_bytes);
         glu_t p;
         memset(&p, 0, sizeof p);
+        p.a_src = a + (size_t)t0 * tile_bytes;
+        p.a_dst = A;
+        p.a_bytes = (uint32_t)tiles * tile_bytes;
+        p.a_left = PIPE_WORKERS + 1;
         p.w[0] = gw;
         p.w[1] = uw;
         p.t8[0] = gt8;
@@ -2380,12 +2505,15 @@ static int glu_ptr(npu_t *s, const uint8_t *a, const uint8_t *gw, const uint8_t 
         p.total = 2 * n_blk;
         p.nw = PIPE_WORKERS;
         p.q4i = q4i;
+        p.f16 = f16;
+        p.q8 = q8;
         p.consumed = -1;
         for (int i = 0; i < PIPE_RING; ++i) {
             p.slots[i] = W + (size_t)i * blk_bytes;
             p.ready[i] = -1;
         }
-        for (int i = 0; i < PIPE_WORKERS; ++i) p.stage[i] = W + (size_t)PIPE_RING * blk_bytes + (size_t)i * q_blk;
+        for (int i = 0; i < PIPE_WORKERS; ++i)
+            p.stage[i] = f16 ? NULL : W + (size_t)PIPE_RING * blk_bytes + (size_t)i * q_blk;
         if (t0 == 0) {   // (a padded tile8 part: the slots' rest zero, once; both matrices take turns in them)
             wsrc_pad(p.slots, PIPE_RING, gt8, k);
             wsrc_pad(p.slots, PIPE_RING, ut8, k);
@@ -2434,7 +2562,16 @@ static int glu_ptr(npu_t *s, const uint8_t *a, const uint8_t *gw, const uint8_t 
             ++helpers;
         }
         if (helpers < GLU_HELPERS) __atomic_store_n(&p.inline_act, 1, __ATOMIC_RELEASE);
+        {   // this thread's part of the activations, then the workers'
+            const uint64_t qa = HAP_perf_get_qtimer_count();
+            a_part(p.a_src, p.a_dst, p.a_bytes, PIPE_WORKERS, PIPE_WORKERS + 1);
+            __atomic_add_fetch(&p.a_left, -1, __ATOMIC_ACQ_REL);
+            while (__atomic_load_n(&p.a_left, __ATOMIC_ACQUIRE) > 0)
+                if (__atomic_load_n(&p.failed, __ATOMIC_ACQUIRE)) break;
+            g_gemm_tq[0] += HAP_perf_get_qtimer_count() - qa;
+        }
         for (int g = 0; g < p.total && !p.failed; ++g) {
+            const uint64_t q0 = HAP_perf_get_qtimer_count();
             while (__atomic_load_n(&p.ready[g % PIPE_RING], __ATOMIC_ACQUIRE) != g)
                 if (__atomic_load_n(&p.failed, __ATOMIC_ACQUIRE)) break;
             if (p.failed) break;
@@ -2443,6 +2580,7 @@ static int glu_ptr(npu_t *s, const uint8_t *a, const uint8_t *gw, const uint8_t 
             if (!up && !p.inline_act)   // block b - GLU_BUFS's activation out of buffer j before it is overwritten
                 while (__atomic_load_n(&p.done[b % GLU_HELPERS], __ATOMIC_ACQUIRE) < b - GLU_BUFS)
                     if (__atomic_load_n(&p.failed, __ATOMIC_ACQUIRE)) break;
+            g_gemm_tq[4] += HAP_perf_get_qtimer_count() - q0;
             if (p.failed) break;
             Q6_bias_mxmem2_A(up ? bias_u : bias_g);
             uint8_t *dst = up ? p.us[j] : p.gs[j];
@@ -2480,15 +2618,16 @@ int geode_npu_glu_ptr(remote_handle64 h, const uint8_t *a, const uint8_t *gw, co
 int geode_npu_glu_src(remote_handle64 h, const uint8_t *a, const uint8_t *gw, const uint8_t *uw, const t8_t *gt8,
                       const t8_t *ut8, uint8_t *o, int m, int k, int n, int g_shift, int u_shift, int part_blk, int act) {
     npu_t *s = (npu_t *)(uintptr_t)h;
-    const int q4i = (g_shift & HMX4_Q4I) != 0;
-    if (q4i != ((u_shift & HMX4_Q4I) != 0)) return AEE_EBADPARM;
-    g_shift &= ~(HMX4_Q4I | HMX4_T8);
-    u_shift &= ~(HMX4_Q4I | HMX4_T8);
+    const int q4i = (g_shift & HMX4_Q4I) != 0, f16 = (g_shift & HMX_F16) != 0, q8 = (g_shift & HMX_Q8) != 0;
+    if (q4i != ((u_shift & HMX4_Q4I) != 0) || f16 != ((u_shift & HMX_F16) != 0) || q8 != ((u_shift & HMX_Q8) != 0))
+        return AEE_EBADPARM;
+    g_shift &= ~(HMX4_Q4I | HMX4_T8 | HMX_F16 | HMX_Q8);
+    u_shift &= ~(HMX4_Q4I | HMX4_T8 | HMX_F16 | HMX_Q8);
     if (m <= 0 || k <= 0 || n <= 0 || (m & 31) || (k & 31) || (n & 31) || part_blk <= 0 || (n / 32) % part_blk ||
         g_shift < 0 || g_shift > 24 || u_shift < 0 || u_shift > 24 || act < 0 || act > 1 || ((uintptr_t)a & 127) ||
         ((uintptr_t)o & 127))
         return AEE_EBADPARM;
-    return glu_ptr(s, a, gw, uw, gt8, ut8, o, m, k, n, g_shift, u_shift, q4i, part_blk, act);
+    return glu_ptr(s, a, gw, uw, gt8, ut8, o, m, k, n, g_shift, u_shift, q4i, part_blk, act, f16, q8);
 }
 
 int geode_npu_gemm_glu(remote_handle64 h, const unsigned char *a, int a_len, int g_fd, int u_fd, unsigned char *o,
@@ -2509,7 +2648,7 @@ int geode_npu_gemm_glu(remote_handle64 h, const unsigned char *a, int a_len, int
         const t8_t *g8 = gt ? geode_npu_t8_get(g_fd) : NULL, *u8 = ut ? geode_npu_t8_get(u_fd) : NULL;
         if ((gt && !g8) || (ut && !u8) || gt != ut) return AEE_EBADPARM;   // (both one way: the engine's are)
         const uint64_t t0 = HAP_perf_get_time_us();
-        const int e = glu_ptr(s, a, NULL, NULL, g8, u8, o, m, k, n, g_shift, u_shift, q4i, part_blk, act);
+        const int e = glu_ptr(s, a, NULL, NULL, g8, u8, o, m, k, n, g_shift, u_shift, q4i, part_blk, act, 0, 0);
         *usec = (int64_t)(HAP_perf_get_time_us() - t0);
         return e;
     }
@@ -2523,14 +2662,56 @@ int geode_npu_gemm_glu(remote_handle64 h, const unsigned char *a, int a_len, int
     }
     const uint64_t t0 = HAP_perf_get_time_us();
     e = glu_ptr(s, a, (const uint8_t *)gv, (const uint8_t *)uv, NULL, NULL, o, m, k, n, g_shift, u_shift, q4i, part_blk,
-                act);
+                act, 0, 0);
     *usec = (int64_t)(HAP_perf_get_time_us() - t0);
     HAP_mmap_put(u_fd);
     HAP_mmap_put(g_fd);
     return e;
 }
 
+// A whole MLP on fp16 weights (HMX_F16 blocks, one buffer: gate, up and down at their offsets), o = down(act(A x G^T)
+// * (A x U^T)): act(gate) * up into the scratch buffer s_fd (m x f fp16, mapped once; the CPU never reads it) as
+// down's input tiles, then down from it - one call, nothing of the middle crosses to the CPU (YuE2's NAR)
+int geode_npu_mlp_f16(remote_handle64 h, const unsigned char *a, int a_len, int w_fd, uint64_t g_off, uint64_t u_off,
+                      uint64_t d_off, int s_fd, uint64_t s_len, unsigned char *o, int o_len, int m, int k, int f,
+                      int g_shift, int u_shift, int d_shift, int act, int64_t *usec) {
+    npu_t *s = (npu_t *)(uintptr_t)h;
+    *usec = 0;
+    if (m <= 0 || k < 512 || f < 512 || (m & 31) || (k & 31) || (f & 31) || g_shift < 0 || g_shift > 24 ||
+        u_shift < 0 || u_shift > 24 || d_shift < 0 || d_shift > 24 || act < 0 || act > 1 ||
+        (uint32_t)a_len < (uint32_t)m * (uint32_t)k * 2u || (uint32_t)o_len < (uint32_t)m * (uint32_t)k * 2u ||
+        s_len < (uint64_t)m * (uint64_t)f * 2u || ((uintptr_t)a & 127) || ((uintptr_t)o & 127) ||
+        ((g_off | u_off | d_off) & 127))
+        return AEE_EBADPARM;
+    void *wv = NULL, *sv = NULL;
+    uint64 pa = 0;
+    int e = HAP_mmap_get(w_fd, &wv, &pa);
+    if (e) return e;
+    if ((e = HAP_mmap_get(s_fd, &sv, &pa))) {
+        HAP_mmap_put(w_fd);
+        return e;
+    }
+    const uint8_t *w = (const uint8_t *)wv;
+    uint8_t *mid = (uint8_t *)sv;
+    const uint64_t t0 = HAP_perf_get_time_us();
+    if (((uintptr_t)mid & 127)) e = AEE_EBADPARM;
+    if (!e) e = glu_ptr(s, a, w + g_off, w + u_off, NULL, NULL, mid, m, k, f, g_shift, u_shift, 0, f / 32, act, 1, 0);
+    if (!e) e = geode_npu_gemm_src(h, mid, w + d_off, NULL, o, m, f, k, d_shift | HMX_F16);
+    *usec = (int64_t)(HAP_perf_get_time_us() - t0);
+    HAP_mmap_put(s_fd);
+    HAP_mmap_put(w_fd);
+    return e;
+}
+
 #else   // v73 / v75: the prompt's HMX products only
+int geode_npu_mlp_f16(remote_handle64 h, const unsigned char *a, int a_len, int w_fd, uint64_t g_off, uint64_t u_off,
+                      uint64_t d_off, int s_fd, uint64_t s_len, unsigned char *o, int o_len, int m, int k, int f,
+                      int g_shift, int u_shift, int d_shift, int act, int64_t *usec) {
+    (void)h, (void)a, (void)a_len, (void)w_fd, (void)g_off, (void)u_off, (void)d_off, (void)s_fd, (void)s_len, (void)o;
+    (void)o_len, (void)m, (void)k, (void)f, (void)g_shift, (void)u_shift, (void)d_shift, (void)act;
+    *usec = 0;
+    return AEE_EUNSUPPORTED;
+}
 int geode_npu_gemm_glu(remote_handle64 h, const unsigned char *a, int a_len, int g_fd, int u_fd, unsigned char *o,
                        int o_len, int m, int k, int n, int g_shift, int u_shift, int part_blk, int act, int64_t *usec) {
     (void)h, (void)a, (void)a_len, (void)g_fd, (void)u_fd, (void)o, (void)o_len, (void)m, (void)k, (void)n;

@@ -117,6 +117,10 @@ bool have_dotprod_kernels();
 // q4 quads (quad / tile8) against two or more tokens on SMMLA (FEAT_I8MM), bit for bit the SDOT kernels: with
 // GEODE_I8MM=1 only (slower than SDOT in a real prompt on the 8 Elite)
 bool have_i8mm_kernels();
+// Q8 against two or more tokens on SMMLA (FEAT_I8MM), bit for bit the SDOT kernels: on where the CPU has it,
+// unless GEODE_I8MM_Q8=0; set_q8_mmla turns it on or off at run time (the benchmarks' A/B)
+bool have_q8_mmla();
+void set_q8_mmla(bool on);
 void matvec_rows_f32(const float *w, int64_t cols, const float *x, float *y, int64_t r0, int64_t r1);
 void matvec_rows_bf16(const uint16_t *w, int64_t cols, const float *x, float *y, int64_t r0, int64_t r1);
 // n tokens at once (each row widened once for up to eight of them); not bit-equal to matvec_rows_bf16

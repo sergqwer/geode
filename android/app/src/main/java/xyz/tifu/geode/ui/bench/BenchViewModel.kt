@@ -73,7 +73,7 @@ class BenchViewModel(private val app: GeodeApp) : ViewModel() {
     /** The model the estimate is for (the picked one, else the Q4 pack's shape), whether it is picked, the estimate */
     private suspend fun estimate(r: JSONObject, s: xyz.tifu.geode.data.AppSettings): Triple<ModelShape?, Boolean, Estimate?> {
         val picked = withContext(Dispatchers.IO) {
-            s.selectedModel.takeIf { it.isNotEmpty() }?.let { store.find(it) }?.let { ModelShape.read(it.dir) }
+            store.selected(s)?.let { ModelShape.read(it.dir) }
         }
         val shape = picked ?: withContext(Dispatchers.IO) { ModelShape.bundled(app) }
         val dev = DeviceSpeed.from(r)
@@ -161,7 +161,7 @@ class BenchViewModel(private val app: GeodeApp) : ViewModel() {
         val s = app.settings.flow.first()
         val arg = when (t) {
             // flash: the selected model's expert files (read only); otherwise a temporary file in the app's storage
-            "flash" -> s.selectedModel.takeIf { it.isNotEmpty() }?.let { store.find(it) }?.dir?.path ?: app.filesDir.path
+            "flash" -> withContext(Dispatchers.IO) { store.selected(s) }?.dir?.path ?: app.filesDir.path
             // the GPU check writes each step there before it, read back if the engine dies on one
             "gpucheck", "npucheck" -> stepFile(t).also { withContext(Dispatchers.IO) { it.delete() } }.path
             else -> ""

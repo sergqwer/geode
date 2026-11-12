@@ -66,6 +66,8 @@ class GenRequest(
     val stop: List<String> = emptyList(),
     /** The last message is the assistant's beginning of the answer: the model goes on from it. */
     val prefill: Boolean = false,
+    /** The installed model that answers (ModelStore's id: the lyrics writer's choice); "": the chat's selected one. */
+    val modelId: String = "",
 )
 
 enum class Finish { STOP, LENGTH, TOOL_CALLS, STOP_SEQUENCE }
@@ -150,10 +152,15 @@ class ApiEngine(private val app: GeodeApp) {
     /** The model the app's chat has selected (the server answers with it). */
     suspend fun model(): InstalledModel {
         val s = app.settings.flow.first()
-        // (as the user left its inputs and drafting: Model settings)
-        return withContext(Dispatchers.IO) {
-            s.selectedModel.takeIf { it.isNotEmpty() }?.let(store::find)?.copy(off = s.featuresOff)
-        } ?: throw ApiError(503, "No model is selected in Geode: open the app and choose one on the Models screen.")
+        return withContext(Dispatchers.IO) { store.selected(s) } ?: throw ApiError(503, "No model is selected in Geode: open the app and choose one on the Models screen.")
+    }
+
+    /** The installed model [id] (as the user left its inputs and drafting); "": the chat's selected one. */
+    suspend fun model(id: String): InstalledModel {
+        if (id.isEmpty()) return model()
+        val s = app.settings.flow.first()
+        return withContext(Dispatchers.IO) { store.find(id)?.copy(off = s.featuresOff) }
+            ?: throw ApiError(503, "The model $id is not installed in Geode any more: choose another one.")
     }
 
     suspend fun template(model: InstalledModel): ApiTemplate =
@@ -230,8 +237,8 @@ class ApiEngine(private val app: GeodeApp) {
 
     /** The server starts: images and clips older requests sent are let go. */
     suspend fun tidy() = withContext(Dispatchers.IO) {
-        runCatching { images.dropServerImages() }
-        runCatching { clips.dropServerClips() }
+        runCatching { images.dropServerCopies() }
+        runCatching { clips.dropServerCopies() }
     }
 
     /** The prompt's tokens for [req] from the start (Anthropic's count_tokens). */
@@ -282,7 +289,7 @@ class ApiEngine(private val app: GeodeApp) {
         // it before it generates (the engine's STOP only reaches what it already runs)
         val stops = app.engine.stops
         val stopped = { app.engine.stops != stops }
-        val model = model()
+        val model = model(req.modelId)
         val s = app.settings.flow.first()
         val tok = withContext(Dispatchers.IO) { app.tokenizer(model.dir) }
         val tpl = ApiTemplate.of(tok)
@@ -353,10 +360,11 @@ class ApiEngine(private val app: GeodeApp) {
             val room = limit - used - p.size
             val maxTokens = if (req.maxTokens > 0) minOf(req.maxTokens, room) else room
             val mediaFiles = if (p.media.isEmpty()) emptyList() else withContext(Dispatchers.IO) {
+                val rgb = images.prepare(p.media.filterIsInstance<TurnImage>()).iterator()
                 p.media.map { m ->
                     when (m) {
                         is TurnImage -> EngineMedia(if (m.frame) EngineMedia.FRAME else EngineMedia.IMAGE,
-                            images.prepare(m.name, m.width, m.height).path, m.width, m.height)
+                            rgb.next().path, m.width, m.height)
                         is TurnAudio -> EngineMedia(EngineMedia.AUDIO, clips.file(m.name).path, m.samples)
                     }
                 }

@@ -1,5 +1,6 @@
 package xyz.tifu.geode.models
 
+import xyz.tifu.geode.util.writeAtomic
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -11,7 +12,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import xyz.tifu.geode.util.Json
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -169,15 +169,6 @@ class Providers(context: Context) {
     private fun keys(): Map<String, String> = runCatching {
         (Json.parse(keysFile.readText()) as Map<String, Any?>).mapNotNull { (k, v) -> (v as? String)?.let { k to it } }.toMap()
     }.getOrDefault(emptyMap())
-
-    private fun writeAtomic(f: File, text: String) {
-        val tmp = File(f.path + ".tmp")
-        FileOutputStream(tmp).use {
-            it.write(text.toByteArray())
-            it.fd.sync()
-        }
-        if (!tmp.renameTo(f)) throw IOException("cannot write ${f.name}")
-    }
 
     // ---- the keys' encryption (the Keystore's key, made once)
 

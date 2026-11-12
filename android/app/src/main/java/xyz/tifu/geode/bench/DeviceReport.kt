@@ -1,5 +1,6 @@
 package xyz.tifu.geode.bench
 
+import xyz.tifu.geode.util.writeAtomic
 import android.app.ActivityManager
 import android.content.Context
 import android.os.BatteryManager
@@ -102,12 +103,7 @@ object DeviceReport {
         val d = dir(context)
         val id = report.getString("id")
         val f = File(d, "$id.json")
-        val tmp = File(d, "$id.json.tmp")
-        tmp.writeText(report.toString(1))
-        if (!tmp.renameTo(f)) {
-            f.delete()
-            tmp.renameTo(f)
-        }
+        writeAtomic(f, report.toString(1))
         File(d, "$id.unsent").let { if (pending) it.writeText("") else it.delete() }
         return f
     }

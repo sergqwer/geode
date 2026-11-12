@@ -5,8 +5,8 @@
 <h1 align="center">Geode</h1>
 
 <p align="center">
-  <b>Big AI models and an agent that run entirely on your Android phone.</b><br>
-  Qwen3.6-35B-A3B, Gemma 4 and Qwen3.5-2B. No cloud, no subscription, no account. It works offline.
+  <b>Big AI models, an agent and a songwriter that run entirely on your Android phone.</b><br>
+  Qwen3.6-35B-A3B, Gemma 4, Qwen3.5-2B and YuE2 songs. No cloud, no subscription, no account. It works offline.
 </p>
 
 <p align="center">
@@ -21,7 +21,8 @@
   Models: <a href="https://huggingface.co/Maximilian228/Geode-Qwen3.6-35B-A3B">Qwen3.6-35B-A3B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-Gemma-4-E4B">Gemma 4 E4B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-Gemma-4-E2B">Gemma 4 E2B</a> ·
-  <a href="https://huggingface.co/Maximilian228/Geode-Qwen3.5-2B">Qwen3.5-2B</a>
+  <a href="https://huggingface.co/Maximilian228/Geode-Qwen3.5-2B">Qwen3.5-2B</a> ·
+  <a href="https://huggingface.co/Maximilian228/Geode-YuE2">YuE2 (songs)</a>
 </p>
 
 ---
@@ -46,6 +47,9 @@ Adreno GPU (OpenCL) and the Hexagon NPU (HVX / HMX), and it can run each model o
   processed on the phone.
 - **Read aloud**: answers are read sentence by sentence as they are written, by Geode's own voice (Supertonic 3,
   31 languages, downloaded on demand) or by the phone's text-to-speech.
+- **Songs**: a whole song from your lyrics and a style, in any language - the score, the voice and the band made on
+  the phone by YuE2-3B - then edited bar by bar: cut, sing a part again, new words, go on, move a section, put in a
+  break. Or an instrumental with a plan of sections. See [Songs](#songs).
 - **Agent**: every chat has its own Linux (Debian, run through proot). The agent runs commands, installs packages,
   writes and edits files, and searches the web. Folders of the phone can be given to it, read-only or
   read-and-write.
@@ -93,6 +97,34 @@ A photo takes about 0.9 s to encode with Gemma 4 and 10 s of sound about 0.3 s, 
 about 2 s with the 35B. Where the NPU is not available, an Adreno 7xx or newer GPU reads Gemma's prompts instead
 (E2B ~380, E4B ~200 tokens/s). Phones without either run Geode on the CPU, which is slower: Gemma 4 E2B writes about
 7 tokens/s on a Snapdragon 720G, and for the 35B the speed of the flash storage sets the pace.
+
+## Songs
+
+Geode writes and sings songs with [YuE2-3B](https://huggingface.co/m-a-p/YuE2-3B) by m-a-p, on its own engine. The
+model first writes the song's score (ABC notation: the melody and the chords), then the sound's codes, 25 a second;
+a flow-matching stage and YuE2's decoder turn them into 48 kHz stereo, mastered to -12.5 LUFS. The settings are the
+reference's (32 steps, the full score first). On a RedMagic 10 Pro a 30-second song takes about 1.5 minutes: the
+prompts and the sound on the NPU, the decoder on the GPU, the score and the codes on the CPU. Phones without a usable
+NPU make songs too, more slowly (the sound on the Adreno GPU).
+
+- **Lyrics and style**: style presets, pickers for the language, genre, voice and instruments, and a lyrics editor
+  that knows what the model reads - section tags, a pause, the stress of a word (its stressed vowel in capitals).
+  A lyrics writer drafts the words with the chat's model. Any language works, Ukrainian included.
+- **Takes and scores**: up to four takes at once (composed together, the weights read once for all of them), or
+  "scores first": only the tunes written, heard as MIDI, and the one you like sung. A score can come from a MIDI file,
+  be moved to another key, edited as text, or in a piano roll.
+- **Edit the track**: the bars are laid over the waveform from the song's own score. Cut bars out, sing a part
+  again, give it new words on the same tune, let the song go on, move a whole section, or put in an instrumental
+  break (experimental). Only the stretch an edit touches is made again and crossfaded in; the rest of the song stays
+  the same, sample for sample. The methods follow [YuE2-ComfyUI](https://github.com/pytraveler/YuE2-ComfyUI)'s
+  inpainting.
+- **Instrumentals**: with Mothersuperior's
+  [instrumental adapter](https://huggingface.co/Mothersuperior/YuE2-instrumental-cot-full-loras) (a LoRA, 139 MB,
+  downloaded on demand) the model writes music without a voice, with a plan of sections you give or leave to it. The
+  phone merges the adapter into a copy of the model's weights the first time it is used.
+- **From other devices**: the local server makes songs too (`/v1/music/...` and a Music page in the web chat).
+
+YuE2 and the adapter are licensed CC BY-NC 4.0: the songs are for non-commercial use.
 
 ## How it works
 
@@ -142,7 +174,7 @@ This repository holds the code the app is built from.
 | Path | What it is |
 | --- | --- |
 | [`android/`](android) | The app (Kotlin, Jetpack Compose); the engine runs in its own `:engine` process |
-| [`engine/`](engine) | The C++20 inference engine: the pack reader, the CPU, OpenCL and NPU paths |
+| [`engine/`](engine) | The C++20 inference engine: the pack reader, the CPU, OpenCL and NPU paths, and the song engine (YuE2: the score and codes, the sound, the decoder, the track edits) |
 | [`npu/`](npu) | The Hexagon NPU module (HVX / HMX kernels, FastRPC interface), built with the Hexagon SDK |
 | [`agent/`](agent) | geode-agent, the chat agent (Rust) |
 | [`search/`](search) | geode-search, web search and page fetching for the agent (Rust) |
@@ -182,6 +214,9 @@ Parts of it come from other projects and keep their own licenses:
 - The app ships proot (GPL-2.0), talloc (LGPL-3.0) and libandroid-shmem (BSD-3-Clause), built by Termux, and
   [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0).
 - The models, downloaded by the app: Qwen3.6-35B-A3B and Qwen3.5-2B by the Qwen team and Gemma 4 E4B / E2B by
-  Google, Apache-2.0; the voice, Supertonic 3 by Supertone, BigScience Open RAIL-M.
+  Google, Apache-2.0; the voice, Supertonic 3 by Supertone, BigScience Open RAIL-M; the song model, YuE2-3B and
+  YuE2-Vae by m-a-p, and the instrumental adapter by Mothersuperior, CC BY-NC 4.0.
+- The score tools and the track edits port parts of [YuE2-ComfyUI](https://github.com/pytraveler/YuE2-ComfyUI)
+  (Apache-2.0) and YuE's `abc_tools.py` (Apache-2.0).
 
 The Geode name and icon are not covered by the license.

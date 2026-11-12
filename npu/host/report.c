@@ -13,6 +13,7 @@
 #include "rpcmem.h"
 #include "dspqueue.h"
 #include "geode_npu.h"
+#include "geode_hvx.h"
 #include "npu_api.h"
 
 typedef struct {
@@ -289,6 +290,67 @@ static void ddr_read(Json *j, remote_handle64 h, int threads) {
     check(j, name, !e, msg, 1, "gbs", e ? NAN : (double)len / (double)best / 1e3);
 }
 
+// A Hexagon without HMX (v66 .. v72: Snapdragon 7xx / 6xx): the v66 module (npu/hvx66 - HVX integer vectors only)
+// opened in an unsigned PD, HVX checked, its int8 speed timed (vrmpy on registers: the compute peak; 8 MB streamed
+// from DDR, each vector against 4 tokens). Nothing of the app runs there yet: what testers' phones can do.
+static void hvx_checks(Json *j, int arch, char *reason, size_t reason_len) {
+    step("unsigned PD");
+    struct remote_rpc_control_unsigned_module um = {CDSP_DOMAIN_ID, 1};
+    int e = remote_session_control(DSPRPC_CONTROL_UNSIGNED_MODULE, (void *)&um, sizeof um);
+    char msg[64] = {0};
+    if (e) snprintf(msg, sizeof msg, "refused 0x%x", e);
+    check(j, "unsigned PD", !e, msg, 0);
+    if (e) {
+        snprintf(reason, reason_len, "Hexagon v%d: no HMX; unsigned PD refused (0x%x)", arch, e);
+        return;
+    }
+    step("open the HVX module");
+    remote_handle64 h = 0;
+    double t0 = now_ms();
+    e = geode_hvx_open("file:///libgeode_hvx_skel_v66.so?geode_hvx_skel_handle_invoke&_modver=1.0&_dom=cdsp", &h);
+    msg[0] = 0;
+    if (e) snprintf(msg, sizeof msg, "0x%x", e);
+    check(j, "open the HVX module (v66)", !e, msg, 1, "ms", now_ms() - t0);
+    if (e) {
+        snprintf(reason, reason_len, "Hexagon v%d: no HMX; the HVX module did not open (0x%x)", arch, e);
+        return;
+    }
+    step("HVX ping");
+    int y = 0, hvx = -1, dot = 0, ok = 1;
+    for (int i = 0; i < 20; ++i) geode_hvx_ping(h, i, &y, &hvx, &dot);
+    t0 = now_ms();
+    for (int i = 0; i < 200 && !e; ++i) {
+        e = geode_hvx_ping(h, i, &y, &hvx, &dot);
+        ok = ok && y == i + 1 && hvx == 0 && dot == 320 * (i & 127);
+    }
+    msg[0] = 0;
+    if (e || !ok) snprintf(msg, sizeof msg, "0x%x, hvx lock %d, dot %d", e, hvx, dot);
+    check(j, "HVX int8 check and FastRPC round trip", !e && ok, msg, 1, "us", (now_ms() - t0) * 1e3 / 200);
+    if (e || !ok) {
+        snprintf(reason, reason_len, "Hexagon v%d: no HMX; the HVX check failed (0x%x)", arch, e);
+        geode_hvx_close(h);
+        return;
+    }
+    static const struct { int threads, mode, iters; const char *name; } runs[] = {
+        {1, 0, 2000000, "HVX int8 vrmpy, registers, 1 thread"},
+        {2, 0, 2000000, "HVX int8 vrmpy, registers, 2 threads"},
+        {4, 0, 1000000, "HVX int8 vrmpy, registers, 4 threads"},
+        {2, 1, 8, "HVX int8 vrmpy, 8 MB from DDR x 4 tokens, 2 threads"},
+    };
+    for (size_t i = 0; i < sizeof runs / sizeof runs[0]; ++i) {
+        step(runs[i].name);
+        int units = 0, power = 0;
+        long long us = 0, macs = 0;
+        e = geode_hvx_bench(h, runs[i].threads, runs[i].mode, runs[i].iters, &units, &power, &us, &macs);
+        msg[0] = 0;
+        if (e || !macs) snprintf(msg, sizeof msg, "0x%x%s", e, e ? "" : ", no HVX context");
+        check(j, runs[i].name, !e && macs > 0, msg, 4, "gmacs", us > 0 && macs ? (double)macs / us / 1e3 : NAN,
+              "ms", us / 1e3, "units", (double)units, "vote", (double)power);
+    }
+    geode_hvx_close(h);
+    snprintf(reason, reason_len, "Hexagon v%d: no HMX - HVX int8 only (checked; the app does not use it yet)", arch);
+}
+
 int gnpu_report(const char *skel_dir, const char *step_file, char *out, int out_len) {
     Json j = {out, 0, out_len, 0};
     if (!out || out_len < 256) return -1;
@@ -309,6 +371,7 @@ int gnpu_report(const char *skel_dir, const char *step_file, char *out, int out_
     // (the HMX attributes read 0 on the 8 Elite though its HMX works: reported as FastRPC gives them, not judged)
     char module[32];
     if (skel) snprintf(module, sizeof module, "the v%d module", skel);
+    else if (arch >= 66 && arch <= 72) snprintf(module, sizeof module, "the v66 HVX module");
     else snprintf(module, sizeof module, "no module for it");
     snprintf(dev, sizeof dev, "Hexagon v%d, HVX 128B x %d, HMX attributes %d/%d, VTCM %u x %u KiB, %s", arch,
              (int)hvx, (int)hmx_d, (int)hmx_s, vc, vp >> 10, module);
@@ -322,6 +385,8 @@ int gnpu_report(const char *skel_dir, const char *step_file, char *out, int out_
     // that answers nothing at all (no architecture either) counts as missing; otherwise opening the session decides
     if ((dom == 0 || dom == 0xFFFFFFFFu) && arch_raw == 0xFFFFFFFFu) {
         snprintf(reason, sizeof reason, "no cDSP (FastRPC: 0x%x)", dom);
+    } else if (!skel && arch >= 66) {
+        hvx_checks(&j, arch, reason, sizeof reason);
     } else if (!skel) {
         snprintf(reason, sizeof reason, "Hexagon v%d: older than v73, no HMX module for it", arch);
     } else {

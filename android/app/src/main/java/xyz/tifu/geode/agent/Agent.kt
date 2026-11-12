@@ -240,6 +240,10 @@ class Agent(private val app: GeodeApp) {
      * (its reading shown) and goes on from where it ends; another turn (the web chat's, the phone's) is waited for
      * ([AgentEvent.Waiting]).
      */
+    /** [input] (AgentTurns.input) as the chat's next message, as [prompt] below. */
+    suspend fun prompt(chatId: String, sessionId: String?, input: AgentInput, onEvent: suspend (AgentEvent) -> Unit): String =
+        prompt(chatId, sessionId, input.task, input.images, input.audio, input.videos, onEvent)
+
     suspend fun prompt(chatId: String, sessionId: String?, task: String, images: List<File> = emptyList(),
                        audio: List<File> = emptyList(), videos: List<VideoInput> = emptyList(),
                        onEvent: suspend (AgentEvent) -> Unit): String {
@@ -409,8 +413,8 @@ class Agent(private val app: GeodeApp) {
     }
 
     private suspend fun selectedModel(): String? {
-        val sel = app.settings.flow.first().selectedModel.takeIf { it.isNotEmpty() } ?: return null
-        return withContext(Dispatchers.IO) { xyz.tifu.geode.models.ModelStore(app).find(sel)?.dir?.path }
+        val s = app.settings.flow.first()
+        return withContext(Dispatchers.IO) { xyz.tifu.geode.models.ModelStore(app).selected(s)?.dir?.path }
     }
 
     private suspend fun warmed(modelPath: String): Boolean =
@@ -596,7 +600,7 @@ private class Harness(
     private val random = SecureRandom()
     private val key = "agent-" + ByteArray(24).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
     // 127.0.0.1 itself: Android's getLoopbackAddress() is ::1, where the harness does not knock
-    private val api = Api(app, app.apiEngine) { key }
+    private val api = Api(app, app.apiEngine, null) { key }   // (no songs: the harness's own requests)
     private val remoteApi = xyz.tifu.geode.server.RemoteApi(app.apiEngine)
     private val server = HttpServer(0, ::route, InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)))
     private lateinit var process: Process

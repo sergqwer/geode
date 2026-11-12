@@ -1,5 +1,18 @@
 package xyz.tifu.geode.ui.settings
 
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.outlined.Menu
@@ -126,17 +139,58 @@ internal fun Choices(values: List<Int>, value: Int, label: @Composable (Int) -> 
     }
 }
 
+/** A setting turned on or off: its title, what it does ([warn]: in the error's colour), its switch. */
 @Composable
 internal fun SwitchRow(title: String, desc: String, checked: Boolean, onChange: (Boolean) -> Unit,
-                       enabled: Boolean = true) {
-    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                       enabled: Boolean = true, warn: Boolean = false, modifier: Modifier = Modifier.padding(top = 8.dp),
+                       titleStyle: TextStyle = MaterialTheme.typography.bodyLarge) {
+    // (the whole row toggles it, its words too - as RadioRow selects)
+    Row(modifier.toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
+        verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, style = titleStyle)
+            Text(desc, style = MaterialTheme.typography.bodySmall,
+                color = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
+
+/** A search box: its icon, [placeholder], a clear button ([clear]: its label) once something is typed; the
+ *  keyboard's Search key hides the keyboard. */
+@Composable
+internal fun SearchField(query: String, onQuery: (String) -> Unit, placeholder: String, clear: String,
+                         modifier: Modifier = Modifier.fillMaxWidth()) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    OutlinedTextField(
+        value = query, onValueChange = onQuery, modifier = modifier, singleLine = true,
+        placeholder = { Text(placeholder) },
+        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+        trailingIcon = {
+            if (query.isNotEmpty()) IconButton(onClick = { onQuery("") }) { Icon(Icons.Outlined.Close, contentDescription = clear) }
+        },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+    )
+}
+
+/** One choice of several: its radio button, then [content]; the whole row selects it. */
+@Composable
+internal fun RadioRow(selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier,
+                      content: @Composable RowScope.() -> Unit) {
+    Row(modifier.fillMaxWidth().selectable(selected, role = Role.RadioButton, onClick = onClick).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(8.dp))
+        content()
+    }
+}
+
+/** One choice of several, shown by its [label]. */
+@Composable
+internal fun RadioOption(label: String, selected: Boolean, style: TextStyle = MaterialTheme.typography.bodyLarge,
+                         onClick: () -> Unit) =
+    RadioRow(selected, onClick) { Text(label, style = style) }
 
 internal const val MIN_MB = 1024
 /** The chat's text size, as a share of the system's (the chat's pinch keeps to the same range). */
@@ -186,7 +240,7 @@ private fun ScreenRows(s: xyz.tifu.geode.data.AppSettings, vm: SettingsViewModel
         xyz.tifu.geode.data.AppSettings.KEEP_ANSWERING to R.string.screen_keep_answering,
         xyz.tifu.geode.data.AppSettings.KEEP_ALWAYS to R.string.screen_keep_always,
     ).forEach { (mode, label) ->
-        LanguageOption(stringResource(label), s.keepScreen == mode) { vm.setKeepScreen(mode) }
+        RadioOption(stringResource(label), s.keepScreen == mode) { vm.setKeepScreen(mode) }
     }
     if (s.keepScreen == xyz.tifu.geode.data.AppSettings.KEEP_OFF) return
     Choices(BLACK_MIN, s.blackScreenMin, { m ->
@@ -221,8 +275,8 @@ private fun VoiceRows(s: xyz.tifu.geode.data.AppSettings, vm: SettingsViewModel)
     // ---- what reads: the phone's engine or Geode's own voice ----
     Text(stringResource(R.string.voice_engine), style = MaterialTheme.typography.bodyLarge,
         modifier = Modifier.padding(top = 8.dp))
-    LanguageOption(stringResource(R.string.voice_engine_system), s.speechEngine == 0) { vm.setSpeechEngine(0) }
-    LanguageOption(stringResource(R.string.voice_engine_geode), s.speechEngine == 1) { vm.setSpeechEngine(1) }
+    RadioOption(stringResource(R.string.voice_engine_system), s.speechEngine == 0) { vm.setSpeechEngine(0) }
+    RadioOption(stringResource(R.string.voice_engine_geode), s.speechEngine == 1) { vm.setSpeechEngine(1) }
     val geode = s.speechEngine == 1
     if (geode) {
         Text(stringResource(R.string.voice_engine_geode_desc), style = MaterialTheme.typography.bodySmall,
@@ -308,7 +362,7 @@ private fun VoiceRows(s: xyz.tifu.geode.data.AppSettings, vm: SettingsViewModel)
             text = {
                 LazyColumn {
                     items((0 until xyz.tifu.geode.media.NeuralVoice.VOICES).toList()) { v ->
-                        LanguageOption(neuralLabel(v), s.neuralVoice == v) {
+                        RadioOption(neuralLabel(v), s.neuralVoice == v) {
                             vm.setNeuralVoice(v)
                             picking = false
                         }
@@ -335,13 +389,13 @@ private fun VoiceRows(s: xyz.tifu.geode.data.AppSettings, vm: SettingsViewModel)
                 }
                 LazyColumn(Modifier.padding(top = 8.dp)) {
                     item {
-                        LanguageOption(stringResource(R.string.voice_auto), s.speechVoice.isEmpty()) {
+                        RadioOption(stringResource(R.string.voice_auto), s.speechVoice.isEmpty()) {
                             vm.setSpeechVoice("")
                             picking = false
                         }
                     }
                     items(voices) { v ->
-                        LanguageOption(voiceLabel(v), s.speechVoice == v.name) {
+                        RadioOption(voiceLabel(v), s.speechVoice == v.name) {
                             vm.setSpeechVoice(v.name)
                             picking = false
                         }
@@ -404,8 +458,8 @@ private fun LanguageRow(vm: SettingsViewModel) {
         title = { Text(stringResource(R.string.settings_language_app)) },
         text = {
             LazyColumn {
-                item { LanguageOption(system, picked.isEmpty()) { choose("") } }
-                items(Languages.ALL) { (tag, name) -> LanguageOption(name, picked == tag) { choose(tag) } }
+                item { RadioOption(system, picked.isEmpty()) { choose("") } }
+                items(Languages.ALL) { (tag, name) -> RadioOption(name, picked == tag) { choose(tag) } }
             }
         },
         confirmButton = {},
@@ -413,24 +467,28 @@ private fun LanguageRow(vm: SettingsViewModel) {
     )
 }
 
-@Composable
-private fun LanguageOption(name: String, selected: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected = selected, onClick = onClick)
-        Text(name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 8.dp))
-    }
-}
-
 /** Experts read for each word: the model's own 8, or the last 2 / 4 left out when not in memory */
 internal val WORD_EXPERTS = listOf(8, 6, 4)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun Choice(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+internal fun Choice(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) = Choice(labels, selected, false, onSelect)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun Choice(labels: List<String>, selected: Int, compact: Boolean, onSelect: (Int) -> Unit) {
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         labels.forEachIndexed { i, l ->
-            SegmentedButton(
+            // compact: long labels get the check mark's room and a second line instead of being cut
+            if (compact) SegmentedButton(
+                selected = i == selected,
+                onClick = { onSelect(i) },
+                shape = SegmentedButtonDefaults.itemShape(i, labels.size),
+                icon = {},
+            ) {
+                Text(l, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    style = MaterialTheme.typography.labelMedium)
+            } else SegmentedButton(
                 selected = i == selected,
                 onClick = { onSelect(i) },
                 shape = SegmentedButtonDefaults.itemShape(i, labels.size),

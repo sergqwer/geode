@@ -1,5 +1,6 @@
 package xyz.tifu.geode.data
 
+import xyz.tifu.geode.util.writeAtomic
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
@@ -8,7 +9,6 @@ import xyz.tifu.geode.ui.chat.ChatMessage
 import xyz.tifu.geode.ui.chat.ChatVideo
 import xyz.tifu.geode.vision.ImageStore
 import java.io.File
-import java.io.FileOutputStream
 
 /** A saved chat in the list: its title (the first question), when it last changed. */
 data class ChatInfo(val id: String, val title: String, val updated: Long)
@@ -167,15 +167,7 @@ class ChatStore(context: Context) {
         val bytes = o.toString().toByteArray()
         // one save at a time, of every store (the chat's, the web chat's): two of one chat at once would write the
         // same file aside together
-        synchronized(LOCK) {
-            val target = file(id)
-            val tmp = File(dir, "$id.json.tmp")
-            FileOutputStream(tmp).use {
-                it.write(bytes)
-                it.fd.sync()
-            }
-            tmp.renameTo(target)
-        }
+        synchronized(LOCK) { writeAtomic(file(id), bytes) }
     }
 
     /**
@@ -201,13 +193,12 @@ class ChatStore(context: Context) {
     }
 
     /**
-     * Every chat (the lock's way back in, its code forgotten): each as [delete] takes it, then whatever files are left
-     * in the chats' folders - a chat that could not be read, media never sent, the local server's copies - the images
-     * as the engine read them, and the agents' Linux folders no saved chat had. The folders themselves stay: the
-     * stores write into them.
+     * Every chat (the lock's way back in, its code forgotten): every file in the chats' folders - the chats, their
+     * images and clips, media never sent, the local server's copies -, the images as the engine read them, and the
+     * agents' Linux folders. No chat is read for it: everything a chat holds is in these folders, and all of it goes.
+     * The folders themselves stay: the stores write into them.
      */
     fun deleteAll() = synchronized(LOCK) {
-        list().forEach { runCatching { delete(it.id) } }
         dir.walkBottomUp().filter { it.isFile }.forEach { it.delete() }
         visionCache.listFiles()?.forEach { it.deleteRecursively() }
         agents.listFiles()?.filter { !it.name.startsWith(".") }?.forEach { it.deleteRecursively() }
