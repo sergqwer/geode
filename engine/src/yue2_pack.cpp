@@ -56,36 +56,48 @@ bool Pack::open(const std::string &dir, std::string &err) {
     return true;
 }
 
-bool Pack::open_selected(const std::string &dir, const std::string &selection, std::string &err) {
+bool Pack::open_selected(const std::string &dir, const std::string &selection, std::string &err, bool f16) {
     if (!open(dir, err)) return false;
-    if (selection.empty()) return true;
-    Pack replacement;
-    replacement.dir_ = selection;
-    std::ifstream f(selection + "/manifest.json", std::ios::binary | std::ios::ate);
-    if (!f || f.tellg() < 0 || f.tellg() > (32 << 20)) { err = "lora: invalid/missing selection manifest"; return false; }
-    std::string text(static_cast<size_t>(f.tellg()), '\0'); f.seekg(0);
-    json::Value m;
-    if (!f.read(text.data(), text.size()) || !json::parse(text, m, err) ||
-        m["format"].str() != "geode-pack-extra" || m["version"].i64() != 1 ||
-        m["files"].size() != 1 || m["files"].at(0)["name"].str() != "ar_q8.bin" ||
-        !replacement.add_part(m, nullptr, err)) { err = "lora: invalid selection manifest: " + err; return false; }
-    int original = -1;
-    for (size_t i = 0; i < names_.size(); ++i) if (names_[i] == "ar_q8.bin") original = static_cast<int>(i);
-    if (original < 0) { err = "lora: base has no ar_q8.bin"; return false; }
-    size_t count = 0;
-    for (const auto &[name, t] : tensors_) if (t.file == original) {
-        ++count;
-        const TensorInfo *r = replacement.find(name);
-        if (!r || name.rfind("q8.", 0) != 0 || t.shape != r->shape || t.type != r->type || t.bytes != r->bytes) {
-            err = "lora: selection differs from base tensor " + name; return false;
-        }
+    if (selection.empty()) {
+        if (f16) { err = "lora: fp16 selection needs a cache entry"; return false; }
+        return true;
     }
-    if (count != replacement.tensors_.size()) { err = "lora: unexpected selected tensors"; return false; }
-    files_[static_cast<size_t>(original)] = std::move(replacement.files_[0]);
-    for (auto &[name, t] : replacement.tensors_) { t.file = original; tensors_[name] = t; }
-    // Defense in depth: consumers cannot accidentally find unadapted DSP AR or base Q4 tensors.
+    const auto replace = [&](const char *file, const char *manifest, const char *prefix) {
+        Pack replacement;
+        replacement.dir_ = selection;
+        std::ifstream f(selection + "/" + manifest, std::ios::binary | std::ios::ate);
+        if (!f || f.tellg() < 0 || f.tellg() > (32 << 20)) { err = "lora: invalid/missing selection manifest " + std::string(manifest); return false; }
+        std::string text(static_cast<size_t>(f.tellg()), '\0'); f.seekg(0);
+        json::Value m;
+        if (!f.read(text.data(), text.size()) || !json::parse(text, m, err) ||
+            m["format"].str() != "geode-pack-extra" || m["version"].i64() != 1 ||
+            m["files"].size() != 1 || m["files"].at(0)["name"].str() != file ||
+            !replacement.add_part(m, nullptr, err)) { err = "lora: invalid selection manifest: " + err; return false; }
+        int original = -1;
+        for (size_t i = 0; i < names_.size(); ++i) if (names_[i] == file) original = static_cast<int>(i);
+        if (original < 0 || replacement.files_[0]->size() != files_[original]->size()) {
+            err = "lora: missing/different-size base file " + std::string(file); return false;
+        }
+        size_t count = 0;
+        for (const auto &[name, t] : tensors_) if (t.file == original) {
+            ++count;
+            const TensorInfo *v = replacement.find(name);
+            if (!v || name.rfind(prefix, 0) != 0 || t.shape != v->shape || t.type != v->type ||
+                t.hmx16 != v->hmx16 || t.hmx8 != v->hmx8 || t.bytes != v->bytes || t.offset != v->offset) {
+                err = "lora: selection differs from base tensor " + name; return false;
+            }
+        }
+        if (count != replacement.tensors_.size()) { err = "lora: unexpected selected tensors"; return false; }
+        files_[original] = std::move(replacement.files_[0]);
+        selected_paths_[file] = selection + "/" + file;
+        for (auto &[name, t] : replacement.tensors_) { t.file = original; tensors_[name] = t; }
+        return true;
+    };
+    if (!replace("ar_q8.bin", "manifest.json", "q8.")) return false;
+    if (f16 && !replace("ar_f16.bin", "manifest.f16.json", "a16.")) return false;
+    // Without f16, a16 stays the base's. Adapter callers must gate DSP use on LoraWeights::f16.
     for (auto it = tensors_.begin(); it != tensors_.end();) {
-        if (it->first.rfind("a16.", 0) == 0 || it->first.rfind("q4.", 0) == 0) it = tensors_.erase(it);
+        if (it->first.rfind("q4.", 0) == 0) it = tensors_.erase(it);
         else ++it;
     }
     return true;
@@ -252,7 +264,8 @@ bool Pack::map(const std::string &file, std::string &err) {
         if (names_[i] != file) continue;
         if (base(i)) return true;
         const uint64_t n = files_[i]->size();
-        const std::string path = dir_ + "/" + file;
+        const auto selected = selected_paths_.find(file);
+        const std::string path = selected == selected_paths_.end() ? dir_ + "/" + file : selected->second;
         const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
         if (fd < 0) {
             err = path + ": cannot open for mapping";

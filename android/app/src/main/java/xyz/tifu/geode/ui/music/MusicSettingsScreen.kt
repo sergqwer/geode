@@ -205,6 +205,12 @@ private fun AdapterRows(vm: MusicViewModel) {
     val installed = remember(d.running, changed) { MusicAdapter.installed(context) }
     // (looked at again when a song starts or ends: the first song with the adapter prepares the weights)
     val merged = remember(d.running, changed, service.running, service.queued) { MusicAdapter.mergedBytes(context) }
+    // (the NPU's copy too when the song model has its layers and the sound may go there)
+    val p by vm.prefs.collectAsStateWithLifecycle()
+    val models by vm.models.collectAsStateWithLifecycle()
+    val estimate = remember(p.modelId, p.narUnit, models) {
+        MusicAdapter.mergedEstimate(models.firstOrNull { it.id == p.modelId } ?: models.firstOrNull(), p)
+    }
     // while a song is made or waits, the adapter and its weights stay: a song preparing or reading them would fail
     val busy = service.running.isNotEmpty() || service.queued.isNotEmpty() ||
         library.any { it.status == xyz.tifu.geode.music.SongStatus.WAITING }
@@ -214,7 +220,7 @@ private fun AdapterRows(vm: MusicViewModel) {
     Card(Modifier.fillMaxWidth().padding(top = 6.dp)) {
         Column(Modifier.padding(12.dp)) {
             Text(stringResource(R.string.music_adapter_name), style = MaterialTheme.typography.titleSmall)
-            Text(stringResource(R.string.music_adapter_size, formatBytes(MusicAdapter.SIZE), formatBytes(MusicAdapter.MERGED_BYTES)),
+            Text(stringResource(R.string.music_adapter_size, formatBytes(MusicAdapter.SIZE), formatBytes(estimate)),
                 style = MaterialTheme.typography.bodySmall)
             when {
                 d.running -> {

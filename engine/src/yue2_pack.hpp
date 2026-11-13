@@ -36,8 +36,8 @@ public:
 
     // Reads geode.json (arch "yue2"), opens every file and checks its size; reads no tensor data.
     bool open(const std::string &dir, std::string &err);
-    // Initialization only: substitute a completed LoRA cache's Q8 file/tensors. No a16/Q4 route in this view.
-    bool open_selected(const std::string &dir, const std::string &selection, std::string &err);
+    // Initialization only: substitute a completed LoRA cache's Q8 file/tensors. Q4 is unavailable; f16 selects the verified DSP twin when requested.
+    bool open_selected(const std::string &dir, const std::string &selection, std::string &err, bool f16 = false);
 
     // An extra manifest beside geode.json (geode-pack-extra: yue2_q4.hpp's, made on the phone) merged now - open merges
     // the ones there already. Not while anything reads the pack. False (err why, the pack as it was) when it is not
@@ -82,6 +82,7 @@ private:
     const uint8_t *typed(const std::string &name, DType type, const std::vector<int64_t> &shape,
                          std::string &err) const;
     std::string dir_;
+    std::map<std::string, std::string> selected_paths_; // canonical file name -> selected physical path for mmap
     json::Value manifest_;
     std::vector<std::string> names_;
     std::vector<std::unique_ptr<RandomFile>> files_;

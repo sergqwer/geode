@@ -3,6 +3,7 @@
 #include "kernels.hpp"
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
@@ -306,11 +307,13 @@ namespace {
 // when its size and time are the same.
 std::string stamp_of(const std::string &p) {
 #if !defined(_WIN32)
-    struct stat st {};
+    struct stat st{};
     if (::stat(p.c_str(), &st) != 0)
         return {};
-    return std::to_string(static_cast<long long>(st.st_size)) + ":" + std::to_string(static_cast<long long>(st.st_mtim.tv_sec)) +
-           "." + std::to_string(static_cast<long long>(st.st_mtim.tv_nsec)) + ":" + std::to_string(static_cast<unsigned long long>(st.st_ino));
+    return std::to_string(static_cast<long long>(st.st_size)) + ":" +
+           std::to_string(static_cast<long long>(st.st_mtim.tv_sec)) + "." +
+           std::to_string(static_cast<long long>(st.st_mtim.tv_nsec)) + ":" +
+           std::to_string(static_cast<unsigned long long>(st.st_ino));
 #else
     std::error_code ec;
     const auto size = std::filesystem::file_size(p, ec);
@@ -330,7 +333,7 @@ bool lora_sha256_remembered(const std::string &p, const std::string &cache, std:
     json::Value m;
     std::string ignored;
     if (stamp.empty())
-        return lora_sha256(p, hex, err, cancel);   // (its own error)
+        return lora_sha256(p, hex, err, cancel); // (its own error)
     if (read_text(memo, text) && json::parse(text, m, ignored) && m.is_object() && m.object.count(p)) {
         const auto &e = m[p];
         if (e["stamp"].str() == stamp && e["sha256"].str().size() == 64) {
@@ -341,7 +344,7 @@ bool lora_sha256_remembered(const std::string &p, const std::string &cache, std:
     if (!lora_sha256(p, hex, err, cancel))
         return false;
     if (stamp_of(p) != stamp)
-        return true;   // (changed while read: this digest is not remembered)
+        return true; // (changed while read: this digest is not remembered)
     if (!m.is_object()) {
         m = json::Value{};
         m.kind = json::Value::Kind::Object;
@@ -354,14 +357,15 @@ bool lora_sha256_remembered(const std::string &p, const std::string &cache, std:
     std::error_code ec;
     std::filesystem::create_directories(cache, ec);
     // (a temporary of this process's own: two writers never share one; the rename is atomic, the last one wins)
-    const std::string part = memo + ".part" + std::to_string(static_cast<unsigned long long>(
+    const std::string part = memo + ".part" +
+                             std::to_string(static_cast<unsigned long long>(
                                  std::hash<std::thread::id>{}(std::this_thread::get_id()) ^
                                  static_cast<size_t>(std::chrono::steady_clock::now().time_since_epoch().count()))),
                       out = dump(m);
     if (FILE *f = std::fopen(part.c_str(), "wb")) {
         const bool ok = std::fwrite(out.data(), 1, out.size(), f) == out.size();
         if (std::fclose(f) == 0 && ok)
-            std::filesystem::rename(part, memo, ec);   // (a memo that cannot be written only costs the next read)
+            std::filesystem::rename(part, memo, ec); // (a memo that cannot be written only costs the next read)
     }
     return true;
 }
@@ -467,100 +471,245 @@ bool lora_q8_encode(const float *x, int64_t rows, int64_t cols, std::vector<uint
         run(0, rows);
     return true;
 }
-bool prepare_lora(const std::string &base, const LoraSpec &spec, ThreadPool &pool, const LoraProgress &progress,
-                  const LoraCancel &cancel, LoraWeights &out, std::string &err) {
-    const auto fail = [&](const std::string &s) {
-        err = "lora: " + s;
+namespace {
+// Explicit IEEE binary32 -> binary16 RNE, independent of host ISA and floating rounding mode.
+uint16_t half_rne(float x) {
+    uint32_t u;
+    std::memcpy(&u, &x, 4);
+    const uint16_t sign = static_cast<uint16_t>((u >> 16) & 0x8000);
+    const uint32_t exponent = (u >> 23) & 255, mantissa = u & 0x7fffff;
+    if (exponent == 255)
+        return static_cast<uint16_t>(sign | (mantissa ? 0x7e00 : 0x7c00));
+    const int e = static_cast<int>(exponent) - 127 + 15;
+    if (e >= 31)
+        return static_cast<uint16_t>(sign | 0x7c00);
+    if (e < -10)
+        return sign;
+    if (e <= 0) {
+        const uint32_t significand = mantissa | 0x800000, shift = static_cast<uint32_t>(14 - e);
+        uint32_t q = significand >> shift;
+        const uint32_t rem = significand & ((1u << shift) - 1), halfway = 1u << (shift - 1);
+        if (rem > halfway || (rem == halfway && (q & 1)))
+            ++q;
+        return static_cast<uint16_t>(sign | q);
+    }
+    uint32_t q = mantissa >> 13, rem = mantissa & 8191;
+    if (rem > 4096 || (rem == 4096 && (q & 1)))
+        ++q;
+    return static_cast<uint16_t>(sign | ((static_cast<uint32_t>(e) << 10) + q));
+}
+// binary16 -> binary32, exact: a normal value's bits moved over (the exponent rebased), a subnormal one m x 2^-24 (m
+// below 2^10: exact in fp32). No ldexp: this runs for every one of ar_f16.bin's 1.4 G weights.
+float half_float(uint16_t h) {
+    const uint32_t sign = static_cast<uint32_t>(h & 0x8000) << 16, e = (h >> 10) & 31, m = h & 1023;
+    float x;
+    if (e == 0) {
+        x = static_cast<float>(m) * 0x1p-24f;
+        return (h & 0x8000) ? -x : x;
+    }
+    if (e == 31)
+        return m ? std::numeric_limits<float>::quiet_NaN()
+                 : ((h & 0x8000) ? -std::numeric_limits<float>::infinity() : std::numeric_limits<float>::infinity());
+    const uint32_t u = sign | ((e + 112u) << 23) | (m << 13);
+    std::memcpy(&x, &u, 4);
+    return x;
+}
+size_t hmx_at(int64_t r, int64_t c, int64_t cols) {
+    const int64_t k = std::max<int64_t>(cols, 512);
+    return static_cast<size_t>((r / 32) * k * 32 + (c / 32) * 1024 + ((c % 32) / 2) * 64 + (r % 32) * 2 + c % 2);
+}
+// Both precision paths use exactly this rank loop and these separate fp32 multiply/adds (-ffp-contract=off).
+bool add_lora(const SafeTensors &adapter, const std::string &stem, float scale, int64_t rows, int64_t cols,
+              float *matrix, ThreadPool &pool, const LoraCancel &cancel, std::string &err) {
+    std::vector<float> a, b;
+    if (!adapter.floats(stem + ".lora_A", a, err) || !adapter.floats(stem + ".lora_B", b, err))
         return false;
-    };
-    if (spec.path.empty() || spec.cache.empty() || !std::isfinite(spec.scale))
-        return fail("path, finite scale and cache are required");
+    if (scale == 0)
+        return true; // validate factors, but preserve zero-scale bytes/shift without rounding
+    const int rank = static_cast<int>(adapter.tensors().at(stem + ".lora_A").shape[0]);
+    pool.parallel_for(rows, [&](int64_t first, int64_t stop) {
+        std::vector<float> delta(static_cast<size_t>(cols));
+        for (int64_t r = first; r < stop; ++r) {
+            if (cancel && cancel())
+                return;
+            std::fill(delta.begin(), delta.end(), 0.f);
+            for (int k = 0; k < rank; ++k) {
+                const float v = b[static_cast<size_t>(r * rank + k)];
+                const float *ar = a.data() + k * cols;
+                for (int64_t c = 0; c < cols; ++c)
+                    delta[c] += v * ar[c];
+            }
+            float *mr = matrix + r * cols;
+            for (int64_t c = 0; c < cols; ++c)
+                mr[c] = mr[c] + scale * delta[c];
+        }
+    });
     if (cancel && cancel()) {
         err = "cancelled";
         return false;
     }
-    std::error_code ec;
-    std::filesystem::create_directories(spec.cache, ec);
-    if (ec)
-        return fail("cannot create cache: " + ec.message());
-    // the lock first, then the sources' stamps, then the sources opened: what is merged is what is stamped and hashed
-    Lock lock;
-    if (!lock.acquire(spec.cache + "/.build.lock", cancel, err))
-        return false;
-    const std::string base_bin = base + "/ar_q8.bin", adapter_stamp = stamp_of(spec.path), base_stamp = stamp_of(base_bin);
-    SafeTensors adapter;
-    Pack pack;
-    int rank = 0;
-    if (!adapter.open(spec.path, err) || !pack.open(base, err) || !validate_lora(adapter, &pack, rank, err))
-        return false;
-    if (stamp_of(spec.path) != adapter_stamp || stamp_of(base_bin) != base_stamp)
-        return fail("the adapter or the base changed while it was opened");
-    std::string ah, bh;
-    if (!lora_sha256_remembered(spec.path, spec.cache, ah, err, cancel) ||
-        !lora_sha256_remembered(base_bin, spec.cache, bh, err, cancel))
-        return false;
-    const std::string key = hash_text("geode-yue2-lora-q8-v1\n" + bh + "\n" + dump(pack.manifest()) + "\n" + ah + "\n" +
-                                      lora_scale_text(spec.scale));
-    const std::string dir = (std::filesystem::path(spec.cache) / key).string(), bin = dir + "/ar_q8.bin",
-                      man = dir + "/manifest.json";
-    out = {dir, ah, key, spec.scale};
-    std::string text;
-    json::Value saved;
-    if (read_text(man, text) && json::parse(text, saved, err) && saved["key"].str() == key &&
-        saved["format"].str() == "geode-pack-extra" && saved["converter"].i64() == 1 &&
-        saved["adapter_sha256"].str() == ah && saved["scale"].is_number() &&
-        static_cast<float>(saved["scale"].f64()) == spec.scale &&
-        saved["tensor_sha256"].str() == hash_text(dump(saved["tensors"]))) {
-        RandomFile f;
-        if (f.open(bin, err) && double(f.size()) == saved["files"].at(0)["size"].f64()) {
-            // the copy as it was published (its size and time): not read again; else read whole against its digest
-            std::string digest;
-            const std::string stamp = stamp_of(bin);
-            if (stamp.empty() || saved["stamp"].str() != stamp) {
-                if (!hash_file(f, digest, err, cancel))
+    return true;
+}
+struct Group {
+    const char *name;
+    int first, stop;
+};
+constexpr Group groups[] = {{"ar_qkv", 0, 3}, {"ar_o", 3, 4}, {"ar_gu", 4, 6}, {"ar_down", 6, 7}};
+json::Value tensor_table(const Pack &pack, const std::string &file) {
+    json::Value t;
+    t.kind = json::Value::Kind::Object;
+    for (const auto &[name, v] : pack.manifest()["tensors"].object)
+        if (v["file"].str() == file)
+            t.object.emplace(name, v);
+    return t;
+}
+bool validate_f16(const SafeTensors &adapter, const Pack &pack, std::string &err) {
+    for (int l = 0; l < 28; ++l) {
+        const std::string layer = "layers." + std::to_string(l) + ".";
+        for (const auto &group : groups) {
+            int64_t rows = 0, cols = 0;
+            for (int j = group.first; j < group.stop; ++j) {
+                const auto &a = adapter.tensors().at(layer + projections[j] + ".lora_A");
+                const auto &b = adapter.tensors().at(layer + projections[j] + ".lora_B");
+                if (cols && cols != a.shape[1]) {
+                    err = "lora fp16: fused input widths differ";
                     return false;
-            }
-            if (!digest.empty() && digest == saved["files"].at(0)["sha256"].str() && !stamp.empty() && stamp_of(bin) == stamp) {
-                // (read whole and found right - an older manifest, a touched file: its stamp published for the next)
-                json::Value fresh = saved;
-                fresh.object["stamp"].kind = json::Value::Kind::String;
-                fresh.object["stamp"].string = stamp;
-                const std::string text2 = dump(fresh);
-                if (FILE *mf = std::fopen((man + ".part").c_str(), "wb")) {
-                    const bool ok = std::fwrite(text2.data(), 1, text2.size(), mf) == text2.size() && sync(mf);
-                    if (std::fclose(mf) == 0 && ok) {
-                        std::error_code rn;
-                        std::filesystem::rename(man + ".part", man, rn);
-                    }
                 }
+                cols = a.shape[1];
+                rows += b.shape[0];
             }
-            if (digest.empty() || digest == saved["files"].at(0)["sha256"].str()) {
-                if (progress)
-                    progress(28, 28);
-                err.clear();
-                return true;
+            const std::string name = "a16.model." + layer + group.name;
+            const auto *t = pack.find(name);
+            if (!t || !t->hmx16 || t->shape != std::vector<int64_t>{rows, cols} ||
+                pack.file_name(t->file) != "ar_f16.bin") {
+                err = "lora fp16: base shape/type mismatch: " + name;
+                return false;
+            }
+        }
+        // The DSP loads these in the same page-aligned stretch as the four products.
+        const char *norms[] = {"input_layernorm.weight", "self_attn.q_norm.weight", "self_attn.k_norm.weight",
+                               "post_attention_layernorm.weight"};
+        const int64_t h = pack.config()["hidden_size"].i64(), hd = pack.config()["head_dim"].i64();
+        for (int j = 0; j < 4; ++j) {
+            const std::string name = "a16.model." + layer + norms[j];
+            const auto *t = pack.find(name);
+            if (!t || t->type != DType::F32 || t->shape != std::vector<int64_t>{j == 1 || j == 2 ? hd : h} ||
+                pack.file_name(t->file) != "ar_f16.bin") {
+                err = "lora fp16: missing/invalid norm: " + name;
+                return false;
             }
         }
     }
+    return true;
+}
+// Shared cache protocol: exact metadata checksum, stamp fast path, digest fallback, manifest published last.
+bool part_hit(const std::string &dir, const std::string &manifest, const std::string &file, const std::string &key,
+              const std::string &sha, float scale, const LoraCancel &cancel, bool &hit, std::string &err) {
+    hit = false;
+    std::string text;
+    json::Value saved;
+    const std::string man = dir + "/" + manifest, bin = dir + "/" + file;
+    if (!read_text(man, text) || !json::parse(text, saved, err) || saved["key"].str() != key ||
+        saved["format"].str() != "geode-pack-extra" || saved["version"].i64() != 1 || saved["converter"].i64() != 1 ||
+        saved["adapter_sha256"].str() != sha || !saved["scale"].is_number() ||
+        static_cast<float>(saved["scale"].f64()) != scale || !saved["tensors"].is_object() ||
+        saved["tensor_sha256"].str() != hash_text(dump(saved["tensors"])) || saved["files"].size() != 1 ||
+        saved["files"].at(0)["name"].str() != file)
+        return true;
+    RandomFile f;
+    if (!f.open(bin, err) || double(f.size()) != saved["files"].at(0)["size"].f64())
+        return true;
+    const std::string stamp = stamp_of(bin);
+    if (!stamp.empty() && saved["stamp"].str() == stamp) {
+        hit = true;
+        return true;
+    }
+    std::string digest;
+    if (!hash_file(f, digest, err, cancel))
+        return false;
+    if (digest != saved["files"].at(0)["sha256"].str() || stamp.empty() || stamp_of(bin) != stamp)
+        return true;
+    saved.object["stamp"].kind = json::Value::Kind::String;
+    saved.object["stamp"].string = stamp;
+    const std::string fresh = dump(saved);
+    if (FILE *mf = std::fopen((man + ".part").c_str(), "wb")) {
+        const bool ok = std::fwrite(fresh.data(), 1, fresh.size(), mf) == fresh.size() && sync(mf);
+        if (std::fclose(mf) == 0 && ok) {
+            std::error_code ec;
+            std::filesystem::rename(man + ".part", man, ec);
+            sync_directory(dir);
+        }
+    }
+    hit = true;
+    return true;
+}
+bool write_at(FILE *f, uint64_t offset, const std::vector<uint8_t> &bytes, std::string &err) {
+#if defined(_WIN32)
+    const int seek = _fseeki64(f, static_cast<int64_t>(offset), SEEK_SET);
+#else
+    const int seek = fseeko(f, static_cast<off_t>(offset), SEEK_SET);
+#endif
+    if (seek || std::fwrite(bytes.data(), 1, bytes.size(), f) != bytes.size()) {
+        err = "lora: writing projection failed";
+        return false;
+    }
+    return true;
+}
+bool build_part(Pack &pack, const SafeTensors &adapter, const std::string &base, const LoraSpec &spec,
+                const std::string &dir, const std::string &key, const std::string &sha, const std::string &source_stamp,
+                const std::string &adapter_stamp, bool f16, int total, ThreadPool &pool, const LoraProgress &progress,
+                const LoraCancel &cancel, std::string &err) {
+    const std::string file = f16 ? "ar_f16.bin" : "ar_q8.bin", manifest = f16 ? "manifest.f16.json" : "manifest.json";
+    const int offset = f16 ? 28 : 0;
     if (cancel && cancel()) {
         err = "cancelled";
         return false;
     }
-    // one merged copy kept (~1.9 GB): the entries of another adapter, scale or base removed before this one is made
+    if (stamp_of(spec.path) != adapter_stamp || stamp_of(base + "/" + file) != source_stamp) {
+        err = "lora: source changed before cache lookup";
+        return false;
+    }
+    bool hit;
+    if (!part_hit(dir, manifest, file, key, sha, spec.scale, cancel, hit, err))
+        return false;
+    if (hit) {
+        if (progress)
+            progress(offset + 28, total);
+        if (cancel && cancel()) {
+            err = "cancelled";
+            return false;
+        }
+        if (stamp_of(spec.path) != adapter_stamp || stamp_of(base + "/" + file) != source_stamp) {
+            err = "lora: source changed during cache lookup";
+            return false;
+        }
+        err.clear();
+        return true;
+    }
+    if (cancel && cancel()) {
+        err = "cancelled";
+        return false;
+    }
+    // Keep both precisions of the selected entry; only other entry directories are pruned.
+    std::error_code ec;
     for (const auto &d : std::filesystem::directory_iterator(spec.cache, ec))
-        if (d.is_directory() && d.path().filename().string() != key) {
+        if (d.is_directory() && d.path().filename() != std::filesystem::path(dir).filename()) {
             std::error_code rm;
             std::filesystem::remove_all(d.path(), rm);
         }
     ec.clear();
     std::filesystem::create_directories(dir, ec);
-    if (ec)
-        return fail("cannot create entry: " + ec.message());
-    std::filesystem::remove(man, ec); // incomplete/rejected entries are never selected
-    const std::string part = bin + ".part";
+    if (ec) {
+        err = "lora: creating cache entry: " + ec.message();
+        return false;
+    }
+    const std::string man = dir + "/" + manifest, bin = dir + "/" + file, part = bin + ".part";
+    std::filesystem::remove(man, ec);
     FILE *f = std::fopen(part.c_str(), "wb");
-    if (!f)
-        return fail("cannot write " + part);
+    if (!f) {
+        err = "lora: cannot write " + part;
+        return false;
+    }
     struct Output {
         FILE *f;
         std::string path;
@@ -571,7 +720,7 @@ bool prepare_lora(const std::string &base, const LoraSpec &spec, ThreadPool &poo
         }
     } output{f, part};
     RandomFile source;
-    if (!source.open(base + "/ar_q8.bin", err))
+    if (!source.open(base + "/" + file, err))
         return false;
     std::vector<uint8_t> copy(1u << 20);
     for (uint64_t at = 0; at < source.size();) {
@@ -579,126 +728,264 @@ bool prepare_lora(const std::string &base, const LoraSpec &spec, ThreadPool &poo
             err = "cancelled";
             return false;
         }
-        size_t n = static_cast<size_t>(std::min<uint64_t>(copy.size(), source.size() - at));
-        if (!source.read_at(at, copy.data(), n) || std::fwrite(copy.data(), 1, n, f) != n)
-            return fail("copying base AR failed");
+        const size_t n = static_cast<size_t>(std::min<uint64_t>(copy.size(), source.size() - at));
+        if (!source.read_at(at, copy.data(), n) || std::fwrite(copy.data(), 1, n, f) != n) {
+            err = "lora: copying base AR failed";
+            return false;
+        }
         at += n;
     }
-    json::Value tensors;
-    tensors.kind = json::Value::Kind::Object;
-    for (const auto &[name, t] : pack.manifest()["tensors"].object)
-        if (t["file"].str() == "ar_q8.bin")
-            tensors.object.emplace(name, t);
+    json::Value tensors = tensor_table(pack, file);
     if (progress)
-        progress(0, 28);
+        progress(offset, total);
     for (int l = 0; l < 28; ++l) {
-        for (auto proj : projections) {
+        const std::string layer = "layers." + std::to_string(l) + ".";
+        const int products = f16 ? 4 : 7;
+        for (int j = 0; j < products; ++j) {
             if (cancel && cancel()) {
                 err = "cancelled";
                 return false;
             }
-            std::string stem = "layers." + std::to_string(l) + "." + proj, name = "q8.model." + stem + ".weight";
+            const std::string name =
+                f16 ? "a16.model." + layer + groups[j].name : "q8.model." + layer + projections[j] + ".weight";
             const auto *t = pack.find(name);
             const int64_t rows = t->shape[0], cols = t->shape[1];
-            if (uint64_t(rows) > (uint64_t{1} << 28) / uint64_t(cols))
-                return fail("matrix too large");
-            std::vector<float> a, b, merged(static_cast<size_t>(rows * cols));
-            std::vector<uint8_t> raw(static_cast<size_t>(t->bytes));
-            if (!adapter.floats(stem + ".lora_A", a, err) || !adapter.floats(stem + ".lora_B", b, err) ||
-                !pack.read_rows(*t, 0, rows, raw.data()))
-                return fail("reading projection " + stem + ": " + err);
-            pool.parallel_for(rows, [&](int64_t first, int64_t stop) {
-                std::vector<float> delta(static_cast<size_t>(cols));
-                for (int64_t r = first; r < stop; ++r) {
-                    if (cancel && cancel())
-                        return;
-                    std::fill(delta.begin(), delta.end(), 0.f);
-                    for (int k = 0; k < rank; ++k) {
-                        float v = b[static_cast<size_t>(r * rank + k)];
-                        const float *ar = a.data() + k * cols;
-                        for (int64_t c = 0; c < cols; ++c)
-                            delta[c] += v * ar[c];
-                    }
-                    const auto *wr = raw.data() + r * (cols + cols / 16);
-                    float *mr = merged.data() + r * cols;
-                    for (int64_t c = 0; c < cols; ++c) {
-                        float w = static_cast<float>(static_cast<int8_t>(wr[c])) *
-                                  (e4m3_value(wr[cols + c / 16]) * t->global);
-                        mr[c] = w + spec.scale * delta[c];
-                    }
-                }
-            });
-            if (cancel && cancel()) {
-                err = "cancelled";
+            if (uint64_t(rows) > (uint64_t{1} << 28) / uint64_t(cols)) {
+                err = "lora: matrix too large";
                 return false;
             }
-            std::vector<uint8_t> encoded;
-            float global;
-            if (spec.scale == 0) {
-                encoded = std::move(raw);
-                global = t->global;
-            } else if (!lora_q8_encode(merged.data(), rows, cols, encoded, global, err, &pool))
+            std::vector<uint8_t> raw(static_cast<size_t>(t->bytes));
+            if (!pack.read_span(t->file, t->offset, t->bytes, raw.data())) {
+                err = "lora: reading " + name;
                 return false;
-            if (!(global > 0))
-                return fail("all-zero merged matrix cannot have a positive Q8 global scale: " + stem);
-#if defined(_WIN32)
-            if (_fseeki64(f, static_cast<int64_t>(t->offset), SEEK_SET))
-                return fail("seeking output failed");
-#else
-            if (fseeko(f, static_cast<off_t>(t->offset), SEEK_SET))
-                return fail("seeking output failed");
-#endif
-            if (std::fwrite(encoded.data(), 1, encoded.size(), f) != encoded.size())
-                return fail("writing projection failed");
-            tensors.object[name].object["global"].kind = json::Value::Kind::Number;
-            tensors.object[name].object["global"].number = global;
+            }
+            std::vector<float> merged(spec.scale == 0 ? 0 : static_cast<size_t>(rows * cols));
+            // (x 2^-shift as a product with the power of two: exact - the smallest fp16 x 2^-24 is a normal fp32 -
+            // so the same bits as ldexp, without its cost per weight)
+            const float down = f16 ? std::ldexp(1.f, -t->shift) : 1.f;
+            if (spec.scale != 0) {
+                pool.parallel_for(rows, [&](int64_t a, int64_t b) {
+                    for (int64_t r = a; r < b; ++r)
+                        for (int64_t c = 0; c < cols; ++c) {
+                            if (f16) {
+                                const size_t at = 2 * hmx_at(r, c, cols);
+                                uint16_t h = uint16_t(raw[at]) | (uint16_t(raw[at + 1]) << 8);
+                                merged[r * cols + c] = half_float(h) * down;
+                            } else {
+                                const auto *w = raw.data() + r * (cols + cols / 16);
+                                merged[r * cols + c] = static_cast<float>(static_cast<int8_t>(w[c])) *
+                                                       (e4m3_value(w[cols + c / 16]) * t->global);
+                            }
+                        }
+                });
+            }
+            int64_t row = 0;
+            const int first = f16 ? groups[j].first : j, stop = f16 ? groups[j].stop : j + 1;
+            for (int projection = first; projection < stop; ++projection) {
+                const std::string stem = layer + projections[projection];
+                const int64_t nr = adapter.tensors().at(stem + ".lora_B").shape[0];
+                if (!add_lora(adapter, stem, spec.scale, nr, cols,
+                              spec.scale == 0 ? nullptr : merged.data() + row * cols, pool, cancel, err))
+                    return false;
+                row += nr;
+            }
+            if (spec.scale != 0 && f16) {
+                // every row's largest |value| (a nonfinite one: NaN), on the pool; then the matrix's
+                std::vector<float> row_big(static_cast<size_t>(rows));
+                pool.parallel_for(rows, [&](int64_t a, int64_t b) {
+                    for (int64_t r = a; r < b; ++r) {
+                        float big = 0;
+                        bool finite = true;
+                        for (int64_t c = 0; c < cols; ++c) {
+                            const float x = merged[r * cols + c];
+                            finite = finite && std::isfinite(x);
+                            big = std::max(big, std::fabs(x));
+                        }
+                        row_big[static_cast<size_t>(r)] = finite ? big : std::numeric_limits<float>::quiet_NaN();
+                    }
+                });
+                float big = 0;
+                for (float x : row_big) {
+                    if (!std::isfinite(x)) {
+                        err = "lora fp16: nonfinite merged weight: " + name;
+                        return false;
+                    }
+                    big = std::max(big, x);
+                }
+                int exponent;
+                std::frexp(big > 0 ? big : 1.f, &exponent);
+                const int shift = std::clamp(-exponent, 0, 24);
+                // All logical elements are replaced; physical padding remains byte-for-byte as copied from the base.
+                // Every (row, column) has its own two bytes (hmx_at): the rows written on the pool, no two threads on
+                // one byte. x 2^shift as the product: exact (the largest |value| lands in [0.5, 1)).
+                const float up = std::ldexp(1.f, shift);
+                std::atomic<bool> overflow{false};
+                pool.parallel_for(rows, [&](int64_t a, int64_t b) {
+                    bool over = false;
+                    for (int64_t r = a; r < b; ++r)
+                        for (int64_t c = 0; c < cols; ++c) {
+                            const uint16_t h = half_rne(merged[r * cols + c] * up);
+                            over = over || (h & 0x7c00) == 0x7c00;
+                            const size_t at = 2 * hmx_at(r, c, cols);
+                            raw[at] = static_cast<uint8_t>(h);
+                            raw[at + 1] = static_cast<uint8_t>(h >> 8);
+                        }
+                    if (over)
+                        overflow = true;
+                });
+                if (overflow) {
+                    err = "lora fp16: merged weight overflows fp16: " + name;
+                    return false;
+                }
+                auto &sh = tensors.object[name].object["shift"];
+                sh.kind = json::Value::Kind::Number;
+                sh.number = shift;
+            } else if (spec.scale != 0) {
+                std::vector<uint8_t> encoded;
+                float global;
+                if (!lora_q8_encode(merged.data(), rows, cols, encoded, global, err, &pool))
+                    return false;
+                raw = std::move(encoded);
+                auto &g = tensors.object[name].object["global"];
+                g.kind = json::Value::Kind::Number;
+                g.number = global;
+            }
+            if (!write_at(f, t->offset, raw, err))
+                return false;
         }
         if (progress)
-            progress(l + 1, 28);
+            progress(offset + l + 1, total);
     }
     if (cancel && cancel()) {
         err = "cancelled";
         return false;
     }
-    // Recheck the sources before publication: don't commit a mixed snapshot if files changed during merge (their size
-    // and time: a rewrite of the app's own files changes them).
-    if (stamp_of(spec.path) != adapter_stamp)
-        return fail("adapter changed during merge");
-    if (stamp_of(base_bin) != base_stamp)
-        return fail("base changed during merge");
-    if (!sync(f))
-        return fail("syncing AR failed");
-    int closed = std::fclose(f);
+    if (stamp_of(spec.path) != adapter_stamp || stamp_of(base + "/" + file) != source_stamp) {
+        err = "lora: source changed during merge";
+        return false;
+    }
+    if (!sync(f)) {
+        err = "lora: syncing AR failed";
+        return false;
+    }
+    const int closed = std::fclose(f);
     output.f = nullptr;
-    if (closed)
-        return fail("closing AR failed");
+    if (closed) {
+        err = "lora: closing AR failed";
+        return false;
+    }
     std::string digest;
     if (!lora_sha256(part, digest, err, cancel))
         return false;
     std::filesystem::remove(bin, ec);
     ec.clear();
     std::filesystem::rename(part, bin, ec);
-    if (ec)
-        return fail("publishing AR: " + ec.message());
+    if (ec) {
+        err = "lora: publishing AR: " + ec.message();
+        return false;
+    }
     sync_directory(dir);
-    std::string manifest = "{\"format\":\"geode-pack-extra\",\"version\":1,\"converter\":1,\"key\":" + quote(key) +
-                           ",\"stamp\":" + quote(stamp_of(bin)) +
-                           ",\"adapter_sha256\":" + quote(ah) + ",\"scale\":" + lora_scale_text(spec.scale) +
-                           ",\"tensor_sha256\":" + quote(hash_text(dump(tensors))) +
-                           ",\"files\":[{\"name\":\"ar_q8.bin\",\"size\":" + std::to_string(source.size()) +
-                           ",\"sha256\":" + quote(digest) + "}],\"tensors\":" + dump(tensors) + "}";
+    const std::string manifest_text =
+        "{\"format\":\"geode-pack-extra\",\"version\":1,\"converter\":1,\"key\":" + quote(key) +
+        ",\"stamp\":" + quote(stamp_of(bin)) + ",\"adapter_sha256\":" + quote(sha) +
+        ",\"scale\":" + lora_scale_text(spec.scale) + ",\"tensor_sha256\":" + quote(hash_text(dump(tensors))) +
+        ",\"files\":[{\"name\":" + quote(file) + ",\"size\":" + std::to_string(source.size()) +
+        ",\"sha256\":" + quote(digest) + "}],\"tensors\":" + dump(tensors) + "}";
     FILE *mf = std::fopen((man + ".part").c_str(), "wb");
-    if (!mf)
-        return fail("cannot write manifest");
-    bool ok = std::fwrite(manifest.data(), 1, manifest.size(), mf) == manifest.size() && sync(mf);
+    if (!mf) {
+        err = "lora: writing manifest failed";
+        return false;
+    }
+    bool ok = std::fwrite(manifest_text.data(), 1, manifest_text.size(), mf) == manifest_text.size() && sync(mf);
     if (std::fclose(mf))
         ok = false;
-    if (!ok)
-        return fail("writing/syncing manifest failed");
+    if (!ok) {
+        err = "lora: syncing manifest failed";
+        return false;
+    }
     std::filesystem::rename(man + ".part", man, ec);
-    if (ec)
-        return fail("publishing manifest: " + ec.message());
+    if (ec) {
+        err = "lora: publishing manifest: " + ec.message();
+        return false;
+    }
     sync_directory(dir);
+    err.clear();
+    return true;
+}
+} // namespace
+bool prepare_lora(const std::string &base, const LoraSpec &spec, ThreadPool &pool, const LoraProgress &progress,
+                  const LoraCancel &cancel, LoraWeights &out, std::string &err) {
+    const auto fail = [&](const std::string &s) {
+        err = "lora: " + s;
+        return false;
+    };
+    out = {};
+    if (spec.path.empty() || spec.cache.empty() || !std::isfinite(spec.scale))
+        return fail("path, finite scale and cache are required");
+    if (cancel && cancel()) {
+        err = "cancelled";
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(spec.cache, ec);
+    if (ec)
+        return fail("cannot create cache: " + ec.message());
+    Lock lock;
+    if (!lock.acquire(spec.cache + "/.build.lock", cancel, err))
+        return false;
+    const std::string adapter_stamp = stamp_of(spec.path), base_stamp = stamp_of(base + "/ar_q8.bin"),
+                      candidate_f16_stamp = spec.f16 ? stamp_of(base + "/ar_f16.bin") : "";
+    SafeTensors adapter;
+    Pack pack;
+    int rank;
+    if (!adapter.open(spec.path, err) || !pack.open(base, err) || !validate_lora(adapter, &pack, rank, err))
+        return false;
+    const auto *first = pack.find("a16.model.layers.0.ar_qkv");
+    const bool want_f16 = spec.f16 && first && first->hmx16;
+    const std::string f16_stamp = want_f16 ? candidate_f16_stamp : "";
+    if (want_f16 && !validate_f16(adapter, pack, err))
+        return false;
+    if (stamp_of(spec.path) != adapter_stamp || stamp_of(base + "/ar_q8.bin") != base_stamp ||
+        (want_f16 && stamp_of(base + "/ar_f16.bin") != f16_stamp))
+        return fail("source changed while opening");
+    const double q8_start = now_seconds();
+    std::string ah, bh;
+    if (!lora_sha256_remembered(spec.path, spec.cache, ah, err, cancel) ||
+        !lora_sha256_remembered(base + "/ar_q8.bin", spec.cache, bh, err, cancel))
+        return false;
+    const std::string key = hash_text("geode-yue2-lora-q8-v1\n" + bh + "\n" + dump(pack.manifest()) + "\n" + ah + "\n" +
+                                      lora_scale_text(spec.scale));
+    const std::string dir = (std::filesystem::path(spec.cache) / key).string();
+    out.directory = dir;
+    out.sha256 = ah;
+    out.key = key;
+    out.scale = spec.scale;
+    const int total = want_f16 ? 56 : 28;
+    if (!build_part(pack, adapter, base, spec, dir, key, ah, base_stamp, adapter_stamp, false, total, pool, progress,
+                    cancel, err))
+        return false;
+    out.t_q8 = now_seconds() - q8_start;
+    if (want_f16) {
+        const double start = now_seconds();
+        std::string hash;
+        if (!lora_sha256_remembered(base + "/ar_f16.bin", spec.cache, hash, err, cancel))
+            return false;
+        const std::string fkey =
+            hash_text("geode-yue2-lora-f16-v1\n" + hash + "\n" + dump(tensor_table(pack, "ar_f16.bin")) + "\n" + ah +
+                      "\n" + lora_scale_text(spec.scale));
+        if (!build_part(pack, adapter, base, spec, dir, fkey, ah, f16_stamp, adapter_stamp, true, total, pool, progress,
+                        cancel, err))
+            return false;
+        out.t_f16 = now_seconds() - start;
+    }
+    if (stamp_of(spec.path) != adapter_stamp || stamp_of(base + "/ar_q8.bin") != base_stamp ||
+        (want_f16 && stamp_of(base + "/ar_f16.bin") != f16_stamp))
+        return fail("source changed while preparing weights");
+    if (cancel && cancel()) {
+        err = "cancelled";
+        return false;
+    }
+    out.f16 = want_f16;
     err.clear();
     return true;
 }
@@ -719,6 +1006,33 @@ bool lora_quant_self_test(std::string &err) {
             return false;
         }
     }
+    const std::pair<float, uint16_t> halves[] = {{0.f, 0},
+                                                 {-0.f, 0x8000},
+                                                 {1.f, 0x3c00},
+                                                 {-1.f, 0xbc00},
+                                                 {0x1p-24f, 1},
+                                                 {0x1p-25f, 0},
+                                                 {std::nextafter(0x1p-25f, 1.f), 1},
+                                                 {3 * 0x1p-25f, 2},
+                                                 {0x1p-14f, 0x0400},
+                                                 {0x1.ffcp-15f, 0x0400},
+                                                 {1.f + 0x1p-11f, 0x3c00},
+                                                 {1.f + 3 * 0x1p-11f, 0x3c02},
+                                                 {65504.f, 0x7bff},
+                                                 {65520.f, 0x7c00},
+                                                 {std::numeric_limits<float>::max(), 0x7c00},
+                                                 {-65520.f, 0xfc00},
+                                                 {std::numeric_limits<float>::infinity(), 0x7c00}};
+    for (const auto &[f, h] : halves)
+        if (half_rne(f) != h) {
+            err = "fp16 RNE known answer";
+            return false;
+        }
+    for (uint32_t h = 0; h < 65536; ++h)
+        if ((h & 0x7c00) != 0x7c00 && half_rne(half_float(static_cast<uint16_t>(h))) != h) {
+            err = "fp16 finite round trip";
+            return false;
+        }
     float x[64]{};
     std::vector<uint8_t> out;
     float g;

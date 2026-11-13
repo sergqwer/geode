@@ -166,6 +166,7 @@ SongResult make_song(const SongRequest &asked, const SongCallbacks &cb) {
         if (!have && !make_ar_q4(req.pack_dir, pool, [&](int d, int n) { report(SongStage::Load, d, n); }, cb.cancelled, err))
             return fail(err == "cancelled" ? err : "song: the Q4 weights: " + err);
     }
+    req.lora.f16 = !req.score_only && !req.npu_dir.empty() && (req.nar == NarUnit::Auto || req.nar == NarUnit::Dsp);
     LoraWeights selected;
     if (!req.lora.path.empty()) {
         if (!prepare_lora(req.pack_dir, req.lora, pool, [&](int d, int n) { report(SongStage::Load, d, n); }, cb.cancelled, selected, err)) return fail(err);
@@ -174,7 +175,7 @@ SongResult make_song(const SongRequest &asked, const SongCallbacks &cb) {
         r.lora_sha256 = selected.sha256; r.lora_scale = selected.scale;
     }
     Pack pack;
-    if (!pack.open_selected(req.pack_dir, selected.directory, err)) return fail(err);
+    if (!pack.open_selected(req.pack_dir, selected.directory, err, selected.f16)) return fail(err);
     if (req.ar_q4 && !FastAr::has_q4(pack)) return fail("song: the Q4 weights were made but do not open (see the log)");
     Config c;
     if (!read_config(pack, c, err)) return fail(err);
@@ -205,7 +206,7 @@ SongResult make_song(const SongRequest &asked, const SongCallbacks &cb) {
         }
         if (!gpu && !nar->open(pack, "cpu", pool, err)) return fail(err);
     }
-    const bool dsp_prefix = req.lora.path.empty() && dsp && NarDsp::has_ar_f16(pack);
+    const bool dsp_prefix = dsp && NarDsp::has_ar_f16(pack) && (req.lora.path.empty() || selected.f16);
     r.nar_backend = req.score_only ? "" : nar->backend() + (dsp && !dsp_prefix ? " (CPU prefix)" : "");
     // 8-bit sound: on the DSP the layers' 8-bit weights; on the CPU / GPU backends the CPU's products from them (the
     // GPU's stay fp16) and the attention's scores in int8. The weights made now when the pack has none (from

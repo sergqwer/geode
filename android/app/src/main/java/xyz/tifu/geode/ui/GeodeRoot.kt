@@ -2,6 +2,8 @@ package xyz.tifu.geode.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -149,16 +151,19 @@ private fun App(app: GeodeApp, chat: ChatViewModel) {
         drawerState = drawer,
         drawerContent = {
             ModalDrawerSheet {
-                DrawerHeader()
-                HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                Screen.entries.forEach { s ->
-                    NavigationDrawerItem(
-                        label = { Text(stringResource(s.label)) },
-                        icon = { Icon(s.icon, contentDescription = null) },
-                        selected = screen == s.ordinal,
-                        onClick = { go(s) },
-                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
-                    )
+                // scrolled: a phone held sideways has room for the header and four items, the rest were out of reach
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    DrawerHeader()
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    Screen.entries.forEach { s ->
+                        NavigationDrawerItem(
+                            label = { Text(stringResource(s.label)) },
+                            icon = { Icon(s.icon, contentDescription = null) },
+                            selected = screen == s.ordinal,
+                            onClick = { go(s) },
+                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                        )
+                    }
                 }
             }
         },

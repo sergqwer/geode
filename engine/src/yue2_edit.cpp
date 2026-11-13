@@ -161,13 +161,14 @@ bool sing_again(const SongRequest &asked, const SongState &st, const Prompts &pr
     }
     Pack pack;
     Config c;
+    req.lora.f16 = !req.score_only && !req.npu_dir.empty() && (req.nar == NarUnit::Auto || req.nar == NarUnit::Dsp);
     LoraWeights selected;
     if (!req.lora.path.empty() && !prepare_lora(req.pack_dir, req.lora, pool,
         [&](int d, int n) { report(SongStage::Load, d, n); }, cb.cancelled, selected, err)) return false;
     if (selected.sha256 != st.lora_sha256 || (!selected.sha256.empty() && selected.scale != st.lora_scale)) {
         err = "edit: adapter changed while preparing the song"; return false;
     }
-    if (!pack.open_selected(req.pack_dir, selected.directory, err) || !read_config(pack, c, err)) return false;
+    if (!pack.open_selected(req.pack_dir, selected.directory, err, selected.f16) || !read_config(pack, c, err)) return false;
     if (req.ar_q4 && !FastAr::has_q4(pack)) return (err = "edit: the Q4 weights were made but do not open (see the log)"), false;
     const Tokens &T = c.tok;
     const bool going = e.op == SongRequest::Edit::Op::GoOn;

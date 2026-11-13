@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import xyz.tifu.geode.models.HfApi
+import xyz.tifu.geode.models.InstalledModel
 import xyz.tifu.geode.models.fetchVerified
 import xyz.tifu.geode.models.hashInto
 import xyz.tifu.geode.models.toHex
@@ -23,7 +24,8 @@ import java.security.MessageDigest
  * products, derived from m-a-p/YuE2-3B, CC BY-NC 4.0 - huggingface.co/Mothersuperior/YuE2-instrumental-cot-full-loras).
  * The model writes instrumental music with a section plan: the score first (mode full), the lyrics only bare tags.
  * Downloaded on demand (139 MB, bf16); the engine merges it into the song model's Q8 AR weights the first time a song
- * uses it and keeps that merged copy (about 1.9 GB) in [mergedDir] - the song model's own files are never changed.
+ * uses it and keeps that merged copy (about 1.9 GB; with the NPU's fp16 layers as well another 2.8 GB) in [mergedDir] -
+ * the song model's own files are never changed.
  */
 object MusicAdapter {
     private const val TAG = "GeodeMusic"
@@ -35,6 +37,15 @@ object MusicAdapter {
     const val LINK = "https://huggingface.co/$REPO"
     /** About what the merged weights take (the song model's Q8 AR with the adapter in). */
     const val MERGED_BYTES = 1_900_000_000L
+    /** And beside them on the NPU: the AR's fp16 layers with the adapter in (ar_f16.bin's copy, yue2_lora.hpp), so the
+     *  prompts and the sound's prefix stay on the NPU with the adapter too. */
+    const val MERGED_F16_BYTES = 2_820_000_000L
+
+    /** What the merged weights will take with [model] and the sound's unit in [prefs]: the NPU's copy as well when the
+     *  model has the NPU's layers and the sound may go there (the engine merges them only then). */
+    fun mergedEstimate(model: InstalledModel?, prefs: MusicPrefs): Long =
+        MERGED_BYTES + if (model != null && File(model.dir, MusicModels.AR_F16).isFile &&
+            (prefs.narUnit == NarUnit.AUTO || prefs.narUnit == NarUnit.DSP)) MERGED_F16_BYTES else 0L
     /** The structure tags it was trained on: bare, lowercase, one a line. */
     val TAGS = listOf("intro", "verse", "pre-chorus", "chorus", "bridge", "outro")
     /** Its lyrics when no structure is given: the model chooses the sections and the length. */

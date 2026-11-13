@@ -10,10 +10,13 @@ struct LoraSpec {
     std::string path;
     float scale = 1;
     std::string cache;
+    bool f16 = false; // caller wishes to prepare the DSP AR too, when present in the base pack
 };
 struct LoraWeights {
     std::string directory, sha256, key;
     float scale = 1;
+    bool f16 = false;           // verified manifest.f16.json and ar_f16.bin are ready
+    double t_q8 = 0, t_f16 = 0; // preparation wall times (including cache lookup)
 };
 using LoraProgress = std::function<void(int, int)>;
 using LoraCancel = std::function<bool()>;

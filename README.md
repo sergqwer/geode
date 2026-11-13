@@ -121,7 +121,8 @@ NPU make songs too, more slowly (the sound on the Adreno GPU).
 - **Instrumentals**: with Mothersuperior's
   [instrumental adapter](https://huggingface.co/Mothersuperior/YuE2-instrumental-cot-full-loras) (a LoRA, 139 MB,
   downloaded on demand) the model writes music without a voice, with a plan of sections you give or leave to it. The
-  phone merges the adapter into a copy of the model's weights the first time it is used.
+  phone merges the adapter into a copy of the model's weights the first time it is used - on a phone with the NPU
+  into the NPU's fp16 layers as well, so an instrumental keeps the sound's prompt on the NPU (2 s instead of 40).
 - **From other devices**: the local server makes songs too (`/v1/music/...` and a Music page in the web chat).
 
 YuE2 and the adapter are licensed CC BY-NC 4.0: the songs are for non-commercial use.

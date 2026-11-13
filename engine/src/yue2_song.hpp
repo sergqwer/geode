@@ -29,7 +29,7 @@ enum class NarUnit { Auto, Dsp, Gpu, Cpu };   // Auto: the DSP where it has HMX,
 
 struct SongRequest {
     std::string expected_lora_sha256; // internal: parent identity across an edit; never parsed from JSON
-    LoraSpec lora;   // empty path: no adapter; v1 forces CPU Q8 AR (NAR backend unchanged)
+    LoraSpec lora;   // empty path: no adapter; CPU Q8 decode, optional merged fp16 DSP prompts/prefix (NAR unchanged)
     std::string pack_dir;
     std::string npu_dir;       // libgeode_npu.so and its skels; empty: no NPU
     std::string output_path;   // .flac or .wav (written as .part, renamed when complete)
