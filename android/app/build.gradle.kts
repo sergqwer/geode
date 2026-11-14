@@ -3,8 +3,8 @@ import java.security.SecureRandom
 import java.util.Properties
 
 plugins {
+    // (AGP 9: Kotlin is built in - no org.jetbrains.kotlin.android; its version is pinned in the root build script)
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -33,8 +33,8 @@ android {
         // 30: ActivityManager.getHistoricalProcessExitReasons for the memory test
         minSdk = 30
         targetSdk = 36
-        versionCode = 21
-        versionName = "0.10.2"
+        versionCode = 22
+        versionName = "0.10.3"
         buildConfigField("byte[]", "SITE_MASK", javaBytes(siteMask))
         buildConfigField("byte[]", "SITE_KEY",
             javaBytes(ByteArray(siteKey.size) { (siteKey[it].toInt() xor siteMask[it].toInt()).toByte() }))
@@ -93,7 +93,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
     // the agent's Linux image, delivered by Google Play with the app
     assetPacks += listOf(":linux_pack")
     packaging {
