@@ -10,14 +10,18 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
-  <img alt="Android 11+, arm64" src="https://img.shields.io/badge/Android-11%2B%20%C2%B7%20arm64-3ddc84">
-  <img alt="Closed beta" src="https://img.shields.io/badge/status-closed%20beta-orange">
+  <a href="https://play.google.com/store/apps/details?id=xyz.tifu.geode"><img alt="Get it on Google Play"
+    src="media/google-play-badge.png" height="80"></a>
 </p>
 
 <p align="center">
-  <a href="https://geode.tifu.xyz"><b>Website & beta test</b></a> ·
-  <a href="https://play.google.com/store/apps/details?id=xyz.tifu.geode">Google Play</a> (beta testers) ·
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue"></a>
+  <img alt="Android 11+, arm64" src="https://img.shields.io/badge/Android-11%2B%20%C2%B7%20arm64-3ddc84">
+</p>
+
+<p align="center">
+  <a href="https://geode.tifu.xyz"><b>Website</b></a> ·
+  <a href="https://play.google.com/store/apps/details?id=xyz.tifu.geode">Google Play</a> ·
   Models: <a href="https://huggingface.co/Maximilian228/Geode-Qwen3.6-35B-A3B">Qwen3.6-35B-A3B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-Gemma-4-E4B">Gemma 4 E4B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-Gemma-4-E2B">Gemma 4 E2B</a> ·
