@@ -5,8 +5,9 @@
 <h1 align="center">Geode</h1>
 
 <p align="center">
-  <b>Big AI models, an agent and a songwriter that run entirely on your Android phone.</b><br>
-  Qwen3.6-35B-A3B, Gemma 4, Qwen3.5-2B and YuE2 songs. No cloud, no subscription, no account. It works offline.
+  <b>Big AI models, an agent, a songwriter and an image generator that run entirely on your Android phone.</b><br>
+  Qwen3.6-35B-A3B, Gemma 4, Qwen3.5-2B, YuE2 songs and FLUX.2 klein images. No cloud, no subscription, no account. It
+  works offline.
 </p>
 
 <p align="center">
@@ -26,7 +27,8 @@
   <a href="https://huggingface.co/Maximilian228/Geode-Gemma-4-E4B">Gemma 4 E4B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-Gemma-4-E2B">Gemma 4 E2B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-Qwen3.5-2B">Qwen3.5-2B</a> ·
-  <a href="https://huggingface.co/Maximilian228/Geode-YuE2">YuE2 (songs)</a>
+  <a href="https://huggingface.co/Maximilian228/Geode-YuE2">YuE2 (songs)</a> ·
+  <a href="https://huggingface.co/Maximilian228/Geode-FLUX.2-klein-4B">FLUX.2 klein 4B (images)</a>
 </p>
 
 ---
@@ -54,6 +56,9 @@ Adreno GPU (OpenCL) and the Hexagon NPU (HVX / HMX), and it can run each model o
 - **Songs**: a whole song from your lyrics and a style, in any language - the score, the voice and the band made on
   the phone by YuE2-3B - then edited bar by bar: cut, sing a part again, new words, go on, move a section, put in a
   break. Or an instrumental with a plan of sections. See [Songs](#songs).
+- **Images**: a picture from a few words, drawn on the phone by FLUX.2 [klein] 4B, with a live preview after each
+  step - or a photo edited with up to four reference images. Batches, seeds you can repeat, prompt variations, six
+  aspect ratios in three sizes. See [Images](#images).
 - **Agent**: every chat has its own Linux (Debian, run through proot). The agent runs commands, installs packages,
   writes and edits files, and searches the web. Folders of the phone can be given to it, read-only or
   read-and-write.
@@ -130,6 +135,44 @@ NPU make songs too, more slowly (the sound on the Adreno GPU).
 - **From other devices**: the local server makes songs too (`/v1/music/...` and a Music page in the web chat).
 
 YuE2 and the adapter are licensed CC BY-NC 4.0: the songs are for non-commercial use.
+
+## Images
+
+Geode draws pictures with [FLUX.2 [klein] 4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) by Black
+Forest Labs, on its own engine. The model is distilled to four steps without guidance: the Qwen3-4B text encoder reads
+the prompt, the 3.9B transformer draws in four steps, and the VAE turns the result into pixels. The three stages run
+one after another, each loaded and freed in turn, so only the largest one is ever in memory. The pipeline follows
+diffusers' `Flux2KleinPipeline` (its scheduler and its noise for a seed), so a seed gives the original's picture.
+
+On a RedMagic 10 Pro (Snapdragon 8 Elite) a 512 x 512 image takes about 11-12 s from the prompt to the picture, all
+three stages on the NPU (HMX), the default there; about 23 s with one reference image to edit, and about 94 s with
+everything on the CPU (the int8 pack). A phone without an NPU uses its Adreno 7xx or newer (or Mali) GPU, else the
+CPU; on the Redmi Note 9 Pro (Snapdragon 720G, 6 GB) the Hexagon DSP shares the transformer's products with the CPU,
+and a 256 x 256 image takes 2.5-10 minutes in the app, depending on how warm the phone is.
+
+- **Text to image**: Small (512 x 512 for a square), Medium and Large (about 1 megapixel; it needs a memory budget
+  of 6 GB) sizes in six aspect ratios, portrait or landscape, or a size of your own. A live preview shows the image
+  forming after each step (TAEF2, off the critical path).
+- **Edit**: add up to four reference images - photos, the camera, or earlier results - and say in the prompt what to
+  change ("image 1", "image 2"... are the references). The VAE's encoder reads them; the same model does the edit.
+- **Batches and seeds**: up to 16 images at a time, the same prompt or one prompt per image, with the seeds
+  incremented, randomized or fixed. Prompts can vary per image (`{a|b}`, weights, your own word lists), and every
+  result keeps its seed and its expanded prompt, so "Reuse settings" makes it again.
+- **Where it runs**: Auto (the NPU, then the GPU, then the CPU), or CPU, GPU or NPU by hand. The app shows which
+  unit drew each stage.
+- **Opt-ins, off by default**: a fast mode (shorter text padding, about 30% less drawing time, a different sample)
+  and BFL's small decoder (faster decoding, slightly different fine detail).
+- **From other devices**: the local server makes images too - OpenAI's `/v1/images/generations` and
+  `/v1/images/edits`, Geode's own queued jobs at `/v1/images/jobs`, and an Images page in the web chat.
+
+| Pack | Transformer | Download | Against the original (fp32, 512²) |
+| --- | --- | --- | --- |
+| [fp16](https://huggingface.co/Maximilian228/Geode-FLUX.2-klein-4B) (default) | fp16, 7.2 GiB | 10.2 GB | the same image (76 dB PSNR) |
+| [int8](https://huggingface.co/Maximilian228/Geode-FLUX.2-klein-4B) (opt-in) | int8 with a Hadamard turn, 4.0 GiB | 6.7 GB | the same picture, finer detail differing (30-41 dB) |
+
+Both packs share the 4-bit text encoder and the fp16 VAE. A phone whose memory cannot hold the transformer reads its
+blocks from flash at every step instead, so 6 GB phones make images too, more slowly. FLUX.2 [klein] 4B is
+Apache-2.0. Each PNG carries its prompt and settings, and every image has a "Report this image" button.
 
 ## How it works
 
@@ -220,7 +263,8 @@ Parts of it come from other projects and keep their own licenses:
   [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0).
 - The models, downloaded by the app: Qwen3.6-35B-A3B and Qwen3.5-2B by the Qwen team and Gemma 4 E4B / E2B by
   Google, Apache-2.0; the voice, Supertonic 3 by Supertone, BigScience Open RAIL-M; the song model, YuE2-3B and
-  YuE2-Vae by m-a-p, and the instrumental adapter by Mothersuperior, CC BY-NC 4.0.
+  YuE2-Vae by m-a-p, and the instrumental adapter by Mothersuperior, CC BY-NC 4.0; the image model, FLUX.2 [klein]
+  4B and its small decoder by Black Forest Labs, Apache-2.0, with TAEF2 by Ollin Boer Bohan (MIT) for the previews.
 - The score tools and the track edits port parts of [YuE2-ComfyUI](https://github.com/pytraveler/YuE2-ComfyUI)
   (Apache-2.0) and YuE's `abc_tools.py` (Apache-2.0).
 
