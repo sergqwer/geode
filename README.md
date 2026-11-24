@@ -5,9 +5,9 @@
 <h1 align="center">Geode</h1>
 
 <p align="center">
-  <b>Big AI models, an agent, a songwriter and an image generator that run entirely on your Android phone.</b><br>
-  Qwen3.6-35B-A3B, Gemma 4, Qwen3.5-2B, YuE2 songs and FLUX.2 klein images. No cloud, no subscription, no account. It
-  works offline.
+  <b>Big AI models, an agent, a voice, a songwriter and an image generator that run entirely on your Android phone.</b><br>
+  Qwen3.6-35B-A3B, Gemma 4, Qwen3.5-2B and six more models, speech in 31 languages, YuE2 and ACE-Step songs and
+  FLUX.2 klein images. No cloud, no subscription, no account. It works offline.
 </p>
 
 <p align="center">
@@ -23,12 +23,21 @@
 <p align="center">
   <a href="https://geode.tifu.xyz"><b>Website</b></a> ·
   <a href="https://play.google.com/store/apps/details?id=xyz.tifu.geode">Google Play</a> ·
+  <a href="https://geode.tifu.xyz/board"><b>Speed table</b></a> ·
   Models: <a href="https://huggingface.co/Maximilian228/Geode-Qwen3.6-35B-A3B">Qwen3.6-35B-A3B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-Gemma-4-E4B">Gemma 4 E4B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-Gemma-4-E2B">Gemma 4 E2B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-Qwen3.5-2B">Qwen3.5-2B</a> ·
+  <a href="https://huggingface.co/Maximilian228/Geode-Qwen3.8-Flash-Next">Qwen3.8-Flash-Next</a> ·
+  <a href="https://huggingface.co/Maximilian228/Geode-LFM3-1.7B">LFM3-1.7B</a> ·
+  Ternary Bonsai 2 <a href="https://huggingface.co/Maximilian228/Geode-Ternary-Bonsai-2-2B">2B</a> /
+  <a href="https://huggingface.co/Maximilian228/Geode-Ternary-Bonsai-2-4B">4B</a> /
+  <a href="https://huggingface.co/Maximilian228/Geode-Ternary-Bonsai-2-9B">9B</a> ·
   <a href="https://huggingface.co/Maximilian228/Geode-YuE2">YuE2 (songs)</a> ·
-  <a href="https://huggingface.co/Maximilian228/Geode-FLUX.2-klein-4B">FLUX.2 klein 4B (images)</a>
+  <a href="https://huggingface.co/Maximilian228/Geode-ACE-Step-1.5">ACE-Step 1.5 (songs)</a> ·
+  <a href="https://huggingface.co/Maximilian228/Geode-FLUX.2-klein-4B">FLUX.2 klein 4B (images)</a> ·
+  <a href="https://huggingface.co/Maximilian228/Geode-Supertonic-3">Supertonic 3 (voice)</a> ·
+  <a href="https://huggingface.co/Maximilian228/Geode-STT-parakeet-uk-ru-en">Parakeet uk-ru-en (speech recognition)</a>
 </p>
 
 ---
@@ -41,27 +50,43 @@ device, and conversations never leave it. You pick the model:
 - **Gemma 4 E4B** and **Gemma 4 E2B**, Google's small multimodal models: they understand photos and videos and hear
   voice and sound.
 - **Qwen3.5-2B**, the light model for phones with less memory. It understands images.
+- **LFM3-1.7B** by Liquid AI, a small text model that reads long prompts very fast on the NPU, and **Ternary Bonsai
+  2** (2B, 4B, 9B) by PrismML, Qwen3.5 models with ternary weights: the 9B in a 3.3 GB pack.
+- **Qwen3.8-Flash-Next**, the largest: a mixture of experts for phones with 12 GB of RAM or more and about 100 GB of
+  free storage, read from flash a few experts at a time. It is slow on a phone (about 3 tokens/s), there for the
+  biggest phones.
 
 The inference engine is written from scratch for phone hardware. It has its own kernels for the CPU (NEON), the
 Adreno GPU (OpenCL) and the Hexagon NPU (HVX / HMX), and it can run each model on any of them or on two at once.
 
 ## Features
 
-- **Chat with any of four models**, with an optional reasoning mode. The app speaks 31 languages.
+- **Chat with any of nine models**, with an optional reasoning mode. Roll a chat back to an earlier message, edit
+  your question, or get another answer. The app speaks 31 languages.
+- **Model updates and add-ons**: the *Update* button downloads only the files of a model that changed; when the phone
+  has no room for the old and the new files together, the model updates in place, a file at a time, and an
+  interrupted update continues where it stopped. Photo analysis, sound analysis and *Fewer refusals* (off by
+  default) are optional add-ons: download a model without them and add them later; switched off, they use no memory.
+- **A public speed table** at [geode.tifu.xyz/board](https://geode.tifu.xyz/board): how fast each model runs on each
+  phone, measured by Geode's own engine. See [Speed table](#speed-table).
 - **Photos, video and sound**: attach a photo or take one with the camera. With Gemma 4, attach a video (its frames
   and its sound are understood), hold the microphone button and speak, or attach a sound file. All of it is
   processed on the phone.
-- **Read aloud**: answers are read sentence by sentence as they are written, by Geode's own voice (Supertonic 3,
-  31 languages, downloaded on demand) or by the phone's text-to-speech.
+- **Voice**: speak instead of typing, talk hands-free (a pause sends what you said, the answer is read aloud, then
+  Geode listens again), and hear answers read sentence by sentence as they are written - in the app's 31 languages,
+  offline. Geode's own Parakeet fine-tune recognizes Ukrainian, Russian and English; the voices and recognizers are
+  downloaded on demand, picked from a list with search. See [Voice](#voice).
 - **Songs**: a whole song from your lyrics and a style, in any language - the score, the voice and the band made on
   the phone by YuE2-3B - then edited bar by bar: cut, sing a part again, new words, go on, move a section, put in a
-  break. Or an instrumental with a plan of sections. See [Songs](#songs).
+  break. Or an instrumental with a plan of sections. Or ACE-Step 1.5 (MIT: songs you may use commercially), also
+  from an idea that the chat's model turns into lyrics and a style. See [Songs](#songs).
 - **Images**: a picture from a few words, drawn on the phone by FLUX.2 [klein] 4B, with a live preview after each
   step - or a photo edited with up to four reference images. Batches, seeds you can repeat, prompt variations, six
   aspect ratios in three sizes. See [Images](#images).
 - **Agent**: every chat has its own Linux (Debian, run through proot). The agent runs commands, installs packages,
-  writes and edits files, and searches the web. Folders of the phone can be given to it, read-only or
-  read-and-write.
+  writes and edits files, and searches the web. Ask the chat for a picture or a song and the agent makes it (two
+  skills you can switch off; the chat's model steps aside while the image or song model works). It answers in the phone's language unless you change that in the
+  Agent settings. Folders of the phone can be given to it, read-only or read-and-write.
 - **A browser for the agent**: the phone's own Chromium. The agent opens web pages and the pages it makes, taps,
   types, runs their scripts, reads the console and takes screenshots, while you watch it in a small window in the
   chat or on the whole screen.
@@ -107,6 +132,29 @@ about 2 s with the 35B. Where the NPU is not available, an Adreno 7xx or newer G
 (E2B ~380, E4B ~200 tokens/s). Phones without either run Geode on the CPU, which is slower: Gemma 4 E2B writes about
 7 tokens/s on a Snapdragon 720G, and for the 35B the speed of the flash storage sets the pace.
 
+LFM3-1.7B, Ternary Bonsai 2 and Qwen3.8-Flash-Next: their speeds are on their model cards
+([LFM3-1.7B](https://huggingface.co/Maximilian228/Geode-LFM3-1.7B),
+[Bonsai 2 2B](https://huggingface.co/Maximilian228/Geode-Ternary-Bonsai-2-2B),
+[4B](https://huggingface.co/Maximilian228/Geode-Ternary-Bonsai-2-4B),
+[9B](https://huggingface.co/Maximilian228/Geode-Ternary-Bonsai-2-9B),
+[Qwen3.8-Flash-Next](https://huggingface.co/Maximilian228/Geode-Qwen3.8-Flash-Next)).
+
+## Speed table
+
+[geode.tifu.xyz/board](https://geode.tifu.xyz/board) is a public table of how fast Geode's models run on real phones.
+It is new and still empty: the app's *Speed & ranking* screen and its *Publish these results in the public table*
+checkbox arrive with the next app update.
+
+- **Measured on the phone.** Geode's own engine runs synthetic packs of the real models' sizes in every run mode;
+  where a case did not run, its speed is estimated from the phone's own test results and marked as an estimate.
+- **Each unit apart**: the CPU, the GPU, the NPU and (on MediaTek / Exynos) the APU, each shown as running the model,
+  running part of it, or running nothing of it (then an estimate in theory).
+- **Ranked per phone**: phones are grouped by model, chip and RAM size, so a 12 GB and a 16 GB version of a phone are
+  separate groups.
+- **Opt-in only**: a phone appears only when its owner ticks the box, with the phone's model, chips, test numbers
+  and estimates under its report number - no IP address, account or settings. Unticking it takes the record back.
+- **The app version** each row was measured with is shown, with a filter by version.
+
 ## Songs
 
 Geode writes and sings songs with [YuE2-3B](https://huggingface.co/m-a-p/YuE2-3B) by m-a-p, on its own engine. The
@@ -135,6 +183,16 @@ NPU make songs too, more slowly (the sound on the Adreno GPU).
 - **From other devices**: the local server makes songs too (`/v1/music/...` and a Music page in the web chat).
 
 YuE2 and the adapter are licensed CC BY-NC 4.0: the songs are for non-commercial use.
+
+### ACE-Step 1.5
+
+[ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) by ACE Studio and StepFun is MIT-licensed: its songs may be
+used commercially. Geode has it as two models: **ACE-Step 1.5** (the sft model, 50 steps with guidance, the best
+sound, the default) and **ACE-Step 1.5 turbo** (8 steps, several times faster). A 1.7B planner writes the song's
+plan and audio codes, a diffusion transformer makes the sound and a VAE decodes it to 48 kHz stereo; each stage can
+run on the CPU, the GPU or the NPU. Lyrics can be in any language, or the chat's model writes the lyrics and the
+style from your idea. On a RedMagic 10 Pro (Snapdragon 8 Elite, auto mode) a 30-second song took about 50 s with
+turbo and about 78 s with sft.
 
 ## Images
 
@@ -173,6 +231,49 @@ and a 256 x 256 image takes 2.5-10 minutes in the app, depending on how warm the
 Both packs share the 4-bit text encoder and the fp16 VAE. A phone whose memory cannot hold the transformer reads its
 blocks from flash at every step instead, so 6 GB phones make images too, more slowly. FLUX.2 [klein] 4B is
 Apache-2.0. Each PNG carries its prompt and settings, and every image has a "Report this image" button.
+
+## Voice
+
+Geode listens and speaks on the phone, with no server: speech input in the chat, a hands-free conversation ("Always
+listening": you talk, a pause sends it, the answer is read aloud, then it listens again - never while Geode speaks),
+and answers read aloud sentence by sentence while they are written. The app's 31 languages are covered; a voice for
+Hausa is not there yet, and its speech is recognized but not read. The phone's own text-to-speech can be turned on as
+an opt-in for the languages the picked voice does not read.
+
+- **Picking a model**: a picker with search (a name, a language or a code) and the recommended model for the app's
+  language on top; one tap selects it and downloads it if it is not on the phone. Only the picked model is downloaded
+  and kept in memory, and only while it works. The recognizer recommended for a language is computed from its
+  measured error rate and speed, never written by hand.
+- **Runs on, per model**: speech output and speech input each have their own "Runs on" with the modes the engine
+  really runs on this phone, each with its memory: CPU, GPU, or both, and NPU + CPU for Parakeet where the phone's
+  DSP is usable. Auto takes the mode measured fastest.
+- **Geode's own voice engine**: Supertonic 3, Ava (Kokoro) Persian, MeloTTS Chinese and Mimic 3 Swahili run on
+  Geode's own int8 kernels instead of sherpa-onnx, on both newer (i8mm) and older (dotprod) phones: faster and with
+  less memory, for example Supertonic on a Snapdragon 8 Elite at 0.19 s of work per second of speech against
+  sherpa-onnx's 0.32. Parakeet runs on the engine too (the FastConformer encoder on the CPU, GPU or the DSP's HVX,
+  the error rate within 0.1 point of sherpa-onnx's on FLEURS).
+- **ZONOS3 on the NPU**: on a phone with a modern NPU (Snapdragon 8 Elite) ZONOS3's codec runs on the DSP, the
+  fastest mode; "NPU only" moves its language model there too and uses about 31% less energy per second of speech
+  (2.6 J against 3.8 J, measured unplugged on the RedMagic), a little slower.
+
+| Speech output (voices) | Languages | Licence |
+| --- | --- | --- |
+| [Supertonic 3](https://huggingface.co/Maximilian228/Geode-Supertonic-3) by Supertone | 31, Ukrainian, Russian and English among them (Javanese read as Indonesian) | BigScience Open RAIL-M |
+| [Indic Tiny](https://huggingface.co/Maximilian228/Geode-TTS-Indic) (sherpa Matcha, Vocos vocoder) | Bengali, Gujarati, Kannada, Marathi, Punjabi, Tamil, Telugu | CC-BY-4.0 + MIT |
+| [MeloTTS](https://huggingface.co/Maximilian228/Geode-TTS-Melo-zh) by MyShell.ai | Chinese (with English) | MIT |
+| [Mimic 3](https://huggingface.co/Maximilian228/Geode-TTS-sw) by Mycroft AI | Swahili | CC-BY-SA-4.0 |
+| [Ava](https://huggingface.co/Maximilian228/Geode-TTS-fa) (a Kokoro-82M fine-tune) | Persian | Apache-2.0 |
+| [ZONOS3-Mini](https://huggingface.co/Maximilian228/Geode-TTS-ZONOS3) by Zyphra | Thai, Filipino, Urdu, Chinese | Apache-2.0 |
+
+| Speech input (recognizers) | Languages | Licence |
+| --- | --- | --- |
+| [Parakeet TDT 0.6B uk-ru-en](https://huggingface.co/Maximilian228/Geode-STT-parakeet-uk-ru-en) (Geode's fine-tune), [Parakeet uk](https://huggingface.co/Maximilian228/Geode-STT-parakeet-uk), [Parakeet v3](https://huggingface.co/Maximilian228/Geode-STT-parakeet-v3) | Ukrainian, Russian, English; v3: 25 European languages | CC-BY-4.0 |
+| [Whisper large-v3 turbo](https://huggingface.co/Maximilian228/Geode-STT-whisper-turbo) and its [Ukrainian](https://huggingface.co/Maximilian228/Geode-STT-whisper-turbo-uk), [Persian](https://huggingface.co/Maximilian228/Geode-STT-whisper-turbo-fa) and [Thai](https://huggingface.co/Maximilian228/Geode-STT-whisper-th) fine-tunes | multilingual | MIT; fa CC-BY-4.0; th Apache-2.0 |
+| [SenseVoice Small](https://huggingface.co/Maximilian228/Geode-STT-sensevoice) | Chinese, English, Japanese, Korean | FunASR Model License 1.1 |
+| [Omnilingual ASR 1B](https://huggingface.co/Maximilian228/Geode-STT-omnilingual-1b) by Meta | Swahili, Hausa, Javanese, Filipino and more | Apache-2.0 |
+| [IndicConformer 600M](https://huggingface.co/Maximilian228/Geode-STT-indicconformer) by AI4Bharat | Hindi, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Punjabi, Urdu | MIT |
+
+Everything runs offline once downloaded; nothing you say leaves the phone.
 
 ## How it works
 
@@ -262,8 +363,10 @@ Parts of it come from other projects and keep their own licenses:
 - The app ships proot (GPL-2.0), talloc (LGPL-3.0) and libandroid-shmem (BSD-3-Clause), built by Termux, and
   [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0).
 - The models, downloaded by the app: Qwen3.6-35B-A3B and Qwen3.5-2B by the Qwen team and Gemma 4 E4B / E2B by
-  Google, Apache-2.0; the voice, Supertonic 3 by Supertone, BigScience Open RAIL-M; the song model, YuE2-3B and
-  YuE2-Vae by m-a-p, and the instrumental adapter by Mothersuperior, CC BY-NC 4.0; the image model, FLUX.2 [klein]
+  Google, Apache-2.0; the voices and recognizers, each under its own licence (see [Voice](#voice)); the song model, YuE2-3B and
+  YuE2-Vae by m-a-p, and the instrumental adapter by Mothersuperior, CC BY-NC 4.0; ACE-Step 1.5 by ACE Studio and
+  StepFun, MIT; LFM3-1.7B by Liquid AI, LFM Open License v1.0; Ternary Bonsai 2 by PrismML, Apache-2.0;
+  Qwen3.8-Flash-Next by the Qwen team, Qwen Community License 1.0; the image model, FLUX.2 [klein]
   4B and its small decoder by Black Forest Labs, Apache-2.0, with TAEF2 by Ollin Boer Bohan (MIT) for the previews.
 - The score tools and the track edits port parts of [YuE2-ComfyUI](https://github.com/pytraveler/YuE2-ComfyUI)
   (Apache-2.0) and YuE's `abc_tools.py` (Apache-2.0).
